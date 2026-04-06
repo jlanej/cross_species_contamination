@@ -8,7 +8,7 @@ Modules
 extract
     Streaming extraction of unmapped/poorly-mapped reads from BAM/CRAM files.
 classify
-    Taxonomic classification of extracted reads (stub).
+    Taxonomic classification of extracted reads using Kraken2.
 aggregate
     Aggregation of classification results across samples (stub).
 detect

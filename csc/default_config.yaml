@@ -15,6 +15,7 @@ classify:
   db: null                   # path to classifier database
   confidence: 0.0            # minimum confidence threshold
   threads: 1
+  memory_mapping: false      # use memory mapping instead of loading DB into RAM
 
 aggregate:
   min_reads: 10              # minimum reads to include a taxon in aggregation
