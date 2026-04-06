@@ -245,6 +245,48 @@ def generate_test_bam(
     return bam_path
 
 
+def generate_test_cram(
+    outdir: Path,
+    ref_path: Path,
+    bam_path: Path | None = None,
+    *,
+    filename: str = "test_sample.cram",
+) -> Path:
+    """Create a CRAM file from an existing BAM (or generate one first).
+
+    Parameters
+    ----------
+    outdir : Path
+        Directory to write to.
+    ref_path : Path
+        Reference FASTA (must have .fai index).
+    bam_path : Path | None
+        Existing BAM to convert.  If *None* one is generated automatically.
+    filename : str
+        Output CRAM file name.
+
+    Returns
+    -------
+    Path
+        Path to the indexed CRAM file.
+    """
+    if bam_path is None:
+        bam_path = generate_test_bam(outdir, ref_path)
+
+    cram_path = outdir / filename
+    pysam.view(
+        "-C",
+        "-T",
+        str(ref_path),
+        "-o",
+        str(cram_path),
+        str(bam_path),
+        save_stdout=str(cram_path),
+    )
+    pysam.index(str(cram_path))
+    return cram_path
+
+
 def generate_test_data(outdir: str | Path | None = None) -> dict[str, Path]:
     """Generate a complete set of test data and return a dict of paths.
 
@@ -258,10 +300,12 @@ def generate_test_data(outdir: str | Path | None = None) -> dict[str, Path]:
 
     ref = generate_reference_fasta(outdir)
     bam = generate_test_bam(outdir, ref)
+    cram = generate_test_cram(outdir, ref, bam)
 
     return {
         "reference": ref,
         "bam": bam,
+        "cram": cram,
         "outdir": outdir,
     }
 

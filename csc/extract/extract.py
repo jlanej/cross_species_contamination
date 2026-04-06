@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,37 @@ def _validate_input(input_path: Path, reference: Path | None) -> None:
         )
     if ext == ".cram" and reference is not None and not reference.exists():
         raise FileNotFoundError(f"Reference file not found: {reference}")
+
+
+def _resolve_reference(
+    reference: Path | None,
+    input_path: Path,
+) -> Path | None:
+    """Determine the reference FASTA to use for a given input file.
+
+    Resolution order:
+
+    1. Explicit *reference* argument (CLI ``--reference``).
+    2. ``REF_PATH`` environment variable.
+    3. ``None`` – acceptable for BAM, but will raise for CRAM.
+    """
+    if reference is not None:
+        return reference
+
+    env_ref = os.environ.get("REF_PATH")
+    if env_ref:
+        ref = Path(env_ref)
+        if ref.is_file():
+            logger.debug("Using reference from REF_PATH env: %s", ref)
+            return ref
+        logger.warning("REF_PATH is set but '%s' is not a file; ignoring.", env_ref)
+
+    if input_path.suffix.lower() == ".cram":
+        raise FileNotFoundError(
+            f"CRAM input requires a reference FASTA. Supply --reference or "
+            f"set the REF_PATH environment variable. Input: {input_path}"
+        )
+    return None
 
 
 def build_extract_command(
@@ -154,12 +186,15 @@ def extract_reads(
     threads: int = 1,
     reference: str | Path | None = None,
     interleaved: bool = False,
-) -> dict[str, Path]:
+) -> dict[str, Any]:
     """Extract unmapped (and optionally low-MAPQ) reads from a BAM/CRAM file.
 
-    All output files are gzip-compressed FASTQ.  Returns a dict mapping output
-    type (``"r1"``, ``"r2"``, ``"singleton"``, ``"other"``, or
-    ``"interleaved"``) to its path.
+    All output files are gzip-compressed FASTQ.  Returns a dict with keys:
+
+    * ``"files"`` – dict mapping output type to :class:`Path`
+    * ``"read_count"`` – total reads written
+    * ``"sample_id"`` – resolved sample identifier
+    * ``"input"`` – resolved input path
 
     Parameters
     ----------
@@ -183,6 +218,7 @@ def extract_reads(
     reference = Path(reference).resolve() if reference else None
 
     _validate_input(input_path, reference)
+    reference = _resolve_reference(reference, input_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if sample_id is None:
@@ -278,7 +314,12 @@ def extract_reads(
 
     read_count = _count_reads(final_outputs)
     logger.info("Extracted %d reads to %s", read_count, output_dir)
-    return final_outputs
+    return {
+        "files": final_outputs,
+        "read_count": read_count,
+        "sample_id": sample_id,
+        "input": str(input_path),
+    }
 
 
 def _count_reads(outputs: dict[str, Path]) -> int:

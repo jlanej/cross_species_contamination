@@ -10,17 +10,27 @@ Usage examples::
 
     # Batch extraction from a list of files
     csc-extract *.bam -o output_dir/ --threads 4
+
+    # Structured JSON logging
+    csc-extract input.bam -o output_dir/ --json-log
+
+    # Write a batch summary TSV
+    csc-extract *.bam -o output_dir/ --summary summary.tsv
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
+import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from csc import __version__
 from csc.extract.extract import extract_reads
+from csc.utils import setup_logging
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -85,6 +95,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override sample ID used for output file names.",
     )
     parser.add_argument(
+        "--json-log",
+        action="store_true",
+        help="Emit structured JSON log lines instead of human-readable text.",
+    )
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=None,
+        metavar="TSV",
+        help="Write a batch summary TSV to this path after all extractions.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -98,20 +120,53 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _write_summary_tsv(
+    path: Path,
+    results: list[dict[str, Any]],
+    errors: list[dict[str, str]],
+) -> None:
+    """Write a batch summary TSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t")
+        writer.writerow(["sample_id", "input", "status", "read_count", "output_files"])
+        for r in results:
+            files = ";".join(str(p) for p in r["files"].values())
+            writer.writerow([r["sample_id"], r["input"], "OK", r["read_count"], files])
+        for e in errors:
+            writer.writerow([e["input"], e["input"], "FAILED", 0, e["error"]])
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point.  Returns 0 on success, 1 on failure."""
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    setup_logging(
+        level="DEBUG" if args.verbose else "INFO",
+        json_format=args.json_log,
     )
+    log = logging.getLogger(__name__)
 
-    errors: list[str] = []
+    # --- Fail-early: validate all inputs exist and are readable ---
+    missing = [p for p in args.input if not p.exists()]
+    if missing:
+        for p in missing:
+            log.error("Input file not found: %s", p)
+        return 1
+
+    unreadable = [p for p in args.input if p.exists() and not os.access(p, os.R_OK)]
+    if unreadable:
+        for p in unreadable:
+            log.error("Input file not readable: %s", p)
+        return 1
+
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+
     for input_path in args.input:
         try:
-            outputs = extract_reads(
+            result = extract_reads(
                 input_path,
                 args.output_dir,
                 sample_id=args.sample_id,
@@ -120,17 +175,24 @@ def main(argv: list[str] | None = None) -> int:
                 reference=args.reference,
                 interleaved=args.interleaved,
             )
-            for kind, path in sorted(outputs.items()):
+            results.append(result)
+            for kind, path in sorted(result["files"].items()):
                 print(f"  {kind}: {path}")
         except Exception as exc:
-            logging.getLogger(__name__).error(
+            log.error(
                 "Failed to process %s: %s", input_path, exc
             )
-            errors.append(str(input_path))
+            errors.append({"input": str(input_path), "error": str(exc)})
+
+    if args.summary is not None:
+        _write_summary_tsv(args.summary, results, errors)
+        log.info("Batch summary written to %s", args.summary)
 
     if errors:
-        logging.getLogger(__name__).error(
-            "Failed to process %d file(s): %s", len(errors), ", ".join(errors)
+        log.error(
+            "Failed to process %d file(s): %s",
+            len(errors),
+            ", ".join(e["input"] for e in errors),
         )
         return 1
     return 0
