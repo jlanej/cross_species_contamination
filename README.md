@@ -20,7 +20,7 @@ BAM/CRAM ──► extract ──► classify ──► aggregate ──► dete
 | Module | Package | Status |
 |--------|---------|--------|
 | **Extract** | `csc.extract` | ✅ Implemented |
-| **Classify** | `csc.classify` | 🔲 Stub |
+| **Classify** | `csc.classify` | ✅ Implemented |
 | **Aggregate** | `csc.aggregate` | 🔲 Stub |
 | **Detect** | `csc.detect` | 🔲 Stub |
 
@@ -39,7 +39,8 @@ pip install .
 pip install ".[test]"
 ```
 
-Requires **samtools ≥ 1.12** on `PATH`.
+Requires **samtools ≥ 1.12** on `PATH`.  
+For classification, requires **Kraken2** on `PATH` and a Kraken2 database.
 
 ### Basic Usage
 
@@ -58,6 +59,21 @@ csc-extract sample.bam -o output_dir/ --threads 4
 
 # Interleaved output (single FASTQ file)
 csc-extract sample.bam -o output_dir/ --interleaved
+```
+
+### Classify Reads
+
+```bash
+# Classify extracted reads with Kraken2
+csc-classify output_dir/sample.unmapped.R1.fastq.gz \
+             output_dir/sample.unmapped.R2.fastq.gz \
+    --db /data/kraken2/PlusPF -o classified/ --paired
+
+# Single-end classification with confidence threshold
+csc-classify reads.fastq.gz --db /data/kraken2/PlusPF -o classified/ --confidence 0.2
+
+# Memory-mapped mode (lower RAM usage)
+csc-classify reads.fastq.gz --db /data/kraken2/PlusPF -o classified/ --memory-mapping
 ```
 
 ### Configuration
@@ -107,12 +123,21 @@ nextflow run nextflow/extract_unmapped.nf -profile slurm --input_csv samples.csv
 ## Docker
 
 ```bash
-# Build
+# Build (includes samtools and Kraken2)
 docker build -t csc-pipeline .
 
 # Run extraction
 docker run --rm -v /data:/data csc-pipeline \
     /data/sample.bam -o /data/output/
+
+# Run classification (mount Kraken2 database)
+docker run --rm \
+    -v /data/kraken2/PlusPF:/data/kraken2_db:ro \
+    -v /data:/data \
+    --entrypoint csc-classify \
+    csc-pipeline \
+    /data/output/sample.unmapped.fastq.gz \
+    --db /data/kraken2_db -o /data/classified/
 ```
 
 ## Testing
@@ -140,6 +165,10 @@ python tests/generate_test_data.py /tmp/test_data
 | `test_extract.py::TestExtractUnmappedOnly` | Unmapped-read extraction count verification |
 | `test_extract.py::TestExtractWithMAPQ` | MAPQ-filtered extraction correctness |
 | `test_extract.py::TestCLI` | CLI entry-point and error handling |
+| `test_classify.py::TestValidateDatabase` | Kraken2 database validation |
+| `test_classify.py::TestBuildClassifyCommand` | Kraken2 command construction |
+| `test_classify.py::TestClassifyReads` | Classification with mocked Kraken2 |
+| `test_classify.py::TestCLI` | Classify CLI entry-point and error handling |
 | `test_config.py` | Config loading, merging, env-var override, error handling |
 
 ## Project Structure
@@ -153,8 +182,10 @@ python tests/generate_test_data.py /tmp/test_data
 │   │   ├── __init__.py
 │   │   ├── extract.py          # Core extraction logic
 │   │   └── cli.py              # CLI entry point
-│   ├── classify/               # Classification module (stub)
-│   │   └── __init__.py
+│   ├── classify/               # Classification module
+│   │   ├── __init__.py
+│   │   ├── classify.py         # Core Kraken2 classification logic
+│   │   └── cli.py              # CLI entry point
 │   ├── aggregate/              # Aggregation module (stub)
 │   │   └── __init__.py
 │   ├── detect/                 # Detection module (stub)
@@ -169,12 +200,14 @@ python tests/generate_test_data.py /tmp/test_data
 │   ├── aggregate.md
 │   └── detect.md
 ├── nextflow/
-│   ├── extract_unmapped.nf     # Batch processing pipeline
+│   ├── extract_unmapped.nf     # Batch extraction pipeline
+│   ├── classify.nf             # Batch classification pipeline
 │   └── nextflow.config         # Nextflow profiles
 ├── tests/
 │   ├── conftest.py             # Pytest fixtures
 │   ├── generate_test_data.py   # Synthetic BAM generation
 │   ├── test_extract.py         # Extraction test suite
+│   ├── test_classify.py        # Classification test suite
 │   └── test_config.py          # Config loader tests
 ├── Dockerfile
 ├── .github/workflows/ci.yml   # GitHub Actions CI
