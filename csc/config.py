@@ -6,8 +6,8 @@ user-provided YAML file.  The user config path can be supplied via:
 1. The ``CSC_CONFIG`` environment variable, or
 2. An explicit *path* argument to :func:`load_config`.
 
-The merge is a shallow-per-section update: top-level keys in the user
-config replace (not deep-merge) the corresponding default sections.
+The merge is a recursive deep update: keys in the user config replace
+the corresponding default values, and nested dicts are merged recursively.
 """
 
 from __future__ import annotations
