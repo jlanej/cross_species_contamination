@@ -15,6 +15,7 @@ import hashlib
 import logging
 import os
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import urllib.request
@@ -147,8 +148,6 @@ def _download_http(url: str, dest: Path) -> Path:
 
 def _copy_s3(uri: str, dest: Path) -> Path:
     """Copy a file from an S3 URI using the ``aws`` CLI."""
-    import subprocess
-
     aws = shutil.which("aws")
     if aws is None:
         raise FileNotFoundError(

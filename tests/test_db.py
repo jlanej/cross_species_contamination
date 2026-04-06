@@ -7,7 +7,9 @@ without network access or the AWS CLI.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import shutil
 import tarfile
 from pathlib import Path
 from unittest import mock
@@ -242,8 +244,6 @@ class TestExtractTarball:
         # Create a tarball with an unsafe path
         archive = tmp_path / "evil.tar.gz"
         with tarfile.open(archive, "w:gz") as tf:
-            import io
-
             data = b"evil content"
             info = tarfile.TarInfo(name="../../../etc/passwd")
             info.size = len(data)
@@ -316,7 +316,6 @@ class TestFetchDatabase:
         archive = _make_db_tarball(tmp_path, "httpdb")
 
         def fake_download(url: str, dest: Path) -> Path:
-            import shutil
             shutil.copy2(archive, dest)
             return dest
 
@@ -340,7 +339,6 @@ class TestFetchDatabase:
         archive = _make_db_tarball(tmp_path, "s3db")
 
         def fake_s3(uri: str, dest: Path) -> Path:
-            import shutil
             shutil.copy2(archive, dest)
             return dest
 
