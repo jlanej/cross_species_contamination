@@ -6,6 +6,6 @@ Public API
 .. autofunction:: build_extract_command
 """
 
-from csc.extract.extract import build_extract_command, extract_reads
+from csc.extract.extract import ExtractionResult, build_extract_command, extract_reads
 
-__all__ = ["build_extract_command", "extract_reads"]
+__all__ = ["ExtractionResult", "build_extract_command", "extract_reads"]
