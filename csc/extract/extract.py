@@ -18,11 +18,20 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".bam", ".cram"}
+
+
+class ExtractionResult(TypedDict):
+    """Return type for :func:`extract_reads`."""
+
+    files: dict[str, Path]
+    read_count: int
+    sample_id: str
+    input: str
 
 
 def _find_samtools() -> str:
@@ -186,7 +195,7 @@ def extract_reads(
     threads: int = 1,
     reference: str | Path | None = None,
     interleaved: bool = False,
-) -> dict[str, Any]:
+) -> ExtractionResult:
     """Extract unmapped (and optionally low-MAPQ) reads from a BAM/CRAM file.
 
     All output files are gzip-compressed FASTQ.  Returns a dict with keys:

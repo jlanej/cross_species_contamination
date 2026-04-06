@@ -299,6 +299,9 @@ class TestCLI:
         from csc.extract.cli import main
         import os
 
+        if os.getuid() == 0:
+            pytest.skip("Permission checks are not enforced as root")
+
         bad = tmp_path / "unreadable.bam"
         bad.touch()
         os.chmod(bad, 0o000)
@@ -332,23 +335,30 @@ class TestCLIJsonLog:
     ) -> None:
         from csc.extract.cli import main
 
-        # Reset root logger handlers for clean test
+        # Reset root logger handlers for clean test, and restore afterwards
         root = logging.getLogger()
+        original_handlers = root.handlers[:]
         for h in root.handlers[:]:
             root.removeHandler(h)
 
-        rc = main([str(test_bam), "-o", str(tmp_path / "json_out"), "--json-log", "-v"])
-        assert rc == 0
-        stderr = capfd.readouterr().err
-        # At least one JSON log line should be present
-        json_lines = [
-            line for line in stderr.strip().splitlines() if line.startswith("{")
-        ]
-        assert len(json_lines) > 0
-        parsed = json.loads(json_lines[0])
-        assert "timestamp" in parsed
-        assert "level" in parsed
-        assert "message" in parsed
+        try:
+            rc = main([str(test_bam), "-o", str(tmp_path / "json_out"), "--json-log", "-v"])
+            assert rc == 0
+            stderr = capfd.readouterr().err
+            # At least one JSON log line should be present
+            json_lines = [
+                line for line in stderr.strip().splitlines() if line.startswith("{")
+            ]
+            assert len(json_lines) > 0
+            parsed = json.loads(json_lines[0])
+            assert "timestamp" in parsed
+            assert "level" in parsed
+            assert "message" in parsed
+        finally:
+            for h in root.handlers[:]:
+                root.removeHandler(h)
+            for h in original_handlers:
+                root.addHandler(h)
 
 
 class TestCLISummary:

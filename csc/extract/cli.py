@@ -134,7 +134,9 @@ def _write_summary_tsv(
             files = ";".join(str(p) for p in r["files"].values())
             writer.writerow([r["sample_id"], r["input"], "OK", r["read_count"], files])
         for e in errors:
-            writer.writerow([e["input"], e["input"], "FAILED", 0, e["error"]])
+            writer.writerow([
+                Path(e["input"]).stem, e["input"], "FAILED", 0, e["error"],
+            ])
 
 
 def main(argv: list[str] | None = None) -> int:
