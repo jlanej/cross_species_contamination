@@ -1,4 +1,4 @@
-name: CI – Extraction Pipeline
+name: CI – CSC Pipeline
 
 on:
   push:
@@ -28,6 +28,9 @@ jobs:
         run: |
           pip install pysam
           pip install ".[test]"
+
+      - name: Verify all modules import
+        run: python -c "import csc; import csc.extract; import csc.classify; import csc.aggregate; import csc.detect; import csc.utils; import csc.config"
 
       - name: Run tests
         run: pytest -v tests/

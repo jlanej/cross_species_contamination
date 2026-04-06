@@ -1,15 +1,15 @@
-"""Command-line interface for extract_unmapped.
+"""Command-line interface for the CSC extraction module.
 
 Usage examples::
 
     # Extract unmapped reads from a BAM file
-    extract-unmapped input.bam -o output_dir/
+    csc-extract input.bam -o output_dir/
 
     # Extract unmapped + poorly mapped (MAPQ < 10) reads from a CRAM file
-    extract-unmapped input.cram -o output_dir/ --mapq 10 --reference ref.fa
+    csc-extract input.cram -o output_dir/ --mapq 10 --reference ref.fa
 
     # Batch extraction from a list of files
-    extract-unmapped *.bam -o output_dir/ --threads 4
+    csc-extract *.bam -o output_dir/ --threads 4
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ import logging
 import sys
 from pathlib import Path
 
-from extract_unmapped import __version__
-from extract_unmapped.extract import extract_reads
+from csc import __version__
+from csc.extract.extract import extract_reads
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="extract-unmapped",
+        prog="csc-extract",
         description=(
             "Extract unmapped (and optionally poorly mapped) reads from "
             "BAM/CRAM files using samtools.  All output is streamed without "
@@ -34,9 +34,9 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  extract-unmapped sample.bam -o results/\n"
-            "  extract-unmapped sample.cram -o results/ --reference ref.fa\n"
-            "  extract-unmapped *.bam -o results/ --mapq 10 --threads 4\n"
+            "  csc-extract sample.bam -o results/\n"
+            "  csc-extract sample.cram -o results/ --reference ref.fa\n"
+            "  csc-extract *.bam -o results/ --mapq 10 --threads 4\n"
         ),
     )
     parser.add_argument(
