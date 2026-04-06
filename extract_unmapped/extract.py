@@ -252,7 +252,8 @@ def extract_reads(
             stderr=subprocess.PIPE,
         )
         # Allow view_proc to receive SIGPIPE if fastq_proc exits
-        assert view_proc.stdout is not None
+        if view_proc.stdout is None:
+            raise RuntimeError("samtools view process has no stdout handle")
         view_proc.stdout.close()
         _, fastq_err = fastq_proc.communicate()
         view_proc.wait()

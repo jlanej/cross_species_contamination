@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from tests.generate_test_data import generate_test_data
 
