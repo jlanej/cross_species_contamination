@@ -3,22 +3,24 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "extract-unmapped"
-version = "0.1.0"
-description = "Scalable extraction of unmapped reads from WGS BAM/CRAM files"
+name = "csc"
+version = "0.2.0"
+description = "Cross-species contamination detection pipeline for WGS BAM/CRAM files"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "jlanej" }]
+dependencies = ["pyyaml>=6"]
 
 [project.scripts]
+csc-extract = "csc.extract.cli:main"
 extract-unmapped = "extract_unmapped.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
 
 [tool.setuptools.packages.find]
-include = ["extract_unmapped*"]
+include = ["csc*", "extract_unmapped*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -22,6 +22,10 @@ from extract_unmapped.extract import (
     _find_samtools,
     _validate_input,
 )
+from csc.extract.extract import (
+    build_extract_command as csc_build_extract_command,
+    extract_reads as csc_extract_reads,
+)
 
 # Expected counts from generate_test_data defaults
 EXPECTED_UNMAPPED_READS = 10  # pairs
@@ -182,3 +186,19 @@ class TestCLI:
 
         rc = main([str(tmp_path / "no_such.bam"), "-o", str(tmp_path / "out")])
         assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Verify new csc.extract imports work alongside backward-compat shims
+# ---------------------------------------------------------------------------
+
+class TestNewImports:
+    """Ensure csc.extract exposes the same public API."""
+
+    def test_csc_build_extract_command(self, test_bam: Path) -> None:
+        cmds = csc_build_extract_command(test_bam)
+        assert len(cmds) == 1
+
+    def test_csc_extract_reads_callable(self) -> None:
+        """csc_extract_reads should be the same function object."""
+        assert csc_extract_reads is extract_reads

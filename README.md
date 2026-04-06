@@ -1,7 +1,7 @@
-# Cross-Species Contamination Detection – Module 1: Unmapped Read Extraction
+# Cross-Species Contamination Detection Pipeline
 
-Scalable, streaming extraction of unmapped (and optionally poorly mapped) reads
-from BAM/CRAM files for downstream contamination analysis.
+A multi-module Python pipeline for detecting cross-species contamination in
+whole-genome sequencing BAM/CRAM files.
 
 > **AI Acknowledgment:** This project was developed with AI assistance.
 > Best practices in bioinformatics should always take precedence over specific
@@ -9,21 +9,23 @@ from BAM/CRAM files for downstream contamination analysis.
 
 ## Overview
 
-This module is the first stage of a multi-module pipeline for detecting
-cross-species contamination in large-scale sequencing cohorts.  It isolates
-reads that did not align to the human reference—these reads may originate from
-contaminant organisms—and outputs them as FASTQ files suitable for taxonomic
-classification (e.g., Kraken2).
-
-### Workflow Diagram
+The pipeline is organised into four modules that run sequentially:
 
 ```
- BAM/CRAM ──► samtools view/fastq (streaming) ──► unmapped.R1.fastq.gz
-              │  -f 4  (unmapped flag)              unmapped.R2.fastq.gz
-              │  or: MAPQ < threshold               unmapped.singleton.fastq.gz
-              ▼
-         No disk intermediates
+BAM/CRAM ──► extract ──► classify ──► aggregate ──► detect
+                │            │            │            │
+            FASTQ files   taxa labels   summary     report
 ```
+
+| Module | Package | Status |
+|--------|---------|--------|
+| **Extract** | `csc.extract` | ✅ Implemented |
+| **Classify** | `csc.classify` | 🔲 Stub |
+| **Aggregate** | `csc.aggregate` | 🔲 Stub |
+| **Detect** | `csc.detect` | 🔲 Stub |
+
+Shared helpers live in `csc.utils` and pipeline-wide settings are managed by
+`csc.config` (see [docs/configuration.md](docs/configuration.md)).
 
 ## Quick Start
 
@@ -43,45 +45,34 @@ Requires **samtools ≥ 1.12** on `PATH`.
 
 ```bash
 # Extract unmapped reads from a BAM file
-extract-unmapped sample.bam -o output_dir/
+csc-extract sample.bam -o output_dir/
 
 # Extract unmapped reads from a CRAM file (requires reference)
-extract-unmapped sample.cram -o output_dir/ --reference GRCh38.fa
+csc-extract sample.cram -o output_dir/ --reference GRCh38.fa
 
 # Also include poorly mapped reads (MAPQ < 10)
-extract-unmapped sample.bam -o output_dir/ --mapq 10
+csc-extract sample.bam -o output_dir/ --mapq 10
 
 # Use 4 decompression threads
-extract-unmapped sample.bam -o output_dir/ --threads 4
+csc-extract sample.bam -o output_dir/ --threads 4
 
 # Interleaved output (single FASTQ file)
-extract-unmapped sample.bam -o output_dir/ --interleaved
+csc-extract sample.bam -o output_dir/ --interleaved
 ```
 
-### CLI Reference
+The legacy `extract-unmapped` command is still available for backward
+compatibility.
 
+### Configuration
+
+All modules read a shared YAML config.  Override defaults by setting the
+`CSC_CONFIG` environment variable or passing `--config`:
+
+```bash
+export CSC_CONFIG=my_config.yaml
 ```
-usage: extract-unmapped [-h] -o OUTPUT_DIR [--mapq THRESHOLD] [--threads N]
-                        [--reference REF] [--interleaved] [--sample-id ID]
-                        [-v] [--version]
-                        input [input ...]
 
-Extract unmapped (and optionally poorly mapped) reads from BAM/CRAM files
-using samtools.  All output is streamed without disk intermediates.
-
-positional arguments:
-  input                 Input BAM or CRAM file(s).
-
-options:
-  -o, --output-dir DIR  Output directory for FASTQ files.
-  --mapq THRESHOLD      Also extract reads with MAPQ below this value.
-  --threads N           Additional decompression threads (default: 1).
-  --reference REF       Reference FASTA (required for CRAM input).
-  --interleaved         Write a single interleaved FASTQ.
-  --sample-id ID        Override sample ID for output file names.
-  -v, --verbose         Enable verbose (DEBUG) logging.
-  --version             Show version and exit.
-```
+See [docs/configuration.md](docs/configuration.md) for the full reference.
 
 ## Batch Processing with Nextflow
 
@@ -120,10 +111,10 @@ nextflow run nextflow/extract_unmapped.nf -profile slurm --input_csv samples.csv
 
 ```bash
 # Build
-docker build -t extract-unmapped .
+docker build -t csc-pipeline .
 
-# Run
-docker run --rm -v /data:/data extract-unmapped \
+# Run extraction
+docker run --rm -v /data:/data csc-pipeline \
     /data/sample.bam -o /data/output/
 ```
 
@@ -152,26 +143,57 @@ python tests/generate_test_data.py /tmp/test_data
 | `test_extract.py::TestExtractUnmappedOnly` | Unmapped-read extraction count verification |
 | `test_extract.py::TestExtractWithMAPQ` | MAPQ-filtered extraction correctness |
 | `test_extract.py::TestCLI` | CLI entry-point and error handling |
+| `test_extract.py::TestNewImports` | Verify `csc.extract` API matches legacy shim |
+| `test_config.py` | Config loading, merging, env-var override, error handling |
 
 ## Project Structure
 
 ```
-├── extract_unmapped/
-│   ├── __init__.py        # Package version
-│   ├── extract.py         # Core extraction logic
-│   └── cli.py             # Command-line interface
+├── csc/                        # Main package
+│   ├── __init__.py             # Version & top-level docstring
+│   ├── config.py               # Central YAML config loader
+│   ├── default_config.yaml     # Built-in default settings
+│   ├── extract/                # Extraction module
+│   │   ├── __init__.py
+│   │   ├── extract.py          # Core extraction logic
+│   │   └── cli.py              # CLI entry point
+│   ├── classify/               # Classification module (stub)
+│   │   └── __init__.py
+│   ├── aggregate/              # Aggregation module (stub)
+│   │   └── __init__.py
+│   ├── detect/                 # Detection module (stub)
+│   │   └── __init__.py
+│   └── utils/                  # Shared utility helpers
+│       └── __init__.py
+├── extract_unmapped/           # Backward-compat shim
+│   ├── __init__.py
+│   ├── extract.py
+│   └── cli.py
+├── docs/                       # Module & pipeline documentation
+│   ├── README.md
+│   ├── configuration.md
+│   ├── extract.md
+│   ├── classify.md
+│   ├── aggregate.md
+│   └── detect.md
 ├── nextflow/
-│   ├── extract_unmapped.nf    # Batch processing pipeline
-│   └── nextflow.config        # Nextflow profiles
+│   ├── extract_unmapped.nf     # Batch processing pipeline
+│   └── nextflow.config         # Nextflow profiles
 ├── tests/
-│   ├── conftest.py            # Pytest fixtures
-│   ├── generate_test_data.py  # Synthetic BAM generation
-│   └── test_extract.py        # Test suite
+│   ├── conftest.py             # Pytest fixtures
+│   ├── generate_test_data.py   # Synthetic BAM generation
+│   ├── test_extract.py         # Extraction test suite
+│   └── test_config.py          # Config loader tests
 ├── Dockerfile
-├── .github/workflows/ci.yml  # GitHub Actions CI
+├── .github/workflows/ci.yml   # GitHub Actions CI
 ├── pyproject.toml
 └── README.md
 ```
+
+## Documentation
+
+See the [docs/](docs/) directory for per-module documentation and the
+configuration reference.
 
 ## License
 

@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 LABEL maintainer="jlanej"
-LABEL description="Unmapped-read extraction pipeline for cross-species contamination detection"
+LABEL description="Cross-species contamination detection pipeline"
 
 # Install samtools and dependencies
 RUN apt-get update && \
@@ -20,6 +20,7 @@ WORKDIR /app
 
 # Install Python package
 COPY pyproject.toml README.md LICENSE ./
+COPY csc/ csc/
 COPY extract_unmapped/ extract_unmapped/
 RUN pip install --no-cache-dir . && \
     pip install --no-cache-dir pysam
@@ -28,7 +29,10 @@ RUN pip install --no-cache-dir . && \
 COPY tests/ tests/
 RUN pip install --no-cache-dir ".[test]"
 
-# Verify installation
-RUN extract-unmapped --version && samtools --version | head -1
+# Verify installation – both new and legacy entry points
+RUN csc-extract --version && extract-unmapped --version && samtools --version | head -1
 
-ENTRYPOINT ["extract-unmapped"]
+# Verify all modules are importable
+RUN python -c "import csc; import csc.extract; import csc.classify; import csc.aggregate; import csc.detect; import csc.utils; import csc.config"
+
+ENTRYPOINT ["csc-extract"]

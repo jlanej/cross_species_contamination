@@ -1,0 +1,27 @@
+# Cross-Species Contamination Detection Pipeline – Default Configuration
+#
+# This file contains default settings for all pipeline modules.
+# Override values by providing a custom YAML config file via the
+# CSC_CONFIG environment variable or --config CLI flag.
+
+extract:
+  mapq_threshold: null       # null = only unmapped (flag 4); integer = also low-MAPQ
+  threads: 1                 # samtools decompression threads
+  interleaved: false         # true = single interleaved FASTQ; false = split R1/R2
+  output_suffix: ".unmapped" # suffix inserted before .fastq.gz in output names
+
+classify:
+  tool: "kraken2"            # taxonomic classifier to use
+  db: null                   # path to classifier database
+  confidence: 0.0            # minimum confidence threshold
+  threads: 1
+
+aggregate:
+  min_reads: 10              # minimum reads to include a taxon in aggregation
+
+detect:
+  method: "statistical"      # detection method
+  fdr: 0.05                  # false-discovery-rate threshold
+
+logging:
+  level: "INFO"              # default log level (DEBUG, INFO, WARNING, ERROR)

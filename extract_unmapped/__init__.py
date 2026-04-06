@@ -1,3 +1,3 @@
-"""Extract unmapped and optionally poorly mapped reads from BAM/CRAM files."""
+"""Backward-compatibility shim – use ``csc.extract`` instead."""
 
-__version__ = "0.1.0"
+from csc import __version__  # noqa: F401
