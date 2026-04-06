@@ -15,6 +15,7 @@ dependencies = ["pyyaml>=6"]
 [project.scripts]
 csc-extract = "csc.extract.cli:main"
 csc-classify = "csc.classify.cli:main"
+csc-db = "csc.classify.db_cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
