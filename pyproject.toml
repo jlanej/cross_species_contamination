@@ -14,13 +14,12 @@ dependencies = ["pyyaml>=6"]
 
 [project.scripts]
 csc-extract = "csc.extract.cli:main"
-extract-unmapped = "extract_unmapped.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
 
 [tool.setuptools.packages.find]
-include = ["csc*", "extract_unmapped*"]
+include = ["csc*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

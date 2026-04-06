@@ -16,15 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from extract_unmapped.extract import (
+from csc.extract.extract import (
     build_extract_command,
     extract_reads,
     _find_samtools,
     _validate_input,
-)
-from csc.extract.extract import (
-    build_extract_command as csc_build_extract_command,
-    extract_reads as csc_extract_reads,
 )
 
 # Expected counts from generate_test_data defaults
@@ -164,7 +160,7 @@ class TestCLI:
     """Test the CLI entry point."""
 
     def test_version(self) -> None:
-        from extract_unmapped.cli import main
+        from csc.extract.cli import main
 
         with pytest.raises(SystemExit) as exc_info:
             main(["--version"])
@@ -173,7 +169,7 @@ class TestCLI:
     def test_extract_via_cli(
         self, test_bam: Path, tmp_path: Path
     ) -> None:
-        from extract_unmapped.cli import main
+        from csc.extract.cli import main
 
         rc = main([str(test_bam), "-o", str(tmp_path / "cli_out")])
         assert rc == 0
@@ -182,23 +178,7 @@ class TestCLI:
         assert len(out_files) > 0
 
     def test_missing_input_returns_error(self, tmp_path: Path) -> None:
-        from extract_unmapped.cli import main
+        from csc.extract.cli import main
 
         rc = main([str(tmp_path / "no_such.bam"), "-o", str(tmp_path / "out")])
         assert rc == 1
-
-
-# ---------------------------------------------------------------------------
-# Verify new csc.extract imports work alongside backward-compat shims
-# ---------------------------------------------------------------------------
-
-class TestNewImports:
-    """Ensure csc.extract exposes the same public API."""
-
-    def test_csc_build_extract_command(self, test_bam: Path) -> None:
-        cmds = csc_build_extract_command(test_bam)
-        assert len(cmds) == 1
-
-    def test_csc_extract_reads_callable(self) -> None:
-        """csc_extract_reads should be the same function object."""
-        assert csc_extract_reads is extract_reads

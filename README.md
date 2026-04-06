@@ -60,9 +60,6 @@ csc-extract sample.bam -o output_dir/ --threads 4
 csc-extract sample.bam -o output_dir/ --interleaved
 ```
 
-The legacy `extract-unmapped` command is still available for backward
-compatibility.
-
 ### Configuration
 
 All modules read a shared YAML config.  Override defaults by setting the
@@ -143,7 +140,6 @@ python tests/generate_test_data.py /tmp/test_data
 | `test_extract.py::TestExtractUnmappedOnly` | Unmapped-read extraction count verification |
 | `test_extract.py::TestExtractWithMAPQ` | MAPQ-filtered extraction correctness |
 | `test_extract.py::TestCLI` | CLI entry-point and error handling |
-| `test_extract.py::TestNewImports` | Verify `csc.extract` API matches legacy shim |
 | `test_config.py` | Config loading, merging, env-var override, error handling |
 
 ## Project Structure
@@ -165,10 +161,6 @@ python tests/generate_test_data.py /tmp/test_data
 │   │   └── __init__.py
 │   └── utils/                  # Shared utility helpers
 │       └── __init__.py
-├── extract_unmapped/           # Backward-compat shim
-│   ├── __init__.py
-│   ├── extract.py
-│   └── cli.py
 ├── docs/                       # Module & pipeline documentation
 │   ├── README.md
 │   ├── configuration.md
