@@ -24,7 +24,7 @@ RUN apt-get update && \
         https://github.com/DerrickWood/kraken2.git /tmp/kraken2 && \
     /tmp/kraken2/install_kraken2.sh /usr/local/bin && \
     rm -rf /tmp/kraken2 && \
-    apt-get purge -y --auto-remove g++ make git && \
+    apt-get purge -y --auto-remove gcc g++ make git && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

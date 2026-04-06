@@ -42,16 +42,18 @@ process CLASSIFY_READS {
     tuple val(sample_id), path("*.kraken2.report.txt"), path("*.kraken2.output.txt"), emit: results
 
     script:
-    def paired_arg  = fastq2 ? "--paired ${fastq2}" : ''
+    def paired_arg  = fastq2 ? "--paired" : ''
+    def fq2_arg     = fastq2 ? "${fastq2}" : ''
     def mem_arg     = params.memory_mapping ? '--memory-mapping' : ''
     """
     csc-classify \\
-        ${fastq1} ${paired_arg} \\
+        ${fastq1} ${fq2_arg} \\
         --db ${params.kraken2_db} \\
         -o . \\
         --sample-id ${sample_id} \\
         --confidence ${params.confidence} \\
         --threads ${task.cpus} \\
+        ${paired_arg} \\
         ${mem_arg}
     """
 }
