@@ -478,13 +478,13 @@ class TestPrecisionRecall:
         flagged_ids = set(result["summary"]["flagged_samples"])
 
         true_positives = flagged_ids & contam
-        false_positives = flagged_ids & clean
 
         # Recall: should detect all contaminated samples
         recall = len(true_positives) / len(contam) if contam else 0.0
         assert recall >= 0.8, f"Recall too low: {recall}"
 
         # Precision: should not flag clean samples
+        assert not (flagged_ids & clean), "Clean samples should not be flagged"
         precision = (
             len(true_positives) / len(flagged_ids)
             if flagged_ids
@@ -498,11 +498,11 @@ class TestPrecisionRecall:
         flagged_ids = set(result["summary"]["flagged_samples"])
 
         true_positives = flagged_ids & contam
-        false_positives = flagged_ids & clean
 
         recall = len(true_positives) / len(contam) if contam else 0.0
         assert recall >= 0.8, f"Recall too low: {recall}"
 
+        assert not (flagged_ids & clean), "Clean samples should not be flagged"
         precision = (
             len(true_positives) / len(flagged_ids)
             if flagged_ids
