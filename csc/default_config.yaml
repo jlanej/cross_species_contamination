@@ -22,8 +22,11 @@ aggregate:
   min_reads: 10              # minimum reads to include a taxon in aggregation
 
 detect:
-  method: "statistical"      # detection method
-  fdr: 0.05                  # false-discovery-rate threshold
+  method: "mad"              # outlier detection method: "mad" or "iqr"
+  mad_threshold: 3.5         # scaled-MAD units above median to flag (MAD method)
+  iqr_multiplier: 1.5        # IQR fence multiplier (IQR method)
+  subtract_background: true  # subtract population-mean per taxon before testing
+  kitome_taxa: []            # NCBI taxonomy IDs for known kitome/environmental taxa
 
 logging:
   level: "INFO"              # default log level (DEBUG, INFO, WARNING, ERROR)

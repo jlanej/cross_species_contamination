@@ -12,7 +12,7 @@ classify
 aggregate
     Aggregation of classification results across samples (stub).
 detect
-    Statistical detection of cross-species contamination (stub).
+    Statistical detection of cross-species contamination.
 """
 
 __version__ = "0.2.0"
