@@ -8,8 +8,8 @@ This directory contains documentation for the Cross-Species Contamination
 | Module | Status | Description |
 |--------|--------|-------------|
 | [extract](extract.md) | ✅ Implemented | Streaming extraction of unmapped/poorly-mapped reads |
-| [classify](classify.md) | 🔲 Stub | Taxonomic classification of extracted reads |
-| [aggregate](aggregate.md) | 🔲 Stub | Aggregation of classification results |
+| [classify](classify.md) | ✅ Implemented | Taxonomic classification of extracted reads |
+| [aggregate](aggregate.md) | ✅ Implemented | Aggregation of classification results |
 | [detect](detect.md) | 🔲 Stub | Statistical contamination detection |
 
 ## Configuration
