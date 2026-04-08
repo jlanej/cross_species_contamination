@@ -145,7 +145,7 @@ class TestClassifyModule:
         assert "emit: reports" in self.content
 
     def test_paired_end_support(self):
-        assert "paired" in self.content.lower()
+        assert "--paired" in self.content
 
     def test_configurable_cpus(self):
         assert "params.classify_cpus" in self.content
