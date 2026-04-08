@@ -1,0 +1,12 @@
+{
+  "sample_count": 2,
+  "taxon_count": 6,
+  "min_reads": 0,
+  "normalized": false,
+  "normalization_method": "raw",
+  "samples": [
+    "sampleA",
+    "sampleB"
+  ],
+  "errors": []
+}

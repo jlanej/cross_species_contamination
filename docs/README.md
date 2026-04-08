@@ -17,6 +17,12 @@ This directory contains documentation for the Cross-Species Contamination
 All modules share a central YAML configuration file.  See [configuration.md](configuration.md)
 for details on default values and how to override them.
 
+## Testing
+
+See [testing.md](testing.md) for the full testing guide, including how to
+generate synthetic fixtures, run golden-output regression tests, and
+interpret accuracy metrics (precision, recall, FDR).
+
 ## Pipeline Overview
 
 ```

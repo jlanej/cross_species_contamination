@@ -1,0 +1,11 @@
+{
+  "total_samples": 6,
+  "total_taxa_analysed": 3,
+  "method": "mad",
+  "flagged_count": 1,
+  "flagged_samples": [
+    "contam_01"
+  ],
+  "kitome_taxa_excluded": 0,
+  "background_subtracted": true
+}
