@@ -12,25 +12,29 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install samtools
         run: sudo apt-get update && sudo apt-get install -y samtools
 
       - name: Install package and test dependencies
         run: |
-          pip install pysam
+          pip install pysam pytest-cov
           pip install ".[test]"
 
       - name: Verify all modules import
         run: python -c "import csc; import csc.extract; import csc.classify; import csc.aggregate; import csc.detect; import csc.utils; import csc.config"
 
-      - name: Run tests
-        run: pytest -v tests/
+      - name: Run tests with coverage
+        run: pytest -v --tb=short --cov=csc --cov-report=term-missing --cov-fail-under=60 tests/

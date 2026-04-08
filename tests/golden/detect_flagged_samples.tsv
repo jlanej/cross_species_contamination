@@ -1,0 +1,2 @@
+sample_id	tax_id	taxon_name	value	population_median	deviation	method
+contam_01	562	Escherichia coli	4124.6667	-824.8333	3338.3920	mad
