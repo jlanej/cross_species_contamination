@@ -21,8 +21,8 @@ BAM/CRAM ──► extract ──► classify ──► aggregate ──► dete
 |--------|---------|--------|
 | **Extract** | `csc.extract` | ✅ Implemented |
 | **Classify** | `csc.classify` | ✅ Implemented |
-| **Aggregate** | `csc.aggregate` | 🔲 Stub |
-| **Detect** | `csc.detect` | 🔲 Stub |
+| **Aggregate** | `csc.aggregate` | ✅ Implemented |
+| **Detect** | `csc.detect` | ✅ Implemented |
 
 Shared helpers live in `csc.utils` and pipeline-wide settings are managed by
 `csc.config` (see [docs/configuration.md](docs/configuration.md)).
@@ -161,38 +161,60 @@ export CSC_CONFIG=my_config.yaml
 
 See [docs/configuration.md](docs/configuration.md) for the full reference.
 
-## Batch Processing with Nextflow
+## End-to-End Nextflow Pipeline
 
-For biobank-scale cohorts, use the included Nextflow pipeline:
+For biobank-scale cohorts, use the included Nextflow pipeline that runs all
+four stages in sequence:
 
 ```bash
-nextflow run nextflow/extract_unmapped.nf \
-    --input_csv samples.csv \
-    --outdir results/ \
-    --threads 4
+nextflow run nextflow/main.nf \
+    --input_csv  samples.csv \
+    --kraken2_db /data/kraken2/PlusPF \
+    --outdir     results/
 ```
 
 The CSV file must have columns `sample_id` and `file`, with an optional
 `reference` column:
 
 ```csv
-sample_id,file
-SAMPLE_001,/data/SAMPLE_001.bam
+sample_id,file,reference
+SAMPLE_001,/data/SAMPLE_001.bam,
 SAMPLE_002,/data/SAMPLE_002.cram,/ref/GRCh38.fa
+```
+
+The pipeline produces a MultiQC-compatible summary (`csc_pipeline_mqc.yaml`)
+and an HTML report.  Run `multiqc results/` to combine with other QC tools.
+
+### Individual Stage Pipelines
+
+The individual extraction and classification pipelines are also available:
+
+```bash
+# Extraction only
+nextflow run nextflow/extract_unmapped.nf --input_csv samples.csv --outdir results/
+
+# Classification only
+nextflow run nextflow/classify.nf --input_csv samples.csv --kraken2_db /data/kraken2/PlusPF
 ```
 
 ### Execution Profiles
 
 ```bash
 # Local Docker execution
-nextflow run nextflow/extract_unmapped.nf -profile docker --input_csv samples.csv
+nextflow run nextflow/main.nf -profile docker --input_csv samples.csv --kraken2_db /data/k2
 
 # Singularity on HPC
-nextflow run nextflow/extract_unmapped.nf -profile singularity --input_csv samples.csv
+nextflow run nextflow/main.nf -profile singularity --input_csv samples.csv --kraken2_db /data/k2
 
 # SLURM cluster
-nextflow run nextflow/extract_unmapped.nf -profile slurm --input_csv samples.csv
+nextflow run nextflow/main.nf -profile slurm --input_csv samples.csv --kraken2_db /data/k2
+
+# Resume after failure
+nextflow run nextflow/main.nf -resume --input_csv samples.csv --kraken2_db /data/k2
 ```
+
+See [docs/pipeline.md](docs/pipeline.md) for the full parameter reference,
+output structure, and resource configuration.
 
 ## Docker
 
@@ -269,10 +291,15 @@ python tests/generate_test_data.py /tmp/test_data
 │   │   ├── cli.py              # Classify CLI entry point
 │   │   ├── db.py               # Database download, cache & hash verification
 │   │   └── db_cli.py           # csc-db CLI entry point
-│   ├── aggregate/              # Aggregation module (stub)
-│   │   └── __init__.py
-│   ├── detect/                 # Detection module (stub)
-│   │   └── __init__.py
+│   ├── aggregate/              # Aggregation module
+│   │   ├── __init__.py
+│   │   ├── aggregate.py
+│   │   └── cli.py
+│   ├── detect/                 # Detection module
+│   │   ├── __init__.py
+│   │   ├── detect.py
+│   │   ├── report.py
+│   │   └── cli.py
 │   └── utils/                  # Shared utility helpers
 │       └── __init__.py
 ├── docs/                       # Module & pipeline documentation
@@ -283,16 +310,26 @@ python tests/generate_test_data.py /tmp/test_data
 │   ├── aggregate.md
 │   └── detect.md
 ├── nextflow/
-│   ├── extract_unmapped.nf     # Batch extraction pipeline
-│   ├── classify.nf             # Batch classification pipeline
-│   └── nextflow.config         # Nextflow profiles
+│   ├── main.nf                 # End-to-end pipeline (extract→classify→aggregate→detect)
+│   ├── modules/
+│   │   ├── extract.nf          # Extract process module
+│   │   ├── classify.nf         # Classify process module
+│   │   ├── aggregate.nf        # Aggregate process module
+│   │   ├── detect.nf           # Detect process module
+│   │   └── summary.nf          # Pipeline summary report module
+│   ├── extract_unmapped.nf     # Standalone extraction pipeline
+│   ├── classify.nf             # Standalone classification pipeline
+│   └── nextflow.config         # Nextflow profiles & resource settings
 ├── tests/
 │   ├── conftest.py             # Pytest fixtures
 │   ├── generate_test_data.py   # Synthetic BAM generation
 │   ├── test_extract.py         # Extraction test suite
 │   ├── test_classify.py        # Classification test suite
 │   ├── test_db.py              # DB management test suite
-│   └── test_config.py          # Config loader tests
+│   ├── test_config.py          # Config loader tests
+│   ├── test_aggregate.py       # Aggregation test suite
+│   ├── test_detect.py          # Detection test suite
+│   └── test_nextflow_pipeline.py  # Pipeline structure tests
 ├── Dockerfile
 ├── .github/workflows/ci.yml   # GitHub Actions CI
 ├── pyproject.toml
@@ -301,8 +338,14 @@ python tests/generate_test_data.py /tmp/test_data
 
 ## Documentation
 
-See the [docs/](docs/) directory for per-module documentation and the
-configuration reference.
+See the [docs/](docs/) directory for per-module documentation:
+
+- [Pipeline usage](docs/pipeline.md) — end-to-end Nextflow workflow
+- [Extract](docs/extract.md) — BAM/CRAM read extraction
+- [Classify](docs/classify.md) — Kraken2 taxonomic classification
+- [Aggregate](docs/aggregate.md) — sample-by-taxon matrix building
+- [Detect](docs/detect.md) — statistical outlier detection
+- [Configuration](docs/configuration.md) — YAML config reference
 
 ## License
 
