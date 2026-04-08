@@ -17,6 +17,7 @@ csc-extract = "csc.extract.cli:main"
 csc-classify = "csc.classify.cli:main"
 csc-db = "csc.classify.db_cli:main"
 csc-aggregate = "csc.aggregate.cli:main"
+csc-detect = "csc.detect.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
