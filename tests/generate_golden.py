@@ -17,6 +17,9 @@ from pathlib import Path
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 
+# Fields that vary between runs and must be excluded from golden comparison.
+_VOLATILE_METADATA_KEYS = {"timestamp", "date", "time"}
+
 
 def _write_report(path: Path, content: str) -> Path:
     path.write_text(content)
@@ -68,9 +71,7 @@ def generate_aggregate_golden() -> None:
 
     # Copy metadata (strip volatile fields)
     meta = json.loads((out / "aggregation_metadata.json").read_text())
-    for key in list(meta.keys()):
-        if "time" in key.lower() or "date" in key.lower():
-            del meta[key]
+    meta = {k: v for k, v in meta.items() if k not in _VOLATILE_METADATA_KEYS}
     (GOLDEN_DIR / "aggregate_metadata.json").write_text(
         json.dumps(meta, indent=2) + "\n"
     )

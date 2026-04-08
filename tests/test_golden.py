@@ -24,7 +24,15 @@ from csc.detect.report import generate_report
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 
+# Fields that vary between runs and must be excluded from golden comparison.
+_VOLATILE_METADATA_KEYS = {"timestamp", "date", "time"}
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _strip_volatile_keys(d: dict) -> dict:
+    """Return a copy of *d* without volatile metadata fields."""
+    return {k: v for k, v in d.items() if k not in _VOLATILE_METADATA_KEYS}
 
 
 def _write_report(path: Path, content: str) -> Path:
@@ -114,15 +122,14 @@ class TestAggregateGolden:
             min_reads=0,
         )
 
-        actual = json.loads((out / "aggregation_metadata.json").read_text())
-        golden = json.loads(
-            (GOLDEN_DIR / "aggregate_metadata.json").read_text()
+        actual = _strip_volatile_keys(
+            json.loads((out / "aggregation_metadata.json").read_text())
         )
-
-        # Remove volatile fields that change across runs
-        for key in ("timestamp", "date", "time"):
-            actual.pop(key, None)
-            golden.pop(key, None)
+        golden = _strip_volatile_keys(
+            json.loads(
+                (GOLDEN_DIR / "aggregate_metadata.json").read_text()
+            )
+        )
 
         assert actual == golden, (
             "Aggregate metadata differs from golden file."
