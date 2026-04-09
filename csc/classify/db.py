@@ -4,6 +4,13 @@ Provides helpers to fetch Kraken2 databases from local paths, HTTP(S) URLs,
 or S3 URIs, validate them via MD5/SHA-256 checksums, and manage a local
 cache directory.
 
+PrackenDB is the recommended Kraken2 database for the CSC pipeline.  It
+contains one NCBI reference genome per species (bacteria, archaea, fungi,
+protists, viruses, human, and UniVec Core), which avoids inflated LCA
+assignments from redundant genomes and enables robust species-level
+detection.  See :func:`fetch_prackendb` for a convenience wrapper that
+downloads and validates PrackenDB.
+
 AI assistance acknowledgment: This module was developed with AI assistance.
 Best practices in the bioinformatics field should always take precedence over
 specific implementation details.
@@ -34,6 +41,32 @@ SUPPORTED_HASH_ALGORITHMS = ("md5", "sha256")
 
 #: Chunk size for streaming downloads / hash computation (8 MiB).
 _CHUNK_SIZE = 8 * 1024 * 1024
+
+# ---------------------------------------------------------------------------
+# PrackenDB constants
+# ---------------------------------------------------------------------------
+
+#: Default download URL for the PrackenDB Kraken2 database.
+PRACKENDB_URL = (
+    "https://genome-idx.s3.amazonaws.com/kraken/k2_NCBI_reference_20251007.tar.gz"
+)
+
+#: Default name for PrackenDB in the cache directory.
+PRACKENDB_NAME = "prackendb"
+
+#: Taxonomy files expected in a PrackenDB (or compatible) database.
+TAXONOMY_FILES = ("taxonomy/nodes.dmp", "taxonomy/names.dmp")
+
+#: Warning emitted when the user selects a non-PrackenDB database.
+_NON_PRACKENDB_WARNING = (
+    "The selected database does not appear to be PrackenDB. "
+    "PrackenDB (one genome per species) is recommended for the CSC pipeline "
+    "because it provides unambiguous per-species k-mer counts and avoids "
+    "inflated LCA assignments from redundant genomes. Using other databases "
+    "may result in species-level ambiguity or loss of granularity. "
+    "See: https://github.com/jlanej/kmer_denovo_filter/blob/main/"
+    "docs/kraken2_bacterial_detection.md#the-prackendb-reference-database"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -463,6 +496,122 @@ def fetch_database(
         len(info["files"]),
     )
     return validated
+
+
+# ---------------------------------------------------------------------------
+# Taxonomy validation
+# ---------------------------------------------------------------------------
+
+
+def validate_taxonomy(db_path: str | Path) -> dict[str, bool]:
+    """Check for expected taxonomy files in a Kraken2 database.
+
+    PrackenDB (and other well-formed databases) include
+    ``taxonomy/nodes.dmp`` and ``taxonomy/names.dmp``.  These files enable
+    lineage-aware classification (e.g. tracing a species taxid back to its
+    domain) and human-readable taxon names.
+
+    Parameters
+    ----------
+    db_path:
+        Path to the Kraken2 database directory.
+
+    Returns
+    -------
+    dict[str, bool]
+        Mapping of taxonomy file relative paths to presence status.
+    """
+    db = Path(db_path).resolve()
+    result: dict[str, bool] = {}
+    for relpath in TAXONOMY_FILES:
+        result[relpath] = (db / relpath).is_file()
+    return result
+
+
+def is_prackendb(db_path: str | Path) -> bool:
+    """Heuristic check for whether *db_path* looks like a PrackenDB database.
+
+    Returns ``True`` when the database directory is valid *and* contains
+    the expected taxonomy files (``taxonomy/nodes.dmp`` and
+    ``taxonomy/names.dmp``), which are characteristic of PrackenDB.
+
+    This is a lightweight heuristic — it does not verify that the database
+    truly contains one genome per species.
+    """
+    db = Path(db_path).resolve()
+    try:
+        validate_database(db)
+    except (FileNotFoundError, ValueError):
+        return False
+    tax = validate_taxonomy(db)
+    return all(tax.values())
+
+
+def _emit_non_prackendb_warning(db_path: Path) -> None:
+    """Log a warning if *db_path* does not look like PrackenDB."""
+    if not is_prackendb(db_path):
+        logger.warning(_NON_PRACKENDB_WARNING)
+
+
+# ---------------------------------------------------------------------------
+# PrackenDB convenience wrapper
+# ---------------------------------------------------------------------------
+
+
+def fetch_prackendb(
+    *,
+    url: str = PRACKENDB_URL,
+    name: str = PRACKENDB_NAME,
+    cache_dir: str | Path | None = None,
+    expected_hash: str | None = None,
+    hash_algorithm: str = "sha256",
+) -> Path:
+    """Download and cache the PrackenDB Kraken2 database.
+
+    This is a convenience wrapper around :func:`fetch_database` with
+    PrackenDB-specific defaults.  After fetching, the taxonomy files are
+    validated and any missing files are reported as warnings.
+
+    Parameters
+    ----------
+    url:
+        Download URL for the PrackenDB tarball.
+    name:
+        Name for the database inside the cache directory.
+    cache_dir:
+        Override cache directory.
+    expected_hash:
+        Optional expected hash of the archive.
+    hash_algorithm:
+        Hash algorithm for verification.
+
+    Returns
+    -------
+    Path
+        Path to the ready-to-use PrackenDB database directory.
+    """
+    db_path = fetch_database(
+        url,
+        name=name,
+        cache_dir=cache_dir,
+        expected_hash=expected_hash,
+        hash_algorithm=hash_algorithm,
+    )
+
+    # Validate taxonomy files
+    tax = validate_taxonomy(db_path)
+    for relpath, present in tax.items():
+        if not present:
+            logger.warning(
+                "PrackenDB: taxonomy file not found: %s/%s. "
+                "Lineage-aware classification may be degraded.",
+                db_path,
+                relpath,
+            )
+        else:
+            logger.info("PrackenDB: taxonomy file OK: %s/%s", db_path, relpath)
+
+    return db_path
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,11 @@ import pytest
 from csc.classify.classify import REQUIRED_DB_FILES, validate_database
 from csc.classify.db import (
     DEFAULT_CACHE_DIR,
+    PRACKENDB_NAME,
+    PRACKENDB_URL,
     SUPPORTED_HASH_ALGORITHMS,
+    TAXONOMY_FILES,
+    _NON_PRACKENDB_WARNING,
     _extract_tarball,
     _human_size,
     _is_s3_uri,
@@ -28,8 +32,11 @@ from csc.classify.db import (
     compute_hash,
     database_info,
     fetch_database,
+    fetch_prackendb,
     get_cache_dir,
+    is_prackendb,
     list_databases,
+    validate_taxonomy,
     verify_hash,
 )
 
@@ -71,6 +78,38 @@ def _make_db_tarball(tmp_path: Path, db_name: str = "testdb") -> Path:
     db_dir.mkdir()
     for fname in REQUIRED_DB_FILES:
         (db_dir / fname).write_bytes(b"\x00" * 64)
+
+    archive = tmp_path / f"{db_name}.tar.gz"
+    with tarfile.open(archive, "w:gz") as tf:
+        tf.add(db_dir, arcname=db_name)
+    return archive
+
+
+@pytest.fixture()
+def prackendb_db(tmp_path: Path) -> Path:
+    """Create a mock PrackenDB-like database with taxonomy files."""
+    db_dir = tmp_path / "prackendb"
+    db_dir.mkdir()
+    for fname in REQUIRED_DB_FILES:
+        (db_dir / fname).write_bytes(b"\x00" * 64)
+    # Add taxonomy files
+    tax_dir = db_dir / "taxonomy"
+    tax_dir.mkdir()
+    (tax_dir / "nodes.dmp").write_text("1\t|\t1\t|\tno rank\t|\n")
+    (tax_dir / "names.dmp").write_text("1\t|\troot\t|\n")
+    return db_dir
+
+
+def _make_prackendb_tarball(tmp_path: Path, db_name: str = "prackendb") -> Path:
+    """Create a .tar.gz containing a mock PrackenDB database."""
+    db_dir = tmp_path / db_name
+    db_dir.mkdir()
+    for fname in REQUIRED_DB_FILES:
+        (db_dir / fname).write_bytes(b"\x00" * 64)
+    tax_dir = db_dir / "taxonomy"
+    tax_dir.mkdir()
+    (tax_dir / "nodes.dmp").write_text("1\t|\t1\t|\tno rank\t|\n")
+    (tax_dir / "names.dmp").write_text("1\t|\troot\t|\n")
 
     archive = tmp_path / f"{db_name}.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
@@ -421,6 +460,8 @@ class TestDBCLI:
         output = capsys.readouterr().out
         data = json.loads(output)
         assert data["valid"] is True
+        assert "taxonomy" in data
+        assert "prackendb_compatible" in data
 
     def test_clean_empty(self, cache_dir: Path) -> None:
         from csc.classify.db_cli import main
@@ -453,3 +494,197 @@ class TestDBCLI:
             "fetch", "/no/such/path",
         ])
         assert rc == 1
+
+    def test_verify_shows_prackendb_status(
+        self, prackendb_db: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        rc = main(["verify", str(prackendb_db)])
+        assert rc == 0
+        output = capsys.readouterr().out
+        assert "PrackenDB-compatible: yes" in output
+        assert "taxonomy/nodes.dmp [OK]" in output
+        assert "taxonomy/names.dmp [OK]" in output
+
+    def test_verify_non_prackendb_warns(
+        self, mock_db: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        rc = main(["verify", str(mock_db)])
+        assert rc == 0
+        output = capsys.readouterr().out
+        assert "PrackenDB-compatible: no" in output
+
+    def test_info_shows_prackendb_status(
+        self, prackendb_db: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        rc = main(["info", str(prackendb_db)])
+        assert rc == 0
+        output = capsys.readouterr().out
+        assert "PrackenDB-compatible: yes" in output
+
+
+# ---------------------------------------------------------------------------
+# Taxonomy validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateTaxonomy:
+    def test_all_taxonomy_present(self, prackendb_db: Path) -> None:
+        result = validate_taxonomy(prackendb_db)
+        assert result["taxonomy/nodes.dmp"] is True
+        assert result["taxonomy/names.dmp"] is True
+
+    def test_no_taxonomy(self, mock_db: Path) -> None:
+        result = validate_taxonomy(mock_db)
+        assert result["taxonomy/nodes.dmp"] is False
+        assert result["taxonomy/names.dmp"] is False
+
+    def test_partial_taxonomy(self, tmp_path: Path) -> None:
+        db_dir = tmp_path / "partial_db"
+        db_dir.mkdir()
+        for fname in REQUIRED_DB_FILES:
+            (db_dir / fname).write_bytes(b"\x00" * 64)
+        tax_dir = db_dir / "taxonomy"
+        tax_dir.mkdir()
+        (tax_dir / "nodes.dmp").write_text("1\t|\t1\t|\n")
+        # names.dmp missing
+        result = validate_taxonomy(db_dir)
+        assert result["taxonomy/nodes.dmp"] is True
+        assert result["taxonomy/names.dmp"] is False
+
+
+# ---------------------------------------------------------------------------
+# PrackenDB detection
+# ---------------------------------------------------------------------------
+
+
+class TestIsPrackenDB:
+    def test_prackendb_detected(self, prackendb_db: Path) -> None:
+        assert is_prackendb(prackendb_db) is True
+
+    def test_non_prackendb_without_taxonomy(self, mock_db: Path) -> None:
+        assert is_prackendb(mock_db) is False
+
+    def test_invalid_db_returns_false(self, tmp_path: Path) -> None:
+        assert is_prackendb(tmp_path / "nonexistent") is False
+
+    def test_partial_taxonomy_not_prackendb(self, tmp_path: Path) -> None:
+        db_dir = tmp_path / "partial"
+        db_dir.mkdir()
+        for fname in REQUIRED_DB_FILES:
+            (db_dir / fname).write_bytes(b"\x00" * 64)
+        (db_dir / "taxonomy").mkdir()
+        (db_dir / "taxonomy" / "nodes.dmp").write_text("1\t|\t1\t|\n")
+        # names.dmp missing → not PrackenDB
+        assert is_prackendb(db_dir) is False
+
+
+# ---------------------------------------------------------------------------
+# PrackenDB constants
+# ---------------------------------------------------------------------------
+
+
+class TestPrackenDBConstants:
+    def test_prackendb_url_is_https(self) -> None:
+        assert PRACKENDB_URL.startswith("https://")
+        assert "genome-idx.s3.amazonaws.com" in PRACKENDB_URL
+
+    def test_prackendb_name(self) -> None:
+        assert PRACKENDB_NAME == "prackendb"
+
+    def test_taxonomy_files(self) -> None:
+        assert "taxonomy/nodes.dmp" in TAXONOMY_FILES
+        assert "taxonomy/names.dmp" in TAXONOMY_FILES
+
+    def test_non_prackendb_warning_content(self) -> None:
+        assert "PrackenDB" in _NON_PRACKENDB_WARNING
+        assert "one genome per species" in _NON_PRACKENDB_WARNING
+
+
+# ---------------------------------------------------------------------------
+# fetch_prackendb
+# ---------------------------------------------------------------------------
+
+
+class TestFetchPrackenDB:
+    @mock.patch("csc.classify.db._download_http")
+    def test_fetch_prackendb_with_taxonomy(
+        self, mock_dl: mock.Mock, tmp_path: Path,
+    ) -> None:
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        archive = _make_prackendb_tarball(tmp_path, "prackendb")
+
+        def fake_download(url: str, dest: Path) -> Path:
+            shutil.copy2(archive, dest)
+            return dest
+
+        mock_dl.side_effect = fake_download
+
+        result = fetch_prackendb(cache_dir=cache)
+        assert result.name == PRACKENDB_NAME
+        assert (result / "hash.k2d").exists()
+        assert (result / "taxonomy" / "nodes.dmp").exists()
+        assert (result / "taxonomy" / "names.dmp").exists()
+        assert is_prackendb(result) is True
+
+    @mock.patch("csc.classify.db._download_http")
+    def test_fetch_prackendb_warns_on_missing_taxonomy(
+        self, mock_dl: mock.Mock, tmp_path: Path,
+    ) -> None:
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        # Use regular tarball without taxonomy files
+        archive = _make_db_tarball(tmp_path, "prackendb")
+
+        def fake_download(url: str, dest: Path) -> Path:
+            shutil.copy2(archive, dest)
+            return dest
+
+        mock_dl.side_effect = fake_download
+
+        with mock.patch("csc.classify.db.logger") as mock_logger:
+            result = fetch_prackendb(cache_dir=cache)
+            # Should have warned about missing taxonomy files
+            warning_calls = [
+                c for c in mock_logger.warning.call_args_list
+                if "taxonomy file not found" in str(c)
+            ]
+            assert len(warning_calls) == 2  # nodes.dmp and names.dmp
+
+    @mock.patch("csc.classify.db._download_http")
+    def test_cli_fetch_prackendb(
+        self, mock_dl: mock.Mock, tmp_path: Path,
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        archive = _make_prackendb_tarball(tmp_path, "prackendb")
+
+        def fake_download(url: str, dest: Path) -> Path:
+            shutil.copy2(archive, dest)
+            return dest
+
+        mock_dl.side_effect = fake_download
+
+        rc = main(["--cache-dir", str(cache), "fetch", "prackendb"])
+        assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Config: recommended_db
+# ---------------------------------------------------------------------------
+
+
+class TestConfigRecommendedDB:
+    def test_default_config_has_recommended_db(self) -> None:
+        from csc.config import load_config
+
+        cfg = load_config()
+        assert cfg["classify"]["recommended_db"] == "prackendb"

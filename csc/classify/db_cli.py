@@ -2,6 +2,9 @@
 
 Usage examples::
 
+    # Fetch the recommended PrackenDB database
+    csc-db fetch prackendb
+
     # Fetch a database from a URL
     csc-db fetch https://genome-idx.s3.amazonaws.com/kraken/k2_standard_08gb.tar.gz
 
@@ -31,14 +34,20 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 from csc import __version__
 from csc.classify.db import (
+    PRACKENDB_NAME,
+    PRACKENDB_URL,
     clean_cache,
     database_info,
     fetch_database,
+    fetch_prackendb,
     get_cache_dir,
+    is_prackendb,
     list_databases,
+    validate_taxonomy,
     verify_hash,
 )
 from csc.classify.classify import validate_database
@@ -84,12 +93,18 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch = sub.add_parser(
         "fetch",
         help="Fetch a Kraken2 database from a local path, URL, or S3 URI.",
+        description=(
+            "Fetch a Kraken2 database.  Use 'csc-db fetch prackendb' to "
+            "download the recommended PrackenDB database (one genome per "
+            "species).  Other sources (local paths, HTTP(S) URLs, S3 URIs) "
+            "are also supported."
+        ),
     )
     fetch.add_argument(
         "source",
         help=(
-            "Database source: local directory, HTTP(S) URL to a .tar.gz, "
-            "or S3 URI (s3://bucket/key.tar.gz)."
+            "Database source: 'prackendb' (recommended), local directory, "
+            "HTTP(S) URL to a .tar.gz, or S3 URI (s3://bucket/key.tar.gz)."
         ),
     )
     fetch.add_argument(
@@ -159,13 +174,33 @@ def _cmd_fetch(args: argparse.Namespace, log: logging.Logger) -> int:
         algorithm = "md5"
 
     try:
-        db_path = fetch_database(
-            args.source,
-            name=args.name,
-            cache_dir=args.cache_dir,
-            expected_hash=expected_hash,
-            hash_algorithm=algorithm,
-        )
+        # Handle "prackendb" as a special convenience source
+        if args.source.lower() == "prackendb":
+            db_path = fetch_prackendb(
+                cache_dir=args.cache_dir,
+                expected_hash=expected_hash,
+                hash_algorithm=algorithm,
+            )
+        else:
+            db_path = fetch_database(
+                args.source,
+                name=args.name,
+                cache_dir=args.cache_dir,
+                expected_hash=expected_hash,
+                hash_algorithm=algorithm,
+            )
+            # Emit warning for non-PrackenDB databases
+            if not is_prackendb(db_path):
+                from csc.classify.db import _NON_PRACKENDB_WARNING
+
+                log.warning(_NON_PRACKENDB_WARNING)
+
+        # Report taxonomy status
+        tax = validate_taxonomy(db_path)
+        for relpath, present in tax.items():
+            status = "OK" if present else "MISSING"
+            print(f"  Taxonomy: {relpath} [{status}]")
+
         print(f"Database ready: {db_path}")
         return 0
     except Exception as exc:
@@ -177,11 +212,21 @@ def _cmd_verify(args: argparse.Namespace, log: logging.Logger) -> int:
     try:
         db = validate_database(args.path)
         info = database_info(db)
+        pracken = is_prackendb(db)
         print(f"Valid Kraken2 database: {db}")
+        print(f"  PrackenDB-compatible: {'yes' if pracken else 'no'}")
         print(f"  Files: {len(info['files'])}")
         print(f"  Total size: {info['total_size_bytes']} bytes")
+        tax = validate_taxonomy(db)
+        for relpath, present in tax.items():
+            status = "OK" if present else "MISSING"
+            print(f"  Taxonomy: {relpath} [{status}]")
         for fname, digest in info["sha256"].items():
             print(f"  {fname}: sha256:{digest}")
+        if not pracken:
+            from csc.classify.db import _NON_PRACKENDB_WARNING
+
+            log.warning(_NON_PRACKENDB_WARNING)
         return 0
     except (FileNotFoundError, ValueError) as exc:
         log.error("Verification failed: %s", exc)
@@ -195,12 +240,23 @@ def _cmd_info(args: argparse.Namespace, log: logging.Logger) -> int:
         log.error("Info failed: %s", exc)
         return 1
 
+    # Enrich with taxonomy/PrackenDB data
+    db = Path(args.path).resolve()
+    tax = validate_taxonomy(db) if db.is_dir() else {}
+    pracken = is_prackendb(db) if db.is_dir() else False
+    info["taxonomy"] = tax
+    info["prackendb_compatible"] = pracken
+
     if getattr(args, "json_output", False):
         print(json.dumps(info, indent=2, default=str))
     else:
         print(f"Database: {info['path']}")
         print(f"  Valid: {info['valid']}")
+        print(f"  PrackenDB-compatible: {'yes' if pracken else 'no'}")
         print(f"  Total size: {info['total_size_bytes']} bytes")
+        for relpath, present in tax.items():
+            status = "OK" if present else "MISSING"
+            print(f"  Taxonomy: {relpath} [{status}]")
         for fname, size in info["files"].items():
             digest = info["sha256"].get(fname, "n/a")
             print(f"  {fname}: {size} bytes (sha256:{digest})")
