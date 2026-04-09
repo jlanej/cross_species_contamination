@@ -25,6 +25,7 @@ from csc.aggregate.aggregate import (
     VALID_RANK_CODES,
     aggregate_reports,
     parse_kraken2_report,
+    rank_matrix_filename,
     sample_id_from_report,
 )
 
@@ -35,5 +36,6 @@ __all__ = [
     "VALID_RANK_CODES",
     "aggregate_reports",
     "parse_kraken2_report",
+    "rank_matrix_filename",
     "sample_id_from_report",
 ]

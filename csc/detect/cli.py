@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 from csc import __version__
-from csc.aggregate.aggregate import DEFAULT_RANK_FILTER
+from csc.aggregate.aggregate import DEFAULT_RANK_FILTER, rank_matrix_filename
 from csc.detect.detect import detect_outliers
 from csc.detect.report import generate_report
 from csc.utils import setup_logging
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         # Run on per-rank filtered matrices when available
         matrix_dir = args.matrix.parent
         for rank in args.rank_filter:
-            rank_matrix = matrix_dir / f"taxa_matrix_{rank}.tsv"
+            rank_matrix = matrix_dir / rank_matrix_filename(rank)
             if not rank_matrix.exists():
                 log.info(
                     "No rank-%s matrix found at %s, skipping", rank, rank_matrix

@@ -572,6 +572,13 @@ class TestRankFilter:
         for code in DEFAULT_RANK_FILTER:
             assert code in VALID_RANK_CODES
 
+    def test_invalid_rank_code_raises(self, basic_report: Path, tmp_path: Path) -> None:
+        """An invalid rank code should raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid rank code"):
+            aggregate_reports(
+                [basic_report], tmp_path / "out", rank_filter=("X",)
+            )
+
     def test_rank_matrices_produced(self, report_dir: Path, tmp_path: Path) -> None:
         """Per-rank matrices are created for ranks present in the data."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))

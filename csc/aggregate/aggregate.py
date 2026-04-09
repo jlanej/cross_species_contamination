@@ -69,6 +69,11 @@ VALID_RANK_CODES = ("U", "R", "D", "P", "C", "O", "F", "G", "S")
 DEFAULT_RANK_FILTER: tuple[str, ...] = ("S", "G", "F")
 
 
+def rank_matrix_filename(rank: str) -> str:
+    """Return the canonical filename for a rank-filtered matrix."""
+    return f"taxa_matrix_{rank}.tsv"
+
+
 # ---- Parsing -----------------------------------------------------------------
 
 
@@ -219,6 +224,12 @@ def aggregate_reports(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rank_filter = tuple(rank_filter)
+    invalid = [r for r in rank_filter if r not in VALID_RANK_CODES]
+    if invalid:
+        raise ValueError(
+            f"Invalid rank code(s): {invalid}. "
+            f"Valid codes are: {VALID_RANK_CODES}"
+        )
 
     # Accumulate per-sample data: {sample_id: {tax_id: count}}
     sample_data: dict[str, dict[int, int]] = {}
@@ -286,7 +297,7 @@ def aggregate_reports(
         if not rank_taxa:
             logger.info("Rank '%s': no taxa found, skipping matrix", rank)
             continue
-        rank_path = output_dir / f"taxa_matrix_{rank}.tsv"
+        rank_path = output_dir / rank_matrix_filename(rank)
         _write_matrix(
             rank_path,
             sample_ids=sample_ids,
