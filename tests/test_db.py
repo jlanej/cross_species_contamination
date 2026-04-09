@@ -592,7 +592,7 @@ class TestIsPrackenDB:
 class TestPrackenDBConstants:
     def test_prackendb_url_is_https(self) -> None:
         assert PRACKENDB_URL.startswith("https://")
-        assert "genome-idx.s3.amazonaws.com" in PRACKENDB_URL
+        assert PRACKENDB_URL.startswith("https://genome-idx.s3.amazonaws.com/")
 
     def test_prackendb_name(self) -> None:
         assert PRACKENDB_NAME == "prackendb"
@@ -652,10 +652,12 @@ class TestFetchPrackenDB:
             result = fetch_prackendb(cache_dir=cache)
             # Should have warned about missing taxonomy files
             warning_calls = [
-                c for c in mock_logger.warning.call_args_list
+                str(c) for c in mock_logger.warning.call_args_list
                 if "taxonomy file not found" in str(c)
             ]
             assert len(warning_calls) == 2  # nodes.dmp and names.dmp
+            assert any("nodes.dmp" in w for w in warning_calls)
+            assert any("names.dmp" in w for w in warning_calls)
 
     @mock.patch("csc.classify.db._download_http")
     def test_cli_fetch_prackendb(
