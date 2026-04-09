@@ -156,6 +156,56 @@ The per-read output file has columns:
 
 ## Kraken2 Databases
 
+### Recommended: PrackenDB
+
+**PrackenDB** is the recommended Kraken2 database for the CSC pipeline.  It is
+a curated, pre-built database published by the Kraken2 project containing one
+NCBI reference genome per species — bacteria, archaea, fungi, protists,
+viruses, human, and UniVec Core.
+
+**Why PrackenDB?**
+
+- **Unambiguous species-level detection:** Because each species contributes
+  exactly one reference genome, k-mer counts are unambiguous and LCA
+  assignments are not inflated by redundant genomes.
+- **Robust contamination detection:** Avoids false positives from shared k-mers
+  between redundant reference genomes of the same species.
+- **Taxonomy files included:** PrackenDB includes `taxonomy/nodes.dmp` and
+  `taxonomy/names.dmp`, enabling lineage-aware classification (e.g. tracing a
+  species taxid to its domain) and human-readable taxon names.
+- **Comparable with KDF:** Results are directly comparable with the
+  [kmer_denovo_filter](https://github.com/jlanej/kmer_denovo_filter) pipeline.
+
+See the [KDF PrackenDB documentation](https://github.com/jlanej/kmer_denovo_filter/blob/main/docs/kraken2_bacterial_detection.md#the-prackendb-reference-database)
+for full details on why single-genome-per-species databases matter.
+
+```bash
+# Fetch PrackenDB (recommended)
+csc-db fetch prackendb
+
+# Verify taxonomy files
+csc-db verify /path/to/prackendb
+```
+
+```python
+from csc.classify import fetch_prackendb, is_prackendb, validate_taxonomy
+
+# Fetch PrackenDB
+db_path = fetch_prackendb()
+
+# Check PrackenDB compatibility
+assert is_prackendb(db_path)
+
+# Verify taxonomy files
+tax = validate_taxonomy(db_path)
+assert tax["taxonomy/nodes.dmp"]
+assert tax["taxonomy/names.dmp"]
+```
+
+> **Warning:** If you use a non-PrackenDB database, the pipeline will emit a
+> warning about possible species-level ambiguity.  This does not prevent
+> execution, but results may be less reliable for species-level detection.
+
 ### Required Database Files
 
 A valid Kraken2 database directory must contain:
@@ -166,21 +216,20 @@ A valid Kraken2 database directory must contain:
 
 ### Public Databases
 
-Recommended pre-built databases from
+Pre-built databases from
 [Ben Langmead's index zone](https://benlangmead.github.io/aws-indexes/k2):
 
 | Database | Size | Description |
 |----------|------|-------------|
-| **PlusPF** | ~70 GB | Standard + protozoa + fungi (recommended) |
+| **PrackenDB** | ~70 GB | **Recommended.** One genome per species (bacteria, archaea, fungi, protists, viruses, human, UniVec Core) |
+| **PlusPF** | ~70 GB | Standard + protozoa + fungi (multiple genomes per species) |
 | **Standard** | ~50 GB | RefSeq archaea, bacteria, viral, plasmid, human, UniVec_Core |
 | **PlusPFP** | ~150 GB | PlusPF + plant |
 | **Standard-8** | ~8 GB | Standard capped at 8 GB |
 
 ```bash
-# Download example (PlusPF, latest)
-wget https://genome-idx.s3.amazonaws.com/kraken/k2_pluspf_20240605.tar.gz
-mkdir -p /data/kraken2/PlusPF
-tar -xzf k2_pluspf_20240605.tar.gz -C /data/kraken2/PlusPF
+# Download PrackenDB (recommended)
+csc-db fetch prackendb
 ```
 
 ### Custom Databases
@@ -207,6 +256,7 @@ classify:
   confidence: 0.0            # minimum confidence threshold
   threads: 1
   memory_mapping: false      # use memory mapping instead of loading DB into RAM
+  recommended_db: "prackendb"  # recommended: PrackenDB (one genome per species)
 ```
 
 Override via a user config file:

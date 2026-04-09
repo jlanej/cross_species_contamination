@@ -12,11 +12,16 @@ extract:
 
 classify:
   tool: "kraken2"            # taxonomic classifier to use
-  db: null                   # path to classifier database
+  db: null                   # path to classifier database (see recommended_db below)
   confidence: 0.0            # minimum confidence threshold
   threads: 1
   memory_mapping: false      # use memory mapping instead of loading DB into RAM
   db_cache: null             # cache directory for downloaded DBs (default: ~/.csc/db)
+  # PrackenDB is recommended: one genome per species (bacteria, archaea, fungi,
+  # protists, viruses, human, UniVec Core).  This avoids inflated LCA
+  # assignments from redundant genomes and enables robust species-level
+  # detection.  Fetch with: csc-db fetch prackendb
+  recommended_db: "prackendb"
 
 aggregate:
   min_reads: 10              # minimum reads to include a taxon in aggregation
