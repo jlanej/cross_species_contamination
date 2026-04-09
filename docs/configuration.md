@@ -38,6 +38,7 @@ classify:
   db: null
   confidence: 0.0
   threads: 1
+  recommended_db: "prackendb"
 
 aggregate:
   min_reads: 10

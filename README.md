@@ -40,7 +40,10 @@ pip install ".[test]"
 ```
 
 Requires **samtools ≥ 1.12** on `PATH`.  
-For classification, requires **Kraken2** on `PATH` and a Kraken2 database.
+For classification, requires **Kraken2** on `PATH` and a Kraken2 database.  
+**Recommended:** [PrackenDB](https://ccb.jhu.edu/software/kraken2/index.shtml?t=downloads) —
+a curated database with one genome per species for robust species-level detection
+(see [Kraken2 Database Management](#kraken2-database-management)).
 
 ### Basic Usage
 
@@ -82,7 +85,19 @@ The `csc-db` CLI manages Kraken2 database downloads, caching, and verification.
 Databases are cached in `~/.csc/db` by default (override with `--cache-dir` or
 the `CSC_DB_CACHE` environment variable).
 
+> **Recommended:** Use **PrackenDB** — a curated Kraken2 database containing one
+> NCBI reference genome per species (bacteria, archaea, fungi, protists, viruses,
+> human, and UniVec Core).  Because each species contributes exactly one reference,
+> k-mer counts are unambiguous and LCA assignments are not inflated by redundant
+> genomes.  This is essential for robust species-level contamination detection.
+>
+> See the [KDF PrackenDB documentation](https://github.com/jlanej/kmer_denovo_filter/blob/main/docs/kraken2_bacterial_detection.md#the-prackendb-reference-database)
+> for details on why single-genome-per-species matters.
+
 ```bash
+# Fetch the recommended PrackenDB database (one genome per species)
+csc-db fetch prackendb
+
 # Fetch a database from a public URL
 csc-db fetch https://genome-idx.s3.amazonaws.com/kraken/k2_standard_08gb_20240605.tar.gz
 
@@ -131,9 +146,22 @@ csc-db fetch /shared/kraken2/PlusPF --name PlusPF
 #### Python API
 
 ```python
-from csc.classify import fetch_database, database_info, list_databases
+from csc.classify import (
+    fetch_database, fetch_prackendb, database_info,
+    list_databases, is_prackendb, validate_taxonomy,
+)
 
-# Download and cache a database
+# Download and cache PrackenDB (recommended)
+db_path = fetch_prackendb()
+
+# Check taxonomy files
+tax = validate_taxonomy(db_path)
+print(tax)  # {'taxonomy/nodes.dmp': True, 'taxonomy/names.dmp': True}
+
+# Check if a database is PrackenDB-compatible
+print(is_prackendb(db_path))  # True
+
+# Download and cache a database from URL
 db_path = fetch_database(
     "https://example.com/k2_standard.tar.gz",
     name="standard",
@@ -272,6 +300,11 @@ python tests/generate_test_data.py /tmp/test_data
 | `test_db.py::TestCleanCache` | Cache cleanup (specific and all) |
 | `test_db.py::TestDatabaseInfo` | DB metadata and SHA-256 reporting |
 | `test_db.py::TestDBCLI` | csc-db CLI entry-point and subcommands |
+| `test_db.py::TestValidateTaxonomy` | Taxonomy file validation (nodes.dmp, names.dmp) |
+| `test_db.py::TestIsPrackenDB` | PrackenDB detection heuristic |
+| `test_db.py::TestPrackenDBConstants` | PrackenDB constants and URL verification |
+| `test_db.py::TestFetchPrackenDB` | PrackenDB fetch with taxonomy validation |
+| `test_db.py::TestConfigRecommendedDB` | Default config recommends PrackenDB |
 | `test_config.py` | Config loading, merging, env-var override, error handling |
 
 ## Project Structure
