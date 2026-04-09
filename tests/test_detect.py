@@ -558,3 +558,122 @@ class TestPipelineIntegration:
             qc = json.load(fh)
         assert qc["total_samples"] == 5
         assert qc["flagged_count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Rank-filter tests for detect CLI
+# ---------------------------------------------------------------------------
+
+class TestRankFilterDetect:
+    """Tests for --rank-filter in csc-detect CLI."""
+
+    def test_cli_rank_filter_with_rank_matrices(self, tmp_path: Path) -> None:
+        """When rank-filtered matrices exist, detect should process them."""
+        from csc.detect.cli import main
+
+        # Write a main matrix (mixed ranks)
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        rows = [
+            ["1279", "Staphylococcus", "100", "105", "98", "102", "101"],
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+            ["2", "Bacteria", "800", "810", "795", "805", "798"],
+        ]
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        _write_matrix(matrix_dir / "taxa_matrix.tsv", header, rows)
+
+        # Write a species-only matrix
+        species_rows = [
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        _write_matrix(matrix_dir / "taxa_matrix_S.tsv", header, species_rows)
+
+        out = tmp_path / "detect_out"
+        rc = main([
+            str(matrix_dir / "taxa_matrix.tsv"),
+            "-o", str(out),
+            "--rank-filter", "S",
+        ])
+        assert rc == 0
+
+        # Per-rank outputs should exist
+        assert (out / "S" / "flagged_samples.tsv").exists()
+        assert (out / "S" / "qc_summary.json").exists()
+        assert (out / "S" / "quarantine_list.txt").exists()
+
+        # Primary (unfiltered) outputs should also exist
+        assert (out / "flagged_samples.tsv").exists()
+
+    def test_cli_rank_filter_no_rank_matrices(self, tmp_path: Path) -> None:
+        """When no rank matrices exist, detection still runs on main matrix."""
+        from csc.detect.cli import main
+
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        rows = [
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        _write_matrix(matrix_dir / "taxa_matrix.tsv", header, rows)
+
+        out = tmp_path / "detect_out"
+        rc = main([
+            str(matrix_dir / "taxa_matrix.tsv"),
+            "-o", str(out),
+            "--rank-filter", "S", "G",
+        ])
+        assert rc == 0
+
+        # Main output should exist
+        assert (out / "flagged_samples.tsv").exists()
+        # No per-rank subdirs since no rank matrices exist
+        assert not (out / "S").exists()
+        assert not (out / "G").exists()
+
+    def test_aggregate_detect_rank_pipeline(self, tmp_path: Path) -> None:
+        """End-to-end: aggregate with rank filter → detect on rank matrices."""
+        from csc.aggregate.aggregate import aggregate_reports
+        from csc.detect.cli import main as detect_main
+
+        # Create reports with multiple rank levels
+        d = tmp_path / "reports"
+        d.mkdir()
+        for sid in ("s1", "s2", "s3", "s4", "s5"):
+            # s5 gets a spike in E. coli (species level)
+            ecoli_reads = "5000" if sid == "s5" else "50"
+            (d / f"{sid}.kraken2.report.txt").write_text(
+                "60.00\t600\t200\tU\t0\tunclassified\n"
+                "40.00\t400\t50\tR\t1\troot\n"
+                "20.00\t200\t100\tD\t2\tBacteria\n"
+                "10.00\t100\t80\tG\t1279\tStaphylococcus\n"
+                f"5.00\t50\t{ecoli_reads}\tS\t562\tEscherichia coli\n"
+                "5.00\t50\t50\tS\t1280\tStaphylococcus aureus\n"
+            )
+
+        agg_out = tmp_path / "agg_out"
+        agg_result = aggregate_reports(
+            sorted(d.glob("*.kraken2.report.txt")),
+            agg_out,
+            normalize=False,
+            rank_filter=("S", "G"),
+        )
+
+        # Species matrix should exist
+        assert "S" in agg_result["rank_matrices"]
+        assert agg_result["rank_matrices"]["S"].exists()
+
+        # Run detect with rank filter
+        detect_out = tmp_path / "detect_out"
+        rc = detect_main([
+            str(agg_result["matrix_path"]),
+            "-o", str(detect_out),
+            "--rank-filter", "S", "G",
+        ])
+        assert rc == 0
+
+        # Species-level detection should flag s5
+        assert (detect_out / "S" / "flagged_samples.tsv").exists()
+        with open(detect_out / "S" / "qc_summary.json") as fh:
+            qc = json.load(fh)
+        # Species matrix should only have S-rank taxa
+        assert qc["total_taxa_analysed"] == 2  # E. coli + S. aureus

@@ -69,9 +69,20 @@ csc-detect results/taxa_matrix.tsv -o results/detect/ --kitome-taxa 9606 562
 # Skip population-background subtraction
 csc-detect results/taxa_matrix.tsv -o results/detect/ --no-subtract-background
 
+# Run detection on species-only matrix (auto-discovers taxa_matrix_S.tsv)
+csc-detect results/taxa_matrix.tsv -o results/detect/ --rank-filter S
+
+# Run detection on species and genus matrices
+csc-detect results/taxa_matrix.tsv -o results/detect/ --rank-filter S G F
+
 # Verbose + JSON logging
 csc-detect results/taxa_matrix.tsv -o results/detect/ -v --json-log
 ```
+
+When `--rank-filter` is specified (default: S G F), the tool looks for
+per-rank matrices (e.g. `taxa_matrix_S.tsv`) in the same directory as
+the input matrix.  Results for each rank are written to subdirectories
+(e.g. `results/detect/S/`, `results/detect/G/`).
 
 ## Output Files
 

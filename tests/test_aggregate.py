@@ -17,7 +17,9 @@ import pytest
 
 from csc.aggregate.aggregate import (
     AggregationResult,
+    DEFAULT_RANK_FILTER,
     TaxonRecord,
+    VALID_RANK_CODES,
     aggregate_reports,
     parse_kraken2_report,
     sample_id_from_report,
@@ -554,6 +556,175 @@ class TestPipelineIntegration:
             header = fh.readline().strip().split("\t")
         assert "SAMPLE_001" in header
         assert "SAMPLE_002" in header
+
+
+# ---------------------------------------------------------------------------
+# Rank filter tests
+# ---------------------------------------------------------------------------
+
+class TestRankFilter:
+    """Tests for the rank_filter parameter of aggregate_reports."""
+
+    def test_default_rank_filter(self) -> None:
+        assert DEFAULT_RANK_FILTER == ("S", "G", "F")
+
+    def test_valid_rank_codes_contains_defaults(self) -> None:
+        for code in DEFAULT_RANK_FILTER:
+            assert code in VALID_RANK_CODES
+
+    def test_rank_matrices_produced(self, report_dir: Path, tmp_path: Path) -> None:
+        """Per-rank matrices are created for ranks present in the data."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(reports, out, normalize=False)
+
+        # The report_dir fixture has S, G, D ranks present
+        assert "S" in result["rank_matrices"]
+        assert result["rank_matrices"]["S"].exists()
+
+        # The unfiltered matrix should still exist
+        assert result["matrix_path"].exists()
+
+    def test_rank_matrix_contains_only_matching_rank(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """The species-only matrix should contain only S-rank taxa."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(reports, out, normalize=False)
+
+        if "S" not in result["rank_matrices"]:
+            pytest.skip("No species-rank taxa in fixture")
+
+        # Read the species matrix
+        rows = _read_matrix(result["rank_matrices"]["S"])
+        # All rows should correspond to taxa that were S in the reports
+        assert len(rows) > 0
+        # Verify that the species matrix has fewer rows than the full matrix
+        full_rows = _read_matrix(result["matrix_path"])
+        assert len(rows) < len(full_rows)
+
+    def test_rank_filter_metadata_sidecar(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """The rank_filter_metadata.json sidecar should be written."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(reports, out, normalize=False)
+
+        assert result["rank_metadata_path"].exists()
+
+        with open(result["rank_metadata_path"]) as fh:
+            meta = json.load(fh)
+
+        assert "rank_filter" in meta
+        assert meta["rank_filter"] == list(DEFAULT_RANK_FILTER)
+        assert "ranks" in meta
+
+        # Ranks that have matrices should be present
+        for rank, info in meta["ranks"].items():
+            assert "matrix_path" in info
+            assert "taxon_count" in info
+            assert "taxa" in info
+            assert info["taxon_count"] == len(info["taxa"])
+
+    def test_rank_filter_in_aggregation_metadata(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """The aggregation_metadata.json should include rank_filter."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(reports, out, normalize=False)
+
+        with open(result["metadata_path"]) as fh:
+            meta = json.load(fh)
+
+        assert "rank_filter" in meta
+        assert meta["rank_filter"] == list(DEFAULT_RANK_FILTER)
+
+    def test_custom_rank_filter(self, report_dir: Path, tmp_path: Path) -> None:
+        """A custom rank_filter should produce only the requested ranks."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(
+            reports, out, normalize=False, rank_filter=("D",)
+        )
+
+        # D (domain) should be in rank_matrices if Bacteria is present
+        assert "D" in result["rank_matrices"]
+        assert "S" not in result["rank_matrices"]
+        assert "G" not in result["rank_matrices"]
+
+    def test_empty_rank_filter(self, report_dir: Path, tmp_path: Path) -> None:
+        """An empty rank_filter should produce no rank matrices."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(
+            reports, out, normalize=False, rank_filter=()
+        )
+
+        assert result["rank_matrices"] == {}
+        # Unfiltered matrix should still exist
+        assert result["matrix_path"].exists()
+
+    def test_rank_filter_with_no_matching_taxa(
+        self, tmp_path: Path
+    ) -> None:
+        """A rank filter for a rank with no taxa should produce no matrix."""
+        f = tmp_path / "only_species.kraken2.report.txt"
+        f.write_text("100.00\t500\t500\tS\t562\tEscherichia coli\n")
+        out = tmp_path / "out"
+        result = aggregate_reports(
+            [f], out, normalize=False, rank_filter=("G",)
+        )
+
+        # No genus-rank taxa exist, so no G matrix
+        assert "G" not in result["rank_matrices"]
+
+    def test_rank_matrix_values_match_full_matrix(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """Values in rank-filtered matrices should match the unfiltered matrix."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        out = tmp_path / "out"
+        result = aggregate_reports(reports, out, normalize=False)
+
+        full_rows = _read_matrix(result["matrix_path"])
+        full_by_tid = {r["tax_id"]: r for r in full_rows}
+
+        for rank, rank_path in result["rank_matrices"].items():
+            rank_rows = _read_matrix(rank_path)
+            for rrow in rank_rows:
+                tid = rrow["tax_id"]
+                assert tid in full_by_tid
+                assert rrow["values"] == full_by_tid[tid]["values"]
+
+    def test_cli_rank_filter(self, basic_report: Path, tmp_path: Path) -> None:
+        from csc.aggregate.cli import main
+
+        rc = main([
+            str(basic_report),
+            "-o", str(tmp_path / "cli_out"),
+            "--rank-filter", "S",
+        ])
+        assert rc == 0
+        assert (tmp_path / "cli_out" / "taxa_matrix.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_S.tsv").exists()
+        assert not (tmp_path / "cli_out" / "taxa_matrix_G.tsv").exists()
+
+    def test_cli_rank_filter_multiple(
+        self, basic_report: Path, tmp_path: Path
+    ) -> None:
+        from csc.aggregate.cli import main
+
+        rc = main([
+            str(basic_report),
+            "-o", str(tmp_path / "cli_out"),
+            "--rank-filter", "S", "G",
+        ])
+        assert rc == 0
+        assert (tmp_path / "cli_out" / "taxa_matrix_S.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_G.tsv").exists()
 
 
 # ---------------------------------------------------------------------------
