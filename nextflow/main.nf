@@ -55,6 +55,7 @@ params.classify_time   = '4h'
 // Aggregate
 params.min_reads       = 0
 params.no_normalize    = false
+params.rank_filter     = 'S G F'
 params.aggregate_cpus   = 2
 params.aggregate_memory = '4 GB'
 params.aggregate_time   = '1h'

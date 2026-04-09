@@ -19,17 +19,21 @@ process AGGREGATE_REPORTS {
     path(reports)
 
     output:
-    path("taxa_matrix.tsv"),           emit: matrix
-    path("aggregation_metadata.json"), emit: metadata
+    path("taxa_matrix.tsv"),              emit: matrix
+    path("taxa_matrix_*.tsv"),            emit: rank_matrices, optional: true
+    path("aggregation_metadata.json"),    emit: metadata
+    path("rank_filter_metadata.json"),    emit: rank_metadata
 
     script:
     def norm_arg      = params.no_normalize ? '--no-normalize' : ''
     def min_reads_arg = params.min_reads ? "--min-reads ${params.min_reads}" : ''
+    def rank_arg      = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
     """
     csc-aggregate \\
         ${reports} \\
         -o . \\
         ${min_reads_arg} \\
-        ${norm_arg}
+        ${norm_arg} \\
+        ${rank_arg}
     """
 }

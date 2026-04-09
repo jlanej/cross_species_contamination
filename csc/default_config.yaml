@@ -25,6 +25,10 @@ classify:
 
 aggregate:
   min_reads: 10              # minimum reads to include a taxon in aggregation
+  rank_filter:               # taxonomy ranks for per-rank matrices (default: S, G, F)
+    - "S"                    # species
+    - "G"                    # genus
+    - "F"                    # family
 
 detect:
   method: "mad"              # outlier detection method: "mad" or "iqr"

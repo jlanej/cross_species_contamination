@@ -58,6 +58,15 @@ class AggregationResult(TypedDict):
     metadata_path: Path
     sample_count: int
     taxon_count: int
+    rank_matrices: dict[str, Path]
+    rank_metadata_path: Path
+
+
+# Valid Kraken2 rank codes.
+VALID_RANK_CODES = ("U", "R", "D", "P", "C", "O", "F", "G", "S")
+
+# Default ranks for which per-rank filtered matrices are produced.
+DEFAULT_RANK_FILTER: tuple[str, ...] = ("S", "G", "F")
 
 
 # ---- Parsing -----------------------------------------------------------------
@@ -158,6 +167,7 @@ def aggregate_reports(
     min_reads: int = 0,
     normalize: bool = True,
     chunk_size: int = 500,
+    rank_filter: tuple[str, ...] | list[str] = DEFAULT_RANK_FILTER,
 ) -> AggregationResult:
     """Build a sample-by-taxon matrix from Kraken2 reports.
 
@@ -168,6 +178,11 @@ def aggregate_reports(
 
     Processing is chunked so that memory stays bounded even for very
     large cohorts.
+
+    In addition to the unfiltered matrix, per-rank filtered matrices are
+    written for each rank code in *rank_filter* (e.g. ``taxa_matrix_S.tsv``
+    for species).  A sidecar ``rank_filter_metadata.json`` records which
+    taxa were retained in each rank.
 
     Parameters
     ----------
@@ -182,6 +197,9 @@ def aggregate_reports(
     chunk_size:
         Number of reports to process before flushing intermediate state.
         Helps keep memory bounded for very large cohorts.
+    rank_filter:
+        Taxonomy rank codes for which per-rank matrices are produced.
+        Defaults to ``("S", "G", "F")`` (species, genus, family).
 
     Returns
     -------
@@ -200,10 +218,14 @@ def aggregate_reports(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    rank_filter = tuple(rank_filter)
+
     # Accumulate per-sample data: {sample_id: {tax_id: count}}
     sample_data: dict[str, dict[int, int]] = {}
     # Map tax_id -> scientific name (last one wins; should be consistent)
     tax_names: dict[int, str] = {}
+    # Map tax_id -> rank code (last one wins; should be consistent)
+    tax_ranks: dict[int, str] = {}
     # Track errors
     errors: list[dict[str, str]] = []
 
@@ -224,6 +246,7 @@ def aggregate_reports(
         for rec in records:
             if rec["direct_reads"] >= min_reads:
                 tax_names[rec["tax_id"]] = rec["name"]
+                tax_ranks[rec["tax_id"]] = rec["rank"]
 
         if (i + 1) % chunk_size == 0:
             logger.info("Processed %d / %d reports", i + 1, len(resolved))
@@ -243,7 +266,7 @@ def aggregate_reports(
     for sid in sample_ids:
         sample_totals[sid] = sum(sample_data[sid].values())
 
-    # Write the matrix
+    # Write the unfiltered matrix
     matrix_path = output_dir / "taxa_matrix.tsv"
     _write_matrix(
         matrix_path,
@@ -255,6 +278,46 @@ def aggregate_reports(
         normalize=normalize,
     )
 
+    # Write per-rank filtered matrices
+    rank_matrices: dict[str, Path] = {}
+    rank_sidecar: dict[str, Any] = {}
+    for rank in rank_filter:
+        rank_taxa = [t for t in all_taxa if tax_ranks.get(t) == rank]
+        if not rank_taxa:
+            logger.info("Rank '%s': no taxa found, skipping matrix", rank)
+            continue
+        rank_path = output_dir / f"taxa_matrix_{rank}.tsv"
+        _write_matrix(
+            rank_path,
+            sample_ids=sample_ids,
+            all_taxa=rank_taxa,
+            tax_names=tax_names,
+            sample_data=sample_data,
+            sample_totals=sample_totals,
+            normalize=normalize,
+        )
+        rank_matrices[rank] = rank_path
+        rank_sidecar[rank] = {
+            "matrix_path": str(rank_path),
+            "taxon_count": len(rank_taxa),
+            "taxa": [
+                {"tax_id": t, "name": tax_names.get(t, "")}
+                for t in rank_taxa
+            ],
+        }
+        logger.info(
+            "Rank '%s': wrote %d taxa to %s", rank, len(rank_taxa), rank_path
+        )
+
+    # Write rank-filter metadata sidecar
+    rank_metadata_path = output_dir / "rank_filter_metadata.json"
+    rank_meta_doc: dict[str, Any] = {
+        "rank_filter": list(rank_filter),
+        "ranks": rank_sidecar,
+    }
+    with open(rank_metadata_path, "w") as fh:
+        json.dump(rank_meta_doc, fh, indent=2)
+
     # Write metadata
     metadata_path = output_dir / "aggregation_metadata.json"
     meta: dict[str, Any] = {
@@ -263,6 +326,7 @@ def aggregate_reports(
         "min_reads": min_reads,
         "normalized": normalize,
         "normalization_method": "CPM" if normalize else "raw",
+        "rank_filter": list(rank_filter),
         "samples": sample_ids,
         "errors": errors,
     }
@@ -274,6 +338,8 @@ def aggregate_reports(
         metadata_path=metadata_path,
         sample_count=len(sample_ids),
         taxon_count=len(all_taxa),
+        rank_matrices=rank_matrices,
+        rank_metadata_path=rank_metadata_path,
     )
 
 

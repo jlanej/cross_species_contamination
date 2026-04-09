@@ -4,6 +4,11 @@
   "min_reads": 0,
   "normalized": false,
   "normalization_method": "raw",
+  "rank_filter": [
+    "S",
+    "G",
+    "F"
+  ],
   "samples": [
     "sampleA",
     "sampleB"

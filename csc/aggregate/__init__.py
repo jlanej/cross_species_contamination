@@ -20,7 +20,9 @@ TaxonRecord
 
 from csc.aggregate.aggregate import (
     AggregationResult,
+    DEFAULT_RANK_FILTER,
     TaxonRecord,
+    VALID_RANK_CODES,
     aggregate_reports,
     parse_kraken2_report,
     sample_id_from_report,
@@ -28,7 +30,9 @@ from csc.aggregate.aggregate import (
 
 __all__ = [
     "AggregationResult",
+    "DEFAULT_RANK_FILTER",
     "TaxonRecord",
+    "VALID_RANK_CODES",
     "aggregate_reports",
     "parse_kraken2_report",
     "sample_id_from_report",

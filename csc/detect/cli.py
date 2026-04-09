@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 from csc import __version__
+from csc.aggregate.aggregate import DEFAULT_RANK_FILTER
 from csc.detect.detect import detect_outliers
 from csc.detect.report import generate_report
 from csc.utils import setup_logging
@@ -97,6 +98,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Skip population-mean subtraction before outlier detection.",
     )
     parser.add_argument(
+        "--rank-filter",
+        nargs="+",
+        default=list(DEFAULT_RANK_FILTER),
+        metavar="RANK",
+        help=(
+            "Taxonomy rank codes to run detection on (default: S G F).  "
+            "For each rank, the tool looks for a rank-filtered matrix "
+            "(e.g. taxa_matrix_S.tsv) next to the input matrix.  Results "
+            "are written to per-rank subdirectories."
+        ),
+    )
+    parser.add_argument(
         "--json-log",
         action="store_true",
         help="Emit structured JSON log lines instead of human-readable text.",
@@ -135,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
+        # Always run on the primary (unfiltered) matrix
         result = detect_outliers(
             args.matrix,
             method=args.method,
@@ -155,6 +169,36 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  reports: {args.output_dir}")
         for name, p in reports.items():
             print(f"    {name}: {p}")
+
+        # Run on per-rank filtered matrices when available
+        matrix_dir = args.matrix.parent
+        for rank in args.rank_filter:
+            rank_matrix = matrix_dir / f"taxa_matrix_{rank}.tsv"
+            if not rank_matrix.exists():
+                log.info(
+                    "No rank-%s matrix found at %s, skipping", rank, rank_matrix
+                )
+                continue
+
+            rank_result = detect_outliers(
+                rank_matrix,
+                method=args.method,
+                mad_threshold=args.mad_threshold,
+                iqr_multiplier=args.iqr_multiplier,
+                kitome_taxa=args.kitome_taxa,
+                subtract_background=not args.no_subtract_background,
+            )
+
+            rank_out = args.output_dir / rank
+            rank_reports = generate_report(rank_result, rank_out)
+
+            rank_summary = rank_result["summary"]
+            print(f"  rank {rank}:")
+            print(f"    taxa analysed: {rank_summary['total_taxa_analysed']}")
+            print(f"    flags raised: {rank_summary['flagged_count']}")
+            for name, p in rank_reports.items():
+                print(f"    {name}: {p}")
+
         return 0
 
     except Exception as exc:
