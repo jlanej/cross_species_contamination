@@ -29,6 +29,7 @@ process DETECT_OUTLIERS {
     def iqr_arg       = params.iqr_multiplier ? "--iqr-multiplier ${params.iqr_multiplier}" : ''
     def kitome_arg    = params.kitome_taxa ? "--kitome-taxa ${params.kitome_taxa}" : ''
     def bg_arg        = params.no_subtract_background ? '--no-subtract-background' : ''
+    def rank_arg      = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
     """
     csc-detect \\
         ${matrix} \\
@@ -37,6 +38,7 @@ process DETECT_OUTLIERS {
         ${mad_arg} \\
         ${iqr_arg} \\
         ${kitome_arg} \\
-        ${bg_arg}
+        ${bg_arg} \\
+        ${rank_arg}
     """
 }

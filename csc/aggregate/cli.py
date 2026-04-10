@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 from csc import __version__
-from csc.aggregate.aggregate import aggregate_reports
+from csc.aggregate.aggregate import DEFAULT_RANK_FILTER, aggregate_reports
 from csc.utils import setup_logging
 
 
@@ -84,6 +84,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--rank-filter",
+        nargs="+",
+        default=list(DEFAULT_RANK_FILTER),
+        metavar="RANK",
+        help=(
+            "Taxonomy rank codes for which per-rank filtered matrices "
+            "are produced (default: S G F).  Common codes: S (species), "
+            "G (genus), F (family), D (domain)."
+        ),
+    )
+    parser.add_argument(
         "--json-log",
         action="store_true",
         help="Emit structured JSON log lines instead of human-readable text.",
@@ -133,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             min_reads=args.min_reads,
             normalize=not args.no_normalize,
             chunk_size=args.chunk_size,
+            rank_filter=tuple(args.rank_filter),
         )
         print(f"  matrix: {result['matrix_path']}")
         print(f"  metadata: {result['metadata_path']}")
@@ -140,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
             f"  samples: {result['sample_count']}, "
             f"taxa: {result['taxon_count']}"
         )
+        if result["rank_matrices"]:
+            for rank, rpath in sorted(result["rank_matrices"].items()):
+                print(f"  rank {rank} matrix: {rpath}")
         return 0
     except Exception as exc:
         log.error("Aggregation failed: %s", exc)

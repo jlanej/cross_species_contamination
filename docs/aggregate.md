@@ -26,9 +26,11 @@ result = aggregate_reports(
     min_reads=10,       # exclude taxa with fewer than 10 reads per sample
     normalize=True,     # CPM normalisation (default)
     chunk_size=500,     # reports per processing chunk
+    rank_filter=("S", "G", "F"),  # per-rank matrices (default)
 )
 print(result["matrix_path"])    # results/taxa_matrix.tsv
 print(result["metadata_path"])  # results/aggregation_metadata.json
+print(result["rank_matrices"])  # {'S': Path('results/taxa_matrix_S.tsv'), ...}
 ```
 
 ### Key Functions
@@ -42,10 +44,12 @@ print(result["metadata_path"])  # results/aggregation_metadata.json
 ### Return Types
 
 **`AggregationResult`** (TypedDict):
-- `matrix_path` – Path to the output TSV matrix
+- `matrix_path` – Path to the unfiltered output TSV matrix
 - `metadata_path` – Path to the JSON metadata file
 - `sample_count` – Number of samples in the matrix
-- `taxon_count` – Number of taxa (rows) in the matrix
+- `taxon_count` – Number of taxa (rows) in the unfiltered matrix
+- `rank_matrices` – Dict mapping rank code to per-rank filtered matrix path
+- `rank_metadata_path` – Path to the rank-filter sidecar JSON
 
 **`TaxonRecord`** (TypedDict):
 - `tax_id` – NCBI taxonomy ID
@@ -67,6 +71,12 @@ csc-aggregate reports/*.kraken2.report.txt -o results/ --min-reads 50
 # Raw counts (no normalisation)
 csc-aggregate reports/*.kraken2.report.txt -o results/ --no-normalize
 
+# Custom rank filter (species only)
+csc-aggregate reports/*.kraken2.report.txt -o results/ --rank-filter S
+
+# Multiple rank filters
+csc-aggregate reports/*.kraken2.report.txt -o results/ --rank-filter S G
+
 # Verbose + JSON logging
 csc-aggregate reports/*.kraken2.report.txt -o results/ -v --json-log
 ```
@@ -80,6 +90,7 @@ csc-aggregate reports/*.kraken2.report.txt -o results/ -v --json-log
 | `--min-reads` | Minimum direct reads to include a taxon | `0` |
 | `--no-normalize` | Output raw counts instead of CPM | `False` |
 | `--chunk-size` | Reports per processing chunk | `500` |
+| `--rank-filter` | Taxonomy rank codes for per-rank matrices | `S G F` |
 | `--json-log` | Structured JSON logging | `False` |
 | `-v, --verbose` | DEBUG-level logging | `False` |
 
@@ -102,6 +113,29 @@ with `0`.
 When `normalize=True` (default), values are CPM (counts per million):
 each sample column sums to 1,000,000.
 
+### `taxa_matrix_S.tsv`, `taxa_matrix_G.tsv`, `taxa_matrix_F.tsv`
+
+Per-rank filtered matrices containing only taxa of the specified
+rank.  Produced for each rank in `--rank-filter` (default: S, G, F).
+
+### `rank_filter_metadata.json`
+
+```json
+{
+  "rank_filter": ["S", "G", "F"],
+  "ranks": {
+    "S": {
+      "matrix_path": "results/taxa_matrix_S.tsv",
+      "taxon_count": 15,
+      "taxa": [
+        {"tax_id": 562, "name": "Escherichia coli"},
+        {"tax_id": 1280, "name": "Staphylococcus aureus"}
+      ]
+    }
+  }
+}
+```
+
 ### `aggregation_metadata.json`
 
 ```json
@@ -123,6 +157,10 @@ Default thresholds are set in `csc/default_config.yaml`:
 ```yaml
 aggregate:
   min_reads: 10
+  rank_filter:
+    - "S"
+    - "G"
+    - "F"
 ```
 
 These can be overridden via a user config file or the CLI `--min-reads`
