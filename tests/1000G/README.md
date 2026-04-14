@@ -4,7 +4,7 @@ Scripts in this directory extract unmapped reads from the 1000 Genomes Project
 high-coverage CRAMs hosted on the EBI FTP server.
 
 Only the unmapped section of each remote CRAM is fetched (using the CRAI index
-as a seek pointer), so the full ~30 GB CRAM is never downloaded.
+as a seek pointer), so the full ~30 GB file is never downloaded.
 
 ---
 
@@ -12,7 +12,7 @@ as a seek pointer), so the full ~30 GB CRAM is never downloaded.
 
 | File | Purpose |
 |------|---------|
-| `manifest.tsv` | 3 202-sample manifest with FTP URLs for every 1KG CRAM/CRAI |
+| `manifest.tsv` | 3202-sample manifest with FTP URLs for every 1KG CRAM/CRAI |
 | `extract_unmapped_array.sh` | SLURM array job – one task per sample |
 | `submit_extract.sh` | Submission helper with subsetting options |
 
@@ -153,7 +153,7 @@ TASK_ID 2  → manifest line 3  (second sample)
 TASK_ID N  → manifest line N+1
 ```
 
-So `--array=1-3202` covers all 3 202 samples.
+So `--array=1-3202` covers all 3202 samples.
 
 ---
 

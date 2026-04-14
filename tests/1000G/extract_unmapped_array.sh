@@ -148,8 +148,7 @@ if [[ "${KEEP_CRAM}" == "1" ]]; then
     echo "Saving intermediate unmapped CRAM: ${UNMAPPED_CRAM}"
     samtools "${VIEW_ARGS[@]}" \
         -C \
-        -o "${UNMAPPED_CRAM}" \
-        "${REF_ARG[@]+"${REF_ARG[@]}"}"
+        -o "${UNMAPPED_CRAM}"
     # Now convert to FASTQ from the local CRAM
     FASTQ_INPUT=("${UNMAPPED_CRAM}")
 else
