@@ -154,7 +154,123 @@ The per-read output file has columns:
 4. Read length
 5. LCA k-mer mapping
 
-## Kraken2 Databases
+## Memory Management
+
+Kraken2 databases are large (PrackenDB is ~70 GB on disk).  By default,
+Kraken2 loads the entire ``hash.k2d`` file into RAM before classifying reads.
+On systems where available RAM is limited, this can cause out-of-memory (OOM)
+errors or excessive swapping.
+
+### Estimating RAM Before Classification
+
+Use `csc-db estimate-memory` to check how much RAM will be required to load a
+database and whether memory-mapping is recommended on the current host:
+
+```bash
+# Quick check — text output
+csc-db estimate-memory /data/kraken2/PlusPF
+
+# Machine-readable JSON output
+csc-db estimate-memory /data/kraken2/PlusPF --json
+```
+
+Example output:
+
+```
+Database: /data/kraken2/PlusPF
+  hash.k2d size (primary RAM consumer): 55.3 GiB
+  Total database size:                  56.1 GiB
+  Estimated RAM without --memory-mapping: 55.3 GiB
+  Available system RAM:                  62.0 GiB
+  Recommendation: --memory-mapping not required  (database fits in available RAM)
+```
+
+The Python API is also available:
+
+```python
+from csc.classify import estimate_db_memory
+
+est = estimate_db_memory("/data/kraken2/PlusPF")
+print(est["human"]["estimated_ram"])   # e.g. "55.3 GiB"
+print(est["recommend_memory_mapping"]) # True / False
+```
+
+### Memory Mapping (`--memory-mapping`)
+
+Memory mapping instructs Kraken2 to access the database via OS-level page
+mapping instead of loading the full hash table into RAM upfront.  Individual
+database pages are loaded on demand as reads are classified, which means:
+
+- **Lower peak RAM usage:** Only the pages actually accessed are loaded.
+- **Slower classification:** On-demand page faults add latency — expect
+  roughly 2–5× slower throughput compared to a fully in-RAM database.
+- **Shared page cache:** Multiple concurrent Kraken2 processes pointing at the
+  same database file share OS page-cache pages, making memory-mapping
+  especially efficient on multi-sample HPC nodes.
+
+Enable memory mapping via the CLI or Python API:
+
+```bash
+# CLI
+csc-classify reads.fastq.gz --db /data/kraken2/PlusPF -o results/ --memory-mapping
+```
+
+```python
+result = classify_reads(
+    ["reads.fastq.gz"],
+    output_dir="results/",
+    db="/data/kraken2/PlusPF",
+    memory_mapping=True,
+)
+```
+
+**Guideline:** use `csc-db estimate-memory` to check the RAM requirement; if
+the recommended action is `--memory-mapping`, pass that flag to `csc-classify`
+(or set `memory_mapping: true` in your config file).
+
+### Troubleshooting: Limited or Variable Resource Environments
+
+| Symptom | Likely cause | Solution |
+|---------|-------------|----------|
+| `Killed` or OOM during classification | Database does not fit in RAM | Use `--memory-mapping` |
+| Very slow classification | Memory mapping with slow spinning disk | Pre-copy DB to local SSD; or increase RAM |
+| `kraken2 not found on PATH` | Kraken2 not installed | Install Kraken2 (`conda install -c bioconda kraken2`) |
+| Repeated DB downloads | `CSC_DB_CACHE` not set persistently | `export CSC_DB_CACHE=/shared/kraken2_dbs` in your shell profile |
+| OOM on HPC with many parallel jobs | Each job loads the DB independently | Use `--memory-mapping`; jobs share OS page cache for the same file |
+| Docker: DB not found | DB not mounted | `docker run -v /host/db:/db ... --db /db` |
+
+#### Nextflow / HPC: memory-safe classification
+
+Set memory-mapping in your Nextflow run to avoid OOM on nodes with limited RAM:
+
+```bash
+nextflow run nextflow/main.nf \
+    --kraken2_db /data/kraken2/PlusPF \
+    --memory_mapping \
+    --classify_memory "16 GB"
+```
+
+Alternatively, set the default in `nextflow/nextflow.config`:
+
+```groovy
+params {
+    memory_mapping = true
+}
+```
+
+#### CI / Cloud: caching the database
+
+```bash
+# GitHub Actions: cache DB between workflow runs
+- uses: actions/cache@v4
+  with:
+    path: ~/.csc/db
+    key: kraken2-db-${{ hashFiles('db-version.txt') }}
+- run: csc-db fetch prackendb
+- run: csc-db estimate-memory ~/.csc/db/prackendb
+```
+
+
 
 ### Recommended: PrackenDB
 

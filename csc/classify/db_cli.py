@@ -23,6 +23,11 @@ Usage examples::
     # Verify a database
     csc-db verify /data/kraken2/PlusPF
 
+    # Estimate RAM required to load a database (helps decide whether to use
+    # --memory-mapping with csc-classify)
+    csc-db estimate-memory /data/kraken2/PlusPF
+    csc-db estimate-memory /data/kraken2/PlusPF --json
+
     # Clean the cache
     csc-db clean
     csc-db clean --name old_db
@@ -42,6 +47,7 @@ from csc.classify.db import (
     PRACKENDB_URL,
     clean_cache,
     database_info,
+    estimate_db_memory,
     fetch_database,
     fetch_prackendb,
     get_cache_dir,
@@ -160,6 +166,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Remove only the named database. Omit to remove all.",
     )
 
+    # -- estimate-memory --
+    est_mem = sub.add_parser(
+        "estimate-memory",
+        help="Estimate RAM needed to load a Kraken2 database without memory mapping.",
+        description=(
+            "Show how much RAM Kraken2 will require to load the database into memory "
+            "when --memory-mapping is NOT used, and compare it against the currently "
+            "available system RAM.  Use this to decide whether to pass --memory-mapping "
+            "to csc-classify."
+        ),
+    )
+    est_mem.add_argument("path", help="Path to the Kraken2 database directory.")
+    est_mem.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Output in JSON format.",
+    )
+
     return parser
 
 
@@ -275,6 +300,34 @@ def _cmd_list(args: argparse.Namespace, log: logging.Logger) -> int:
     return 0
 
 
+def _cmd_estimate_memory(args: argparse.Namespace, log: logging.Logger) -> int:
+    try:
+        est = estimate_db_memory(args.path)
+    except (FileNotFoundError, ValueError) as exc:
+        log.error("estimate-memory failed: %s", exc)
+        return 1
+
+    if getattr(args, "json_output", False):
+        print(json.dumps(est, indent=2, default=str))
+    else:
+        h = est["human"]
+        print(f"Database: {est['db_path']}")
+        print(f"  hash.k2d size (primary RAM consumer): {h['hash_k2d']}")
+        print(f"  Total database size:                  {h['total_db']}")
+        print(f"  Estimated RAM without --memory-mapping: {h['estimated_ram']}")
+        print(f"  Available system RAM:                  {h['available_ram']}")
+        if est["recommend_memory_mapping"]:
+            print(
+                "  Recommendation: use --memory-mapping  (DB may exceed available RAM)"
+            )
+        else:
+            print(
+                "  Recommendation: --memory-mapping not required  "
+                "(database fits in available RAM)"
+            )
+    return 0
+
+
 def _cmd_clean(args: argparse.Namespace, log: logging.Logger) -> int:
     removed = clean_cache(args.cache_dir, name=args.name)
     if removed:
@@ -305,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         "info": _cmd_info,
         "list": _cmd_list,
         "clean": _cmd_clean,
+        "estimate-memory": _cmd_estimate_memory,
     }
     handler = dispatch.get(args.command)
     if handler is None:

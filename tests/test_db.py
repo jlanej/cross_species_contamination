@@ -31,6 +31,7 @@ from csc.classify.db import (
     clean_cache,
     compute_hash,
     database_info,
+    estimate_db_memory,
     fetch_database,
     fetch_prackendb,
     get_cache_dir,
@@ -690,3 +691,152 @@ class TestConfigRecommendedDB:
 
         cfg = load_config()
         assert cfg["classify"]["recommended_db"] == "prackendb"
+
+
+# ---------------------------------------------------------------------------
+# estimate_db_memory
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateDbMemory:
+    def test_returns_expected_keys(self, mock_db: Path) -> None:
+        est = estimate_db_memory(mock_db)
+        assert "db_path" in est
+        assert "hash_k2d_bytes" in est
+        assert "total_db_bytes" in est
+        assert "estimated_ram_bytes" in est
+        assert "available_ram_bytes" in est
+        assert "recommend_memory_mapping" in est
+        assert "human" in est
+
+    def test_hash_bytes_equals_hash_file_size(self, mock_db: Path) -> None:
+        est = estimate_db_memory(mock_db)
+        expected = (mock_db / "hash.k2d").stat().st_size
+        assert est["hash_k2d_bytes"] == expected
+
+    def test_estimated_ram_equals_hash_bytes(self, mock_db: Path) -> None:
+        est = estimate_db_memory(mock_db)
+        assert est["estimated_ram_bytes"] == est["hash_k2d_bytes"]
+
+    def test_total_db_bytes_is_sum_of_files(self, mock_db: Path) -> None:
+        est = estimate_db_memory(mock_db)
+        expected_total = sum(
+            f.stat().st_size for f in mock_db.rglob("*") if f.is_file()
+        )
+        assert est["total_db_bytes"] == expected_total
+
+    def test_human_readable_strings_present(self, mock_db: Path) -> None:
+        est = estimate_db_memory(mock_db)
+        h = est["human"]
+        assert isinstance(h["hash_k2d"], str)
+        assert isinstance(h["total_db"], str)
+        assert isinstance(h["estimated_ram"], str)
+        assert isinstance(h["available_ram"], str)
+
+    def test_recommend_memory_mapping_when_db_exceeds_ram(
+        self, mock_db: Path
+    ) -> None:
+        # Force available RAM to be smaller than the DB
+        with mock.patch("csc.classify.db._available_ram_bytes", return_value=1):
+            est = estimate_db_memory(mock_db)
+        assert est["recommend_memory_mapping"] is True
+
+    def test_no_recommend_memory_mapping_when_db_fits_in_ram(
+        self, mock_db: Path
+    ) -> None:
+        # Force available RAM to be much larger than the DB
+        with mock.patch(
+            "csc.classify.db._available_ram_bytes", return_value=100 * 1024 ** 3
+        ):
+            est = estimate_db_memory(mock_db)
+        assert est["recommend_memory_mapping"] is False
+
+    def test_recommend_memory_mapping_when_available_ram_unknown_large_db(
+        self, tmp_path: Path
+    ) -> None:
+        # Build a DB with a small hash.k2d (< 1 GiB) — should NOT recommend mm
+        db_dir = tmp_path / "bigdb"
+        db_dir.mkdir()
+        for fname in REQUIRED_DB_FILES:
+            (db_dir / fname).write_bytes(b"\x00" * 64)
+        # Without patching: small test file → no recommendation even with unknown RAM
+        with mock.patch("csc.classify.db._available_ram_bytes", return_value=None):
+            est = estimate_db_memory(db_dir)
+        assert est["recommend_memory_mapping"] is False  # tiny test file
+
+    def test_invalid_db_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            estimate_db_memory(tmp_path / "nonexistent")
+
+    def test_missing_db_files_raises(self, tmp_path: Path) -> None:
+        d = tmp_path / "emptydb"
+        d.mkdir()
+        with pytest.raises(ValueError):
+            estimate_db_memory(d)
+
+    def test_available_ram_bytes_field(self, mock_db: Path) -> None:
+        # With a known mock value
+        with mock.patch("csc.classify.db._available_ram_bytes", return_value=8 * 1024 ** 3):
+            est = estimate_db_memory(mock_db)
+        assert est["available_ram_bytes"] == 8 * 1024 ** 3
+        assert est["human"]["available_ram"] != "unknown"
+
+    def test_available_ram_bytes_unknown(self, mock_db: Path) -> None:
+        with mock.patch("csc.classify.db._available_ram_bytes", return_value=None):
+            est = estimate_db_memory(mock_db)
+        assert est["available_ram_bytes"] is None
+        assert est["human"]["available_ram"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# CLI: estimate-memory subcommand
+# ---------------------------------------------------------------------------
+
+
+class TestDBCLIEstimateMemory:
+    def test_estimate_memory_valid_db(
+        self, mock_db: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        with mock.patch(
+            "csc.classify.db._available_ram_bytes", return_value=100 * 1024 ** 3
+        ):
+            rc = main(["estimate-memory", str(mock_db)])
+        assert rc == 0
+        output = capsys.readouterr().out
+        assert "hash.k2d" in output
+        assert "Estimated RAM" in output
+
+    def test_estimate_memory_json(
+        self, mock_db: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        with mock.patch(
+            "csc.classify.db._available_ram_bytes", return_value=100 * 1024 ** 3
+        ):
+            rc = main(["estimate-memory", str(mock_db), "--json"])
+        assert rc == 0
+        output = capsys.readouterr().out
+        data = json.loads(output)
+        assert "hash_k2d_bytes" in data
+        assert "estimated_ram_bytes" in data
+        assert "recommend_memory_mapping" in data
+
+    def test_estimate_memory_invalid_db(self, tmp_path: Path) -> None:
+        from csc.classify.db_cli import main
+
+        rc = main(["estimate-memory", str(tmp_path / "nonexistent")])
+        assert rc == 1
+
+    def test_estimate_memory_recommends_memory_mapping(
+        self, mock_db: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from csc.classify.db_cli import main
+
+        with mock.patch("csc.classify.db._available_ram_bytes", return_value=1):
+            rc = main(["estimate-memory", str(mock_db)])
+        assert rc == 0
+        output = capsys.readouterr().out
+        assert "--memory-mapping" in output

@@ -18,6 +18,7 @@ Public API
 .. autofunction:: is_prackendb
 .. autofunction:: database_info
 .. autofunction:: list_databases
+.. autofunction:: estimate_db_memory
 """
 
 from csc.classify.classify import (
@@ -33,6 +34,7 @@ from csc.classify.db import (
     clean_cache,
     compute_hash,
     database_info,
+    estimate_db_memory,
     fetch_database,
     fetch_prackendb,
     get_cache_dir,
@@ -52,6 +54,7 @@ __all__ = [
     "clean_cache",
     "compute_hash",
     "database_info",
+    "estimate_db_memory",
     "fetch_database",
     "fetch_prackendb",
     "get_cache_dir",

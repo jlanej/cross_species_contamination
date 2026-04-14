@@ -615,6 +615,119 @@ def fetch_prackendb(
 
 
 # ---------------------------------------------------------------------------
+# Memory estimation
+# ---------------------------------------------------------------------------
+
+#: Name of the Kraken2 hash table file — the dominant RAM consumer.
+_HASH_FILE = "hash.k2d"
+
+
+def _available_ram_bytes() -> int | None:
+    """Return available system RAM in bytes, or ``None`` if unavailable.
+
+    Reads ``/proc/meminfo`` (Linux) for ``MemAvailable``.  Falls back to
+    ``None`` on systems where this information cannot be obtained without
+    third-party libraries.
+    """
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    # Format: "MemAvailable:  12345678 kB"
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def estimate_db_memory(db_path: str | Path) -> dict[str, Any]:
+    """Estimate the RAM required to load a Kraken2 database without memory mapping.
+
+    Kraken2 loads the entire ``hash.k2d`` file (the hash table) into RAM when
+    ``--memory-mapping`` is *not* used.  The other database files
+    (``opts.k2d``, ``taxo.k2d``) are small.  This function reports the
+    dominant memory cost (``hash.k2d``) and compares it against currently
+    available system RAM.
+
+    Use ``--memory-mapping`` (``memory_mapping=True`` in
+    :func:`~csc.classify.classify.classify_reads`) to instruct Kraken2 to
+    access the database via OS-level memory mapping.  This avoids loading the
+    entire hash table upfront, at the cost of slower per-read lookups due to
+    on-demand page faults.  Memory mapping is recommended whenever the
+    database is larger than available RAM, or when multiple Kraken2 processes
+    share the same database file.
+
+    Parameters
+    ----------
+    db_path:
+        Path to the Kraken2 database directory.
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        ``db_path``
+            Resolved path to the database directory (str).
+        ``hash_k2d_bytes``
+            Size of ``hash.k2d`` in bytes (primary RAM consumer).
+        ``total_db_bytes``
+            Total size of all files in the database directory.
+        ``estimated_ram_bytes``
+            Estimated RAM required without ``--memory-mapping``
+            (= ``hash_k2d_bytes``).
+        ``available_ram_bytes``
+            Currently available system RAM in bytes, or ``None`` if it
+            could not be determined.
+        ``recommend_memory_mapping``
+            ``True`` when estimated RAM exceeds 80 % of available RAM (or
+            when available RAM is unknown and the database is non-trivially
+            large, i.e. > 1 GiB).
+        ``human``
+            A nested dict with human-readable equivalents of the byte
+            values above (using :func:`_human_size`).
+
+    Raises
+    ------
+    FileNotFoundError
+        If *db_path* does not exist.
+    ValueError
+        If *db_path* is missing required Kraken2 database files.
+    """
+    db = Path(db_path).resolve()
+    validate_database(db)  # raises if invalid
+
+    hash_file = db / _HASH_FILE
+    hash_bytes = hash_file.stat().st_size if hash_file.is_file() else 0
+    total_bytes = _dir_size(db)
+    estimated_ram = hash_bytes  # hash.k2d is the dominant consumer
+
+    avail = _available_ram_bytes()
+    if avail is not None:
+        recommend_mm = estimated_ram > avail * 0.8
+    else:
+        # Unknown available RAM: recommend memory-mapping for large DBs (> 1 GiB)
+        recommend_mm = estimated_ram > 1 * 1024 ** 3
+
+    return {
+        "db_path": str(db),
+        "hash_k2d_bytes": hash_bytes,
+        "total_db_bytes": total_bytes,
+        "estimated_ram_bytes": estimated_ram,
+        "available_ram_bytes": avail,
+        "recommend_memory_mapping": recommend_mm,
+        "human": {
+            "hash_k2d": _human_size(hash_bytes),
+            "total_db": _human_size(total_bytes),
+            "estimated_ram": _human_size(estimated_ram),
+            "available_ram": _human_size(avail) if avail is not None else "unknown",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

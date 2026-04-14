@@ -120,6 +120,10 @@ csc-db info /data/kraken2/PlusPF --json   # JSON output
 # Verify a database directory
 csc-db verify /data/kraken2/PlusPF
 
+# Estimate RAM required to load a database (useful before memory-intensive runs)
+csc-db estimate-memory /data/kraken2/PlusPF
+csc-db estimate-memory /data/kraken2/PlusPF --json
+
 # Clean the cache (all or specific)
 csc-db clean
 csc-db clean --name old_db
@@ -149,10 +153,16 @@ csc-db fetch /shared/kraken2/PlusPF --name PlusPF
 from csc.classify import (
     fetch_database, fetch_prackendb, database_info,
     list_databases, is_prackendb, validate_taxonomy,
+    estimate_db_memory,
 )
 
 # Download and cache PrackenDB (recommended)
 db_path = fetch_prackendb()
+
+# Estimate RAM usage before running classification
+est = estimate_db_memory(db_path)
+print(est["human"]["estimated_ram"])    # e.g. "55.3 GiB"
+print(est["recommend_memory_mapping"]) # True if DB exceeds available RAM
 
 # Check taxonomy files
 tax = validate_taxonomy(db_path)
