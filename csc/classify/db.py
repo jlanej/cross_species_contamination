@@ -621,6 +621,9 @@ def fetch_prackendb(
 #: Name of the Kraken2 hash table file — the dominant RAM consumer.
 _HASH_FILE = "hash.k2d"
 
+#: When available RAM is unknown, recommend memory-mapping for DBs larger than this.
+_LARGE_DB_THRESHOLD_BYTES = 1 * 1024 ** 3  # 1 GiB
+
 
 def _available_ram_bytes() -> int | None:
     """Return available system RAM in bytes, or ``None`` if unavailable.
@@ -708,8 +711,8 @@ def estimate_db_memory(db_path: str | Path) -> dict[str, Any]:
     if avail is not None:
         recommend_mm = estimated_ram > avail * 0.8
     else:
-        # Unknown available RAM: recommend memory-mapping for large DBs (> 1 GiB)
-        recommend_mm = estimated_ram > 1 * 1024 ** 3
+        # Unknown available RAM: recommend memory-mapping for large DBs
+        recommend_mm = estimated_ram > _LARGE_DB_THRESHOLD_BYTES
 
     return {
         "db_path": str(db),
