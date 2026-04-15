@@ -3,7 +3,7 @@ FROM python:3.12-slim
 LABEL maintainer="jlanej"
 LABEL description="Cross-species contamination detection pipeline"
 
-ARG KRAKEN2_VERSION=v2.1.3
+ARG KRAKEN2_VERSION=v2.17.1
 
 # Install samtools, Kraken2 build dependencies, and runtime libraries
 RUN apt-get update && \
@@ -15,7 +15,7 @@ RUN apt-get update && \
         samtools \
     && git clone --depth 1 --branch "${KRAKEN2_VERSION}" \
         https://github.com/DerrickWood/kraken2.git /tmp/kraken2 \
-    && cd /tmp/kraken2 && ./install_kraken2.sh /usr/local/bin \
+    && /tmp/kraken2/install_kraken2.sh /usr/local/bin \
     && rm -rf /tmp/kraken2 \
     && rm -rf /var/lib/apt/lists/*
 
