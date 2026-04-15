@@ -21,7 +21,7 @@ RUN apt-get update && \
         libssl-dev && \
     git clone --depth 1 --branch "${KRAKEN2_VERSION}" \
         https://github.com/DerrickWood/kraken2.git /tmp/kraken2 && \
-    /tmp/kraken2/install_kraken2.sh /usr/local/bin && \
+    cd /tmp/kraken2 && ./install_kraken2.sh /usr/local/bin && \
     rm -rf /tmp/kraken2 && \
     apt-get purge -y --auto-remove gcc g++ make git && \
     rm -rf /var/lib/apt/lists/*
