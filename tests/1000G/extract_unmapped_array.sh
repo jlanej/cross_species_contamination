@@ -175,8 +175,8 @@ download_crai_with_aspera() {
     remote_basename="$(basename "${aspera_path}")"
     downloaded="${dest_dir}/${remote_basename}"
 
-    # -T: disable encryption for speed on public data; -r: recursive mode
-    # tolerated for file paths; -Q: adaptive flow control; -L-: no log dir.
+    # -T: disable encryption for speed on public data; -r: resume interrupted
+    # transfer support; -Q: adaptive flow control; -L-: no local log dir.
     if ! ascp -i "${aspera_key}" \
         -Tr -Q -l "${aspera_bandwidth}" -P"${aspera_port}" -L- \
         "${aspera_user}@${aspera_host}:${aspera_path}" \
@@ -185,8 +185,10 @@ download_crai_with_aspera() {
         return 1
     fi
 
-    if [[ "${downloaded}" != "${dest}" && -f "${downloaded}" ]]; then
+    if [[ "${downloaded}" != "${dest}" && -f "${downloaded}" && ! -f "${dest}" ]]; then
         mv -f "${downloaded}" "${dest}"
+    elif [[ "${downloaded}" != "${dest}" && -f "${downloaded}" && -f "${dest}" ]]; then
+        rm -f "${downloaded}"
     fi
 
     [[ -s "${dest}" ]] || { rm -f "${dest}"; return 1; }
