@@ -388,31 +388,48 @@ class TestCraiLocalDownload:
     def test_array_script_content_uses_local_crai(self):
         """Verify the actual script file references CRAI_LOCAL not CRAI_URL in
         the samtools view command embedded in the pipeline script."""
+        import re
+
         content = ARRAY_SCRIPT.read_text()
 
         # The pipeline script generation must use the local variable, not the URL
         assert "q_crai_local" in content, (
             "Script should define q_crai_local for the local CRAI path"
         )
-        # The raw URL variable should NOT appear in samtools view -X calls
-        # (it is used only for curl download, not for samtools -X)
-        # Find samtools view lines in the printf statements
-        view_printf_lines = [
-            line.strip() for line in content.splitlines()
-            if "samtools view" in line and "printf" in line
-        ]
-        for line in view_printf_lines:
-            assert "q_crai_url" not in line, (
-                f"samtools view printf should use q_crai_local, not q_crai_url: {line}"
+        # Find printf lines that write a samtools view command into the pipeline
+        # script.  These are the lines that actually end up in the generated
+        # pipeline, so they must use q_crai_local (local path), not q_crai_url
+        # (the raw FTP URL which fails on some htslib builds).
+        view_printf_pattern = re.compile(
+            r"""^\s*printf\s+['"](.*samtools\s+view.*-X.*%s.*)['"]""",
+            re.MULTILINE,
+        )
+        for match in view_printf_pattern.finditer(content):
+            assert "q_crai_url" not in match.group(0), (
+                "samtools view printf should use q_crai_local, not q_crai_url: "
+                + match.group(0).strip()
             )
 
     def test_array_script_curl_downloads_crai_before_pipeline(self):
         """The curl download of CRAI must precede the pipeline script block."""
+        import re
+
         content = ARRAY_SCRIPT.read_text()
-        curl_pos = content.find("curl -fsSL")
-        pipeline_pos = content.find("PIPELINE_SCRIPT=")
-        assert curl_pos != -1, "Script must contain a curl download for the CRAI"
-        assert pipeline_pos != -1, "Script must contain PIPELINE_SCRIPT= assignment"
-        assert curl_pos < pipeline_pos, (
+
+        # Locate the first non-comment line that calls curl for the CRAI download
+        curl_match = re.search(
+            r"^[^#]*curl\s+-fsSL",
+            content,
+            re.MULTILINE,
+        )
+        # Locate the assignment that opens the pipeline script file
+        pipeline_match = re.search(
+            r"^[^#]*PIPELINE_SCRIPT\s*=",
+            content,
+            re.MULTILINE,
+        )
+        assert curl_match is not None, "Script must contain a curl download for the CRAI"
+        assert pipeline_match is not None, "Script must contain PIPELINE_SCRIPT= assignment"
+        assert curl_match.start() < pipeline_match.start(), (
             "curl download of CRAI must come before pipeline script generation"
         )
