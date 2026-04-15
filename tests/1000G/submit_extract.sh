@@ -208,8 +208,8 @@ if [[ ${#PENDING_INDICES[@]} -eq 0 ]]; then
     exit 0
 fi
 
-ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | paste -sd',')"
 if [[ "${COMPLETED_COUNT}" -gt 0 ]]; then
+    ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | paste -sd',')"
     echo "Skipping ${COMPLETED_COUNT} completed sample(s); submitting ${#PENDING_INDICES[@]} pending sample(s)."
 fi
 
