@@ -34,6 +34,7 @@
 #   --cpus     N      CPUs per task         [default: 4]
 #   --mem      STR    Memory per task       [default: 8G]
 #   --time     STR    Wall-clock time limit [default: 02:00:00]
+#   --max-concurrent-jobs N  Max concurrently running array tasks [default: 300]
 #   --reference FILE  Reference FASTA for CRAM decoding (optional)
 #   --container FILE  Path to the Apptainer SIF image
 #                     [default: <script_dir>/csc.sif; auto-pulled if absent]
@@ -65,10 +66,16 @@ CONTAINER_SIF="${SCRIPT_DIR}/csc.sif"
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 KEEP_CRAM="0"
 DRY_RUN=0
+MAX_CONCURRENT_JOBS=300
+MAX_CONCURRENT_JOBS_SET=0
+# Keep usage output focused on the documented header/options block and long
+# enough to include all currently documented options. If usage text grows,
+# increase this so it still covers the full top comment usage/options block.
+USAGE_LINES=80
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
-    grep '^#' "$0" | sed 's/^# \{0,2\}//' | head -50
+    grep '^#' "$0" | sed 's/^# \{0,2\}//' | head -"${USAGE_LINES}"
     exit 0
 }
 
@@ -83,6 +90,7 @@ while [[ $# -gt 0 ]]; do
         --cpus)      CPUS="$2";        shift 2 ;;
         --mem)       MEM="$2";         shift 2 ;;
         --time)      WALLTIME="$2";    shift 2 ;;
+        --max-concurrent-jobs) MAX_CONCURRENT_JOBS="$2"; MAX_CONCURRENT_JOBS_SET=1; shift 2 ;;
         --reference) REFERENCE="$2";  shift 2 ;;
         --container) CONTAINER_SIF="$2"; shift 2 ;;
         --image)     CONTAINER_IMAGE="$2"; shift 2 ;;
@@ -96,6 +104,11 @@ done
 # ── Validate manifest ────────────────────────────────────────────────────────
 if [[ ! -f "${MANIFEST}" ]]; then
     echo "ERROR: Manifest not found: ${MANIFEST}" >&2
+    exit 1
+fi
+
+if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --max-concurrent-jobs must be a positive integer." >&2
     exit 1
 fi
 
@@ -141,6 +154,17 @@ elif [[ -n "${LIMIT}" ]]; then
     ARRAY_SPEC="1-${LIMIT}"
 else
     ARRAY_SPEC="1-${TOTAL_SAMPLES}"
+fi
+
+# Ensure SLURM array throttling is set as --array=<spec>%<max_concurrent_jobs>:
+# preserve explicit '%' in --range, otherwise apply the configurable default.
+if [[ "${ARRAY_SPEC}" == *%* ]]; then
+    if [[ "${MAX_CONCURRENT_JOBS_SET}" -eq 1 ]]; then
+        echo "ERROR: Cannot use --max-concurrent-jobs when --range already specifies '%' concurrency. Use only one concurrency method." >&2
+        exit 1
+    fi
+else
+    ARRAY_SPEC="${ARRAY_SPEC}%${MAX_CONCURRENT_JOBS}"
 fi
 
 # ── Create directories ───────────────────────────────────────────────────────

@@ -112,6 +112,7 @@ directory.
 | `--cpus N` | `4` | CPUs per task |
 | `--mem STR` | `8G` | Memory per task |
 | `--time STR` | `02:00:00` | Wall-clock time limit |
+| `--max-concurrent-jobs N` | `300` | Max concurrently running array tasks (`--array=<spec>%N`) |
 | `--reference FILE` | – | GRCh38 FASTA for CRAM decoding (recommended) |
 | `--container FILE` | `./csc.sif` | Path to pre-pulled Apptainer SIF image |
 | `--image URI` | `ghcr.io/jlanej/cross_species_contamination:latest` | Docker URI for auto-pull |

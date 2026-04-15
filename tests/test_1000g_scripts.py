@@ -212,6 +212,31 @@ class TestSubmitExtractDryRun:
         # 3 samples → array spec should be '1-3'
         assert "1-3" in result.stdout
 
+    def test_dry_run_default_max_concurrent_jobs(self, tmp_path):
+        """Default array spec should include %300 throttling."""
+        manifest = minimal_manifest(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(tmp_path / "output"),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "--array=1-3%300" in result.stdout
+
+    def test_dry_run_custom_max_concurrent_jobs(self, tmp_path):
+        """--max-concurrent-jobs should override default throttling."""
+        manifest = minimal_manifest(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(tmp_path / "output"),
+            "--max-concurrent-jobs", "25",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "--array=1-3%25" in result.stdout
+
 
 # ---------------------------------------------------------------------------
 # extract_unmapped_array.sh unit checks
