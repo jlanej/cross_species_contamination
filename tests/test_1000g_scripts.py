@@ -9,12 +9,12 @@ Background on the CRAI download fix
 ------------------------------------
 ``samtools view -X <index>`` accepts an explicit index path so that
 samtools can seek directly to the unmapped virtual contig (``'*'``) and
-avoid scanning the entire CRAM.  However, some htslib builds do *not*
-support FTP URLs for the index file and return "Exec format error".
+avoid scanning the entire CRAM.  However, direct FTP access can be flaky
+on some systems.
 
-The fix in ``extract_unmapped_array.sh`` is to download the small CRAI
-with ``curl`` to a local temp file before running the samtools pipeline,
-then pass the **local path** to ``-X``.
+The fix in ``extract_unmapped_array.sh`` is to download the small CRAI to
+a local temp file (Aspera first, curl fallback) before running the
+samtools pipeline, then pass the **local path** to ``-X``.
 """
 
 import os
@@ -236,6 +236,41 @@ class TestSubmitExtractDryRun:
         ])
         assert result.returncode == 0, result.stderr
         assert "--array=1-3%25" in result.stdout
+
+    def test_dry_run_skips_completed_samples(self, tmp_path):
+        """Completed sample outputs should be excluded from array submission."""
+        manifest = minimal_manifest(tmp_path)
+        outdir = tmp_path / "output"
+        completed = outdir / "NA12718"
+        completed.mkdir(parents=True)
+        (completed / "NA12718_unmapped_R1.fastq.gz").write_text("done")
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(outdir),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "--array=2,3%300" in result.stdout
+        assert "Skipping 1 completed sample(s)" in result.stdout
+
+    def test_dry_run_all_completed_submits_nothing(self, tmp_path):
+        """If all outputs exist, script should exit 0 without sbatch command."""
+        manifest = minimal_manifest(tmp_path)
+        outdir = tmp_path / "output"
+        for sid in ["NA12718", "NA12748", "NA18488"]:
+            sample_dir = outdir / sid
+            sample_dir.mkdir(parents=True)
+            (sample_dir / f"{sid}_unmapped_R1.fastq.gz").write_text("done")
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(outdir),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "Nothing to submit" in result.stdout
+        assert "sbatch command:" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -468,3 +503,11 @@ class TestCraiLocalDownload:
         assert curl_match.start() < pipeline_match.start(), (
             "curl download of CRAI must come before pipeline script generation"
         )
+
+    def test_array_script_includes_aspera_download_path(self):
+        """Array script should include an Aspera download helper for CRAI."""
+        content = ARRAY_SCRIPT.read_text()
+        assert "download_crai_with_aspera()" in content
+        assert "command -v ascp" in content
+        assert 'aspera_user="era-fasp"' in content
+        assert 'aspera_host="fasp.sra.ebi.ac.uk"' in content

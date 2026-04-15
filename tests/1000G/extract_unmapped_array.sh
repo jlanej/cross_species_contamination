@@ -44,6 +44,9 @@
 #   THREADS       – samtools threads (default: matches --cpus-per-task)
 #   KEEP_CRAM     – if set to "1", also save the raw unmapped CRAM before FASTQ
 #                   conversion (useful for downstream csc-extract / re-processing)
+#   ASPERA_SSH_KEY – optional explicit path to the Aspera SSH key file
+#   ASPERA_BANDWIDTH – Aspera transfer cap (default: 300m)
+#   ASPERA_PORT   – Aspera transfer port (default: 33001)
 #
 # AI assistance acknowledgment: developed with AI assistance.
 # =============================================================================
@@ -125,6 +128,67 @@ pull_container() {
         echo "ERROR: Failed to pull container image '${CONTAINER_IMAGE}'." >&2
         exit 1
     fi
+}
+
+find_aspera_key() {
+    local candidates=(
+        "${ASPERA_SSH_KEY:-}"
+        "/etc/asperaweb_id_dsa.openssh"
+        "/usr/etc/asperaweb_id_dsa.openssh"
+        "${HOME}/.aspera/connect/etc/asperaweb_id_dsa.openssh"
+        "/opt/aspera/etc/asperaweb_id_dsa.openssh"
+    )
+    local key
+    for key in "${candidates[@]}"; do
+        [[ -n "${key}" && -f "${key}" ]] && { echo "${key}"; return 0; }
+    done
+    return 1
+}
+
+download_crai_with_aspera() {
+    local ftp_url="$1"
+    local dest="$2"
+    local aspera_path=""
+    local aspera_user=""
+    local aspera_host=""
+    local aspera_key=""
+    local aspera_port="${ASPERA_PORT:-33001}"
+    local aspera_bandwidth="${ASPERA_BANDWIDTH:-300m}"
+    local dest_dir remote_basename downloaded
+
+    command -v ascp &>/dev/null || return 1
+    aspera_key="$(find_aspera_key)" || return 1
+
+    if [[ "${ftp_url}" == *"ftp.sra.ebi.ac.uk"* ]]; then
+        aspera_path="${ftp_url#ftp://ftp.sra.ebi.ac.uk/}"
+        aspera_user="era-fasp"
+        aspera_host="fasp.sra.ebi.ac.uk"
+    elif [[ "${ftp_url}" == *"ftp.1000genomes.ebi.ac.uk"* ]]; then
+        aspera_path="${ftp_url#ftp://ftp.1000genomes.ebi.ac.uk/}"
+        aspera_user="fasp-g1k"
+        aspera_host="fasp.1000genomes.ebi.ac.uk"
+    else
+        return 1
+    fi
+
+    dest_dir="$(dirname "${dest}")"
+    remote_basename="$(basename "${aspera_path}")"
+    downloaded="${dest_dir}/${remote_basename}"
+
+    if ! ascp -i "${aspera_key}" \
+        -Tr -Q -l "${aspera_bandwidth}" -P"${aspera_port}" -L- \
+        "${aspera_user}@${aspera_host}:${aspera_path}" \
+        "${dest_dir}/"; then
+        rm -f "${downloaded}" "${dest}"
+        return 1
+    fi
+
+    if [[ "${downloaded}" != "${dest}" && -f "${downloaded}" ]]; then
+        mv -f "${downloaded}" "${dest}"
+    fi
+
+    [[ -s "${dest}" ]] || { rm -f "${dest}"; return 1; }
+    return 0
 }
 
 # Run a command inside the container, binding the output directory and (if
@@ -211,12 +275,15 @@ fi
 # --------------------------------------------------------------------------- #
 CRAI_LOCAL="${SAMPLE_DIR}/.${SAMPLE_ID}.crai.tmp"
 echo "Downloading CRAI index for ${SAMPLE_ID}..."
-if ! curl -fsSL --retry 3 --retry-delay 5 -o "${CRAI_LOCAL}" "${CRAI_URL}"; then
+if download_crai_with_aspera "${CRAI_URL}" "${CRAI_LOCAL}"; then
+    echo "CRAI downloaded via Aspera ($(wc -c < "${CRAI_LOCAL}") bytes)"
+elif curl -fsSL --retry 3 --retry-delay 5 -o "${CRAI_LOCAL}" "${CRAI_URL}"; then
+    echo "CRAI downloaded via curl ($(wc -c < "${CRAI_LOCAL}") bytes)"
+else
     echo "ERROR: Failed to download CRAI index: ${CRAI_URL}" >&2
     rm -f "${CRAI_LOCAL}"
     exit 1
 fi
-echo "CRAI downloaded ($(wc -c < "${CRAI_LOCAL}") bytes)"
 
 # --------------------------------------------------------------------------- #
 # Build samtools view arguments                                                 #
