@@ -182,8 +182,8 @@ fi
 # ── Build sbatch command ─────────────────────────────────────────────────────
 # CONTAINER_SIF is always passed explicitly so array tasks never fall back to
 # ${SCRIPT_DIR}/csc.sif (which resolves to SLURM's /var/spool/slurmd/… temp dir).
-EXTRA_EXPORTS="CONTAINER_SIF=${CONTAINER_SIF},CONTAINER_IMAGE=${CONTAINER_IMAGE}"
-[[ -n "${REFERENCE}" ]] && EXTRA_EXPORTS+=",REFERENCE=${REFERENCE}"
+ARRAY_JOB_EXPORTS="CONTAINER_SIF=${CONTAINER_SIF},CONTAINER_IMAGE=${CONTAINER_IMAGE}"
+[[ -n "${REFERENCE}" ]] && ARRAY_JOB_EXPORTS+=",REFERENCE=${REFERENCE}"
 
 SBATCH_CMD=(
     sbatch
@@ -195,7 +195,7 @@ SBATCH_CMD=(
     --partition="${PARTITION}"
     --output="${SCRIPT_DIR}/logs/extract_%A_%a.out"
     --error="${SCRIPT_DIR}/logs/extract_%A_%a.err"
-    --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM},${EXTRA_EXPORTS}"
+    --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM},${ARRAY_JOB_EXPORTS}"
     "${SCRIPT_DIR}/extract_unmapped_array.sh"
 )
 

@@ -231,5 +231,5 @@ class TestArrayScript:
             for line in result.stdout.splitlines()
             if line.startswith("CONTAINER_SIF=")
         ][0]
-        assert "var/spool" not in sif_path
-        assert str(tmp_path / "outdir") in sif_path
+        # The default SIF path must be under OUTDIR (not a SLURM temp dir)
+        assert sif_path.startswith(str(tmp_path / "outdir"))
