@@ -229,8 +229,7 @@ VIEW_ARGS=(
     --threads "${THREADS}"
     -u          # uncompressed BAM on stdout (piped to fastq)
     -f 4        # FLAG: read unmapped
-    -X "${CRAI_LOCAL}"
-    "${CRAM_URL}"
+    -X "${CRAM_URL}" "${CRAI_LOCAL}"
     '*'
 )
 
@@ -240,8 +239,7 @@ if [[ -n "${REFERENCE:-}" ]]; then
         -T "${REFERENCE}"
         --threads "${THREADS}"
         -u -f 4
-        -X "${CRAI_LOCAL}"
-        "${CRAM_URL}"
+        -X "${CRAM_URL}" "${CRAI_LOCAL}"
         '*'
     )
 fi
@@ -302,10 +300,10 @@ q_other=$(printf '%q' "${OTHER}")
         if [[ -n "${REFERENCE:-}" ]]; then
             q_ref=$(printf '%q' "${REFERENCE}")
             printf 'samtools view -T %s --threads %s -u -f 4 -X %s %s %s \\\n' \
-                "${q_ref}" "${q_threads}" "${q_crai_local}" "${q_cram_url}" "'*'"
+                "${q_ref}" "${q_threads}" "${q_cram_url}" "${q_crai_local}" "'*'"
         else
             printf 'samtools view --threads %s -u -f 4 -X %s %s %s \\\n' \
-                "${q_threads}" "${q_crai_local}" "${q_cram_url}" "'*'"
+                "${q_threads}" "${q_cram_url}" "${q_crai_local}" "'*'"
         fi
         printf '| samtools collate --threads %s -u -O - %s \\\n' \
             "${q_threads}" "${q_collate_tmp}"
