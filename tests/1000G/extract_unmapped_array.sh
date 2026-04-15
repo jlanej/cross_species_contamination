@@ -201,16 +201,35 @@ if [[ -s "${R1}" ]]; then
 fi
 
 # --------------------------------------------------------------------------- #
+# Download CRAI index to a local file                                           #
+#                                                                               #
+# samtools view -X does not reliably support FTP URLs for the index file       #
+# (some htslib builds report "Exec format error" when the URL scheme is ftp:// #
+# even though the same CRAM data stream works fine).  Downloading the small    #
+# index file locally first avoids this limitation while preserving the         #
+# efficient seek-to-unmapped behaviour.                                         #
+# --------------------------------------------------------------------------- #
+CRAI_LOCAL="${SAMPLE_DIR}/.${SAMPLE_ID}.crai.tmp"
+echo "Downloading CRAI index for ${SAMPLE_ID}..."
+if ! curl -fsSL --retry 3 --retry-delay 5 -o "${CRAI_LOCAL}" "${CRAI_URL}"; then
+    echo "ERROR: Failed to download CRAI index: ${CRAI_URL}" >&2
+    rm -f "${CRAI_LOCAL}"
+    exit 1
+fi
+echo "CRAI downloaded ($(wc -c < "${CRAI_LOCAL}") bytes)"
+
+# --------------------------------------------------------------------------- #
 # Build samtools view arguments                                                 #
 # We fetch ONLY the '*' (unmapped) virtual contig from the remote CRAM,        #
-# using the remote CRAI so samtools can seek directly to that section.         #
+# using the local CRAI so samtools can seek directly to that section without   #
+# reading the entire file.                                                      #
 # --------------------------------------------------------------------------- #
 VIEW_ARGS=(
     samtools view
     --threads "${THREADS}"
     -u          # uncompressed BAM on stdout (piped to fastq)
     -f 4        # FLAG: read unmapped
-    -X "${CRAI_URL}"
+    -X "${CRAI_LOCAL}"
     "${CRAM_URL}"
     '*'
 )
@@ -221,7 +240,7 @@ if [[ -n "${REFERENCE:-}" ]]; then
         -T "${REFERENCE}"
         --threads "${THREADS}"
         -u -f 4
-        -X "${CRAI_URL}"
+        -X "${CRAI_LOCAL}"
         "${CRAM_URL}"
         '*'
     )
@@ -261,7 +280,7 @@ PIPELINE_SCRIPT="${SAMPLE_DIR}/.pipeline_${SLURM_ARRAY_TASK_ID}.sh"
 
 # Shell-escape every value that comes from external input
 q_threads=$(printf '%q' "${THREADS}")
-q_crai_url=$(printf '%q' "${CRAI_URL}")
+q_crai_local=$(printf '%q' "${CRAI_LOCAL}")
 q_cram_url=$(printf '%q' "${CRAM_URL}")
 q_collate_tmp=$(printf '%q' "${COLLATE_TMP}/tmp")
 q_r1=$(printf '%q' "${R1}")
@@ -277,14 +296,16 @@ q_other=$(printf '%q' "${OTHER}")
         printf 'samtools collate --threads %s -u -O %s %s \\\n' \
             "${q_threads}" "${q_unmapped_cram}" "${q_collate_tmp}"
     else
-        # samtools view: fetch only the unmapped virtual contig ('*')
+        # samtools view: fetch only the unmapped virtual contig ('*') via local CRAI
+        # The CRAI has been downloaded locally to avoid FTP URL limitations in
+        # some htslib builds (see download step above).
         if [[ -n "${REFERENCE:-}" ]]; then
             q_ref=$(printf '%q' "${REFERENCE}")
             printf 'samtools view -T %s --threads %s -u -f 4 -X %s %s %s \\\n' \
-                "${q_ref}" "${q_threads}" "${q_crai_url}" "${q_cram_url}" "'*'"
+                "${q_ref}" "${q_threads}" "${q_crai_local}" "${q_cram_url}" "'*'"
         else
             printf 'samtools view --threads %s -u -f 4 -X %s %s %s \\\n' \
-                "${q_threads}" "${q_crai_url}" "${q_cram_url}" "'*'"
+                "${q_threads}" "${q_crai_local}" "${q_cram_url}" "'*'"
         fi
         printf '| samtools collate --threads %s -u -O - %s \\\n' \
             "${q_threads}" "${q_collate_tmp}"
@@ -301,6 +322,7 @@ container_run bash "${PIPELINE_SCRIPT}" || EXIT_CODE=$?
 # Clean up temporary files
 rm -rf "${COLLATE_TMP}"
 rm -f "${PIPELINE_SCRIPT}"
+rm -f "${CRAI_LOCAL}"
 
 if [[ ${EXIT_CODE} -ne 0 ]]; then
     echo "ERROR: samtools pipeline failed for ${SAMPLE_ID} (exit ${EXIT_CODE})" >&2

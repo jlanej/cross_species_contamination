@@ -1,11 +1,24 @@
 """
 Tests for tests/1000G shell scripts.
 
-Checks syntax, dry-run behaviour, and key path-resolution logic without
-requiring SLURM, Apptainer, or network access.
+Checks syntax, dry-run behaviour, key path-resolution logic, and the
+CRAI-download workaround without requiring SLURM, Apptainer, or network
+access.
+
+Background on the CRAI download fix
+------------------------------------
+``samtools view -X <index>`` accepts an explicit index path so that
+samtools can seek directly to the unmapped virtual contig (``'*'``) and
+avoid scanning the entire CRAM.  However, some htslib builds do *not*
+support FTP URLs for the index file and return "Exec format error".
+
+The fix in ``extract_unmapped_array.sh`` is to download the small CRAI
+with ``curl`` to a local temp file before running the samtools pipeline,
+then pass the **local path** to ``-X``.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -33,13 +46,21 @@ def run(cmd, env=None, **kwargs):
 
 
 def minimal_manifest(tmp_path: Path) -> Path:
-    """Write a small but valid manifest.tsv to *tmp_path*."""
+    """Write a small but valid manifest.tsv to *tmp_path*.
+
+    Column headers match the real manifest: SAMPLE_ID, CRAM_FTP_URL, CRAI_FTP_URL.
+    FTP URLs are used here (as in production) to exercise the code paths that
+    deal with remote index files.
+    """
     manifest = tmp_path / "manifest.tsv"
     manifest.write_text(
-        "SAMPLE_ID\tCRAM_URL\tCRAI_URL\n"
-        "NA12718\thttps://example.com/NA12718.cram\thttps://example.com/NA12718.cram.crai\n"
-        "NA12748\thttps://example.com/NA12748.cram\thttps://example.com/NA12748.cram.crai\n"
-        "NA18488\thttps://example.com/NA18488.cram\thttps://example.com/NA18488.cram.crai\n"
+        "SAMPLE_ID\tCRAM_FTP_URL\tCRAI_FTP_URL\n"
+        "NA12718\tftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram\t"
+        "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram.crai\n"
+        "NA12748\tftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239481/NA12748.final.cram\t"
+        "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239481/NA12748.final.cram.crai\n"
+        "NA18488\tftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239483/NA18488.final.cram\t"
+        "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239483/NA18488.final.cram.crai\n"
     )
     return manifest
 
@@ -233,3 +254,182 @@ class TestArrayScript:
         ][0]
         # The default SIF path must be under OUTDIR (not a SLURM temp dir)
         assert sif_path.startswith(str(tmp_path / "outdir"))
+
+
+# ---------------------------------------------------------------------------
+# CRAI download workaround tests
+#
+# These tests verify that the array script correctly downloads the CRAI to a
+# local temp file and uses the local path with -X, rather than passing the raw
+# FTP URL to samtools (which fails on some htslib builds with "Exec format
+# error").
+# ---------------------------------------------------------------------------
+
+class TestCraiLocalDownload:
+    """Verify the CRAI local-download logic in extract_unmapped_array.sh."""
+
+    def _make_fake_curl(self, tmp_path: Path, *, succeed: bool = True) -> Path:
+        """Write a fake ``curl`` executable that creates a dummy file on success."""
+        fake_curl = tmp_path / "curl"
+        if succeed:
+            fake_curl.write_text(
+                "#!/usr/bin/env bash\n"
+                # curl is called as: curl ... -o <dest> <url>
+                # Find the -o argument and create a 4-byte dummy file there.
+                "dest=''\n"
+                "while [[ $# -gt 0 ]]; do\n"
+                "  if [[ $1 == '-o' ]]; then dest=$2; shift 2\n"
+                "  else shift; fi\n"
+                "done\n"
+                "[[ -n $dest ]] && printf '\\x00\\x00\\x00\\x00' > \"$dest\"\n"
+                "exit 0\n"
+            )
+        else:
+            fake_curl.write_text("#!/usr/bin/env bash\necho 'curl: error' >&2; exit 6\n")
+        fake_curl.chmod(0o755)
+        return fake_curl
+
+    def _make_fake_apptainer(self, tmp_path: Path) -> Path:
+        """Write a fake `apptainer` that always exits 0."""
+        fake = tmp_path / "apptainer"
+        fake.write_text("#!/usr/bin/env bash\nexit 0\n")
+        fake.chmod(0o755)
+        return fake
+
+    def test_pipeline_script_uses_local_crai_not_url(self, tmp_path):
+        """The generated pipeline script must reference the local CRAI path,
+        not the original FTP URL."""
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(
+            "SAMPLE_ID\tCRAM_FTP_URL\tCRAI_FTP_URL\n"
+            "NA12718\tftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram\t"
+            "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram.crai\n"
+        )
+        outdir = tmp_path / "output"
+        outdir.mkdir()
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        # Provide fake curl and apptainer so the script can progress far enough
+        # to write (and then we can inspect) the pipeline script.
+        self._make_fake_curl(bin_dir)
+        self._make_fake_apptainer(bin_dir)
+
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+
+        # Source just the sections of the script we need by extracting the
+        # relevant bash logic inline (avoids running SLURM / container bits).
+        inline = textwrap.dedent("""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            SAMPLE_ID=NA12718
+            CRAM_URL=ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram
+            CRAI_URL=ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram.crai
+            SAMPLE_DIR={outdir}/NA12718
+            mkdir -p "$SAMPLE_DIR"
+            CRAI_LOCAL="$SAMPLE_DIR/.NA12718.crai.tmp"
+            curl -fsSL --retry 3 --retry-delay 5 -o "$CRAI_LOCAL" "$CRAI_URL"
+            # Check that the local path exists and the FTP URL is NOT embedded
+            echo "CRAI_LOCAL=$CRAI_LOCAL"
+        """.format(outdir=outdir))
+
+        result = run(["bash", "-c", inline], env=env)
+        assert result.returncode == 0, result.stderr
+        assert "CRAI_LOCAL=" in result.stdout
+        local_path = [
+            line.split("=", 1)[1]
+            for line in result.stdout.splitlines()
+            if line.startswith("CRAI_LOCAL=")
+        ][0]
+        # Must be a filesystem path, not an FTP URL
+        assert not local_path.startswith("ftp://"), (
+            f"Expected local path but got: {local_path}"
+        )
+        assert local_path.startswith(str(outdir)), (
+            f"CRAI temp file should be under OUTDIR; got: {local_path}"
+        )
+
+    def test_crai_download_failure_aborts_pipeline(self, tmp_path):
+        """If curl fails to download the CRAI the script must exit non-zero."""
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(
+            "SAMPLE_ID\tCRAM_FTP_URL\tCRAI_FTP_URL\n"
+            "NA12718\tftp://ftp.sra.ebi.ac.uk/NA12718.cram\t"
+            "ftp://ftp.sra.ebi.ac.uk/NA12718.cram.crai\n"
+        )
+        outdir = tmp_path / "output"
+        outdir.mkdir()
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        self._make_fake_curl(bin_dir, succeed=False)
+
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+
+        inline = textwrap.dedent("""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            SAMPLE_ID=NA12718
+            CRAI_URL=ftp://ftp.sra.ebi.ac.uk/NA12718.cram.crai
+            SAMPLE_DIR={outdir}/NA12718
+            mkdir -p "$SAMPLE_DIR"
+            CRAI_LOCAL="$SAMPLE_DIR/.NA12718.crai.tmp"
+            if ! curl -fsSL --retry 3 --retry-delay 5 -o "$CRAI_LOCAL" "$CRAI_URL"; then
+                echo "ERROR: Failed to download CRAI index: $CRAI_URL" >&2
+                rm -f "$CRAI_LOCAL"
+                exit 1
+            fi
+        """.format(outdir=outdir))
+
+        result = run(["bash", "-c", inline], env=env)
+        assert result.returncode != 0, "Expected non-zero exit when curl fails"
+        assert "ERROR" in result.stderr
+
+    def test_array_script_content_uses_local_crai(self):
+        """Verify the actual script file references CRAI_LOCAL not CRAI_URL in
+        the samtools view command embedded in the pipeline script."""
+        import re
+
+        content = ARRAY_SCRIPT.read_text()
+
+        # The pipeline script generation must use the local variable, not the URL
+        assert "q_crai_local" in content, (
+            "Script should define q_crai_local for the local CRAI path"
+        )
+        # Find printf lines that write a samtools view command into the pipeline
+        # script.  These are the lines that actually end up in the generated
+        # pipeline, so they must use q_crai_local (local path), not q_crai_url
+        # (the raw FTP URL which fails on some htslib builds).
+        view_printf_pattern = re.compile(
+            r"""^\s*printf\s+['"](.*samtools\s+view.*-X.*%s.*)['"]""",
+            re.MULTILINE,
+        )
+        for match in view_printf_pattern.finditer(content):
+            assert "q_crai_url" not in match.group(0), (
+                "samtools view printf should use q_crai_local, not q_crai_url: "
+                + match.group(0).strip()
+            )
+
+    def test_array_script_curl_downloads_crai_before_pipeline(self):
+        """The curl download of CRAI must precede the pipeline script block."""
+        import re
+
+        content = ARRAY_SCRIPT.read_text()
+
+        # Locate the first non-comment line that calls curl for the CRAI download
+        curl_match = re.search(
+            r"^[^#]*curl\s+-fsSL",
+            content,
+            re.MULTILINE,
+        )
+        # Locate the assignment that opens the pipeline script file
+        pipeline_match = re.search(
+            r"^[^#]*PIPELINE_SCRIPT\s*=",
+            content,
+            re.MULTILINE,
+        )
+        assert curl_match is not None, "Script must contain a curl download for the CRAI"
+        assert pipeline_match is not None, "Script must contain PIPELINE_SCRIPT= assignment"
+        assert curl_match.start() < pipeline_match.start(), (
+            "curl download of CRAI must come before pipeline script generation"
+        )

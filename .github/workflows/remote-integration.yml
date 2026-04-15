@@ -1,0 +1,106 @@
+name: Remote Integration – EBI FTP CRAM Access
+
+# Run manually (workflow_dispatch) or on a weekly schedule so that breakages
+# in EBI FTP connectivity, samtools htslib support, or the CRAI-download
+# workaround are caught automatically rather than discovered during production
+# runs.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'   # Every Monday at 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  remote-cram-extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Use a single sample (NA12718) from the 1000G manifest. The CRAI is only
+    # a few kilobytes; samtools seeks directly to the unmapped virtual contig
+    # ('*') so only the small unmapped portion of the ~30 GB CRAM is streamed.
+    env:
+      SAMPLE_ID: NA12718
+      CRAM_URL: "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram"
+      CRAI_URL: "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram.crai"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install samtools and curl
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y samtools curl
+
+      - name: Print samtools version
+        run: samtools --version | head -3
+
+      # --------------------------------------------------------------------- #
+      # Step 1: Download the CRAI index locally.                               #
+      # samtools view -X does not reliably support FTP URLs for the index file #
+      # in all htslib builds (manifests as "Exec format error"). Downloading   #
+      # the small CRAI first and passing the local path to -X is the fix.      #
+      # --------------------------------------------------------------------- #
+      - name: Download CRAI index
+        run: |
+          curl -fsSL --retry 3 --retry-delay 5 \
+            -o /tmp/${SAMPLE_ID}.crai \
+            "${CRAI_URL}"
+          echo "CRAI size: $(wc -c < /tmp/${SAMPLE_ID}.crai) bytes"
+
+      # --------------------------------------------------------------------- #
+      # Step 2: Stream only the unmapped reads from the remote CRAM.           #
+      # -X <local_crai> + '*' seeks directly to the unmapped section; the     #
+      # full ~30 GB file is never downloaded.                                  #
+      # --------------------------------------------------------------------- #
+      - name: Extract unmapped reads via local CRAI + remote CRAM
+        run: |
+          mkdir -p /tmp/csc_remote_out /tmp/csc_collate_tmp
+
+          samtools view \
+            --threads 2 \
+            -u -f 4 \
+            -X /tmp/${SAMPLE_ID}.crai \
+            "${CRAM_URL}" \
+            '*' \
+          | samtools collate \
+            --threads 2 \
+            -u -O - \
+            /tmp/csc_collate_tmp/tmp \
+          | samtools fastq \
+            --threads 2 \
+            -1 /tmp/csc_remote_out/${SAMPLE_ID}_R1.fastq.gz \
+            -2 /tmp/csc_remote_out/${SAMPLE_ID}_R2.fastq.gz \
+            -s /tmp/csc_remote_out/${SAMPLE_ID}_singleton.fastq.gz \
+            -0 /tmp/csc_remote_out/${SAMPLE_ID}_other.fastq.gz \
+            -
+
+      # --------------------------------------------------------------------- #
+      # Step 3: Verify that reads were extracted.                              #
+      # --------------------------------------------------------------------- #
+      - name: Verify output files
+        run: |
+          echo "Output files:"
+          ls -lh /tmp/csc_remote_out/ || true
+
+          # At least one non-empty output must be present
+          TOTAL=0
+          for f in /tmp/csc_remote_out/${SAMPLE_ID}_*.fastq.gz; do
+            [[ -s "$f" ]] || continue
+            COUNT=$(zcat "$f" | wc -l)
+            READS=$(( COUNT / 4 ))
+            echo "  $(basename $f): ${READS} reads"
+            TOTAL=$(( TOTAL + READS ))
+          done
+
+          echo "Total unmapped reads extracted: ${TOTAL}"
+          if [[ "${TOTAL}" -eq 0 ]]; then
+            echo "ERROR: No unmapped reads extracted from ${SAMPLE_ID}" >&2
+            exit 1
+          fi
+          echo "Remote extraction succeeded."
+
+      - name: Clean up temporary files
+        if: always()
+        run: rm -rf /tmp/csc_remote_out /tmp/csc_collate_tmp /tmp/${SAMPLE_ID}.crai
