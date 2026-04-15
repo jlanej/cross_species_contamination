@@ -232,52 +232,78 @@ mkdir -p "${COLLATE_TMP}"
 if [[ "${KEEP_CRAM}" == "1" ]]; then
     UNMAPPED_CRAM="${SAMPLE_DIR}/${SAMPLE_ID}_unmapped.cram"
     echo "Saving intermediate unmapped CRAM: ${UNMAPPED_CRAM}"
-    container_run "${VIEW_ARGS[@]}" -C -o "${UNMAPPED_CRAM}"
+    container_run "${VIEW_ARGS[@]}" -C -o "${UNMAPPED_CRAM}" || {
+        echo "ERROR: Failed to save intermediate CRAM for ${SAMPLE_ID}" >&2
+        exit 1
+    }
 fi
 
 # --------------------------------------------------------------------------- #
 # Stream unmapped reads → collate by name → convert to FASTQ                  #
+# Run the entire samtools pipeline in a single container invocation so that    #
+# the inter-process pipes stay within one container context.                   #
 # --------------------------------------------------------------------------- #
 echo "Extracting unmapped reads and converting to FASTQ..."
 
+R2="${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_R2.fastq.gz"
+SINGLETON="${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_singleton.fastq.gz"
+OTHER="${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_other.fastq.gz"
+
+# Write the pipeline as a temporary shell script so variables with special
+# characters (paths, URLs) are handled safely without shell re-expansion.
+PIPELINE_SCRIPT="${SAMPLE_DIR}/.pipeline_${SLURM_ARRAY_TASK_ID}.sh"
+
 if [[ "${KEEP_CRAM}" == "1" ]]; then
-    container_run \
-        samtools collate \
-            --threads "${THREADS}" \
-            -u -O \
-            "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped.cram" \
-            "${COLLATE_TMP}/tmp" \
-    | container_run \
-        samtools fastq \
-            --threads "${THREADS}" \
-            -1 "${R1}" \
-            -2 "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_R2.fastq.gz" \
-            -s "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_singleton.fastq.gz" \
-            -0 "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_other.fastq.gz" \
-            -
+    cat > "${PIPELINE_SCRIPT}" << PIPELINE_EOF
+#!/bin/bash
+set -euo pipefail
+samtools collate \\
+    --threads "${THREADS}" \\
+    -u -O \\
+    "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped.cram" \\
+    "${COLLATE_TMP}/tmp" \\
+| samtools fastq \\
+    --threads "${THREADS}" \\
+    -1 "${R1}" \\
+    -2 "${R2}" \\
+    -s "${SINGLETON}" \\
+    -0 "${OTHER}" \\
+    -
+PIPELINE_EOF
 else
-    # Single pipeline: view → collate → fastq (all tools run in the container)
-    container_run "${VIEW_ARGS[@]}" \
-    | container_run \
-        samtools collate \
-            --threads "${THREADS}" \
-            -u -O \
-            - \
-            "${COLLATE_TMP}/tmp" \
-    | container_run \
-        samtools fastq \
-            --threads "${THREADS}" \
-            -1 "${R1}" \
-            -2 "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_R2.fastq.gz" \
-            -s "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_singleton.fastq.gz" \
-            -0 "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_other.fastq.gz" \
-            -
+    # Build the view argument string; '*' must be quoted inside the script
+    if [[ -n "${REFERENCE:-}" ]]; then
+        VIEW_CMD="samtools view -T '${REFERENCE}' --threads ${THREADS} -u -f 4 -X '${CRAI_URL}' '${CRAM_URL}' '*'"
+    else
+        VIEW_CMD="samtools view --threads ${THREADS} -u -f 4 -X '${CRAI_URL}' '${CRAM_URL}' '*'"
+    fi
+
+    cat > "${PIPELINE_SCRIPT}" << PIPELINE_EOF
+#!/bin/bash
+set -euo pipefail
+${VIEW_CMD} \\
+| samtools collate \\
+    --threads "${THREADS}" \\
+    -u -O \\
+    - \\
+    "${COLLATE_TMP}/tmp" \\
+| samtools fastq \\
+    --threads "${THREADS}" \\
+    -1 "${R1}" \\
+    -2 "${R2}" \\
+    -s "${SINGLETON}" \\
+    -0 "${OTHER}" \\
+    -
+PIPELINE_EOF
 fi
 
-EXIT_CODE=$?
+chmod +x "${PIPELINE_SCRIPT}"
+EXIT_CODE=0
+container_run bash "${PIPELINE_SCRIPT}" || EXIT_CODE=$?
 
-# Clean up temporary collate files
+# Clean up temporary files
 rm -rf "${COLLATE_TMP}"
+rm -f "${PIPELINE_SCRIPT}"
 
 if [[ ${EXIT_CODE} -ne 0 ]]; then
     echo "ERROR: samtools pipeline failed for ${SAMPLE_ID} (exit ${EXIT_CODE})" >&2

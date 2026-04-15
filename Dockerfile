@@ -51,5 +51,5 @@ RUN python -c "import csc; import csc.extract; import csc.classify; import csc.a
 #   docker run -v /path/to/kraken2_db:/data/kraken2_db ...
 VOLUME ["/data/kraken2_db"]
 
-ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["csc-extract --help"]
+ENTRYPOINT []
+CMD ["/bin/bash"]
