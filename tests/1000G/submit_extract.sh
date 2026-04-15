@@ -35,6 +35,10 @@
 #   --mem      STR    Memory per task       [default: 8G]
 #   --time     STR    Wall-clock time limit [default: 02:00:00]
 #   --reference FILE  Reference FASTA for CRAM decoding (optional)
+#   --container FILE  Path to the Apptainer SIF image
+#                     [default: <script_dir>/csc.sif; auto-pulled if absent]
+#   --image     URI   Docker URI to pull the container from
+#                     [default: ghcr.io/jlanej/cross_species_contamination:latest]
 #   --keep-cram       Also save intermediate unmapped CRAM per sample
 #   --dry-run         Print sbatch command; do not submit
 #   -h, --help        Show this help message
@@ -57,6 +61,8 @@ CPUS=4
 MEM="8G"
 WALLTIME="02:00:00"
 REFERENCE=""
+CONTAINER_SIF=""
+CONTAINER_IMAGE=""
 KEEP_CRAM="0"
 DRY_RUN=0
 
@@ -78,6 +84,8 @@ while [[ $# -gt 0 ]]; do
         --mem)       MEM="$2";         shift 2 ;;
         --time)      WALLTIME="$2";    shift 2 ;;
         --reference) REFERENCE="$2";  shift 2 ;;
+        --container) CONTAINER_SIF="$2"; shift 2 ;;
+        --image)     CONTAINER_IMAGE="$2"; shift 2 ;;
         --keep-cram) KEEP_CRAM="1";   shift ;;
         --dry-run)   DRY_RUN=1;       shift ;;
         -h|--help)   usage ;;
@@ -150,7 +158,9 @@ SBATCH_CMD=(
     --output="${SCRIPT_DIR}/logs/extract_%A_%a.out"
     --error="${SCRIPT_DIR}/logs/extract_%A_%a.err"
     --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM}$(
-        [[ -n "${REFERENCE}" ]] && echo ",REFERENCE=${REFERENCE}" || echo ""
+        [[ -n "${REFERENCE}" ]]      && echo ",REFERENCE=${REFERENCE}"           || echo ""
+        [[ -n "${CONTAINER_SIF}" ]]  && echo ",CONTAINER_SIF=${CONTAINER_SIF}"   || echo ""
+        [[ -n "${CONTAINER_IMAGE}" ]] && echo ",CONTAINER_IMAGE=${CONTAINER_IMAGE}" || echo ""
     )"
     "${SCRIPT_DIR}/extract_unmapped_array.sh"
 )
