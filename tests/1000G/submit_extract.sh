@@ -68,7 +68,8 @@ KEEP_CRAM="0"
 DRY_RUN=0
 MAX_CONCURRENT_JOBS=300
 MAX_CONCURRENT_JOBS_SET=0
-# Keep usage output focused on the documented header/options block.
+# Keep usage output focused on the documented header/options block and long
+# enough to include all currently documented options.
 USAGE_LINES=80
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -156,8 +157,8 @@ else
     ARRAY_SPEC="1-${TOTAL_SAMPLES}"
 fi
 
-# Ensure SLURM array throttling syntax is valid and configurable:
-# --array=<spec>%<max_concurrent_jobs>
+# Ensure SLURM array throttling is set as --array=<spec>%<max_concurrent_jobs>:
+# preserve explicit '%' in --range, otherwise apply the configurable default.
 if [[ "${ARRAY_SPEC}" == *%* ]]; then
     if [[ "${MAX_CONCURRENT_JOBS_SET}" -eq 1 ]]; then
         echo "ERROR: --range already contains '%' concurrency; remove it or omit --max-concurrent-jobs." >&2
