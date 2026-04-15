@@ -115,6 +115,42 @@ fi
 # Total number of samples in the manifest (header = line 1, samples start at 2)
 TOTAL_SAMPLES=$(( $(wc -l < "${MANIFEST}") - 1 ))
 echo "Manifest: ${MANIFEST} (${TOTAL_SAMPLES} samples)"
+mapfile -t MANIFEST_SAMPLE_IDS < <(awk -F'\t' 'NR>1 {print $1}' "${MANIFEST}")
+
+expand_array_spec() {
+    local spec="$1"
+    local token start end i
+    local -a tokens=()
+    IFS=',' read -ra tokens <<< "${spec}"
+    for token in "${tokens[@]}"; do
+        [[ -z "${token}" ]] && continue
+        if [[ "${token}" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+            start="${BASH_REMATCH[1]}"
+            end="${BASH_REMATCH[2]}"
+            if (( start > end )); then
+                echo "ERROR: Invalid range '${token}' (start > end)." >&2
+                return 1
+            fi
+            for (( i=start; i<=end; i++ )); do
+                echo "${i}"
+            done
+        elif [[ "${token}" =~ ^[0-9]+$ ]]; then
+            echo "${token}"
+        else
+            echo "ERROR: Invalid array token '${token}'." >&2
+            return 1
+        fi
+    done
+}
+
+sample_complete_for_index() {
+    local idx="$1"
+    local sid r1
+    sid="${MANIFEST_SAMPLE_IDS[$((idx - 1))]:-}"
+    [[ -z "${sid}" ]] && return 1
+    r1="${OUTDIR}/${sid}/${sid}_unmapped_R1.fastq.gz"
+    [[ -s "${r1}" ]]
+}
 
 # ── Resolve array range ──────────────────────────────────────────────────────
 if [[ -n "${RANGE}" ]]; then
@@ -154,6 +190,28 @@ elif [[ -n "${LIMIT}" ]]; then
     ARRAY_SPEC="1-${LIMIT}"
 else
     ARRAY_SPEC="1-${TOTAL_SAMPLES}"
+fi
+
+# ── Idempotence: skip already completed samples ──────────────────────────────
+COMPLETED_COUNT=0
+PENDING_INDICES=()
+while IFS= read -r idx; do
+    [[ -z "${idx}" ]] && continue
+    if sample_complete_for_index "${idx}"; then
+        COMPLETED_COUNT=$((COMPLETED_COUNT + 1))
+    else
+        PENDING_INDICES+=("${idx}")
+    fi
+done < <(expand_array_spec "${ARRAY_SPEC}")
+
+if [[ ${#PENDING_INDICES[@]} -eq 0 ]]; then
+    echo "All selected samples already have extraction output under ${OUTDIR}. Nothing to submit."
+    exit 0
+fi
+
+if [[ "${COMPLETED_COUNT}" -gt 0 ]]; then
+    ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | paste -sd',')"
+    echo "Skipping ${COMPLETED_COUNT} completed sample(s); submitting ${#PENDING_INDICES[@]} pending sample(s)."
 fi
 
 # Ensure SLURM array throttling is set as --array=<spec>%<max_concurrent_jobs>:
