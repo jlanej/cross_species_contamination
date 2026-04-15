@@ -251,51 +251,44 @@ OTHER="${SAMPLE_DIR}/${SAMPLE_ID}_unmapped_other.fastq.gz"
 
 # Write the pipeline as a temporary shell script so variables with special
 # characters (paths, URLs) are handled safely without shell re-expansion.
+# All user-controlled values are escaped with printf '%q' before being
+# written into the script to prevent any shell injection.
 PIPELINE_SCRIPT="${SAMPLE_DIR}/.pipeline_${SLURM_ARRAY_TASK_ID}.sh"
 
-if [[ "${KEEP_CRAM}" == "1" ]]; then
-    cat > "${PIPELINE_SCRIPT}" << PIPELINE_EOF
-#!/bin/bash
-set -euo pipefail
-samtools collate \\
-    --threads "${THREADS}" \\
-    -u -O \\
-    "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped.cram" \\
-    "${COLLATE_TMP}/tmp" \\
-| samtools fastq \\
-    --threads "${THREADS}" \\
-    -1 "${R1}" \\
-    -2 "${R2}" \\
-    -s "${SINGLETON}" \\
-    -0 "${OTHER}" \\
-    -
-PIPELINE_EOF
-else
-    # Build the view argument string; '*' must be quoted inside the script
-    if [[ -n "${REFERENCE:-}" ]]; then
-        VIEW_CMD="samtools view -T '${REFERENCE}' --threads ${THREADS} -u -f 4 -X '${CRAI_URL}' '${CRAM_URL}' '*'"
+# Shell-escape every value that comes from external input
+q_threads=$(printf '%q' "${THREADS}")
+q_crai_url=$(printf '%q' "${CRAI_URL}")
+q_cram_url=$(printf '%q' "${CRAM_URL}")
+q_collate_tmp=$(printf '%q' "${COLLATE_TMP}/tmp")
+q_r1=$(printf '%q' "${R1}")
+q_r2=$(printf '%q' "${R2}")
+q_singleton=$(printf '%q' "${SINGLETON}")
+q_other=$(printf '%q' "${OTHER}")
+
+{
+    printf '#!/bin/bash\nset -euo pipefail\n'
+
+    if [[ "${KEEP_CRAM}" == "1" ]]; then
+        q_unmapped_cram=$(printf '%q' "${SAMPLE_DIR}/${SAMPLE_ID}_unmapped.cram")
+        printf 'samtools collate --threads %s -u -O %s %s \\\n' \
+            "${q_threads}" "${q_unmapped_cram}" "${q_collate_tmp}"
     else
-        VIEW_CMD="samtools view --threads ${THREADS} -u -f 4 -X '${CRAI_URL}' '${CRAM_URL}' '*'"
+        # samtools view: fetch only the unmapped virtual contig ('*')
+        if [[ -n "${REFERENCE:-}" ]]; then
+            q_ref=$(printf '%q' "${REFERENCE}")
+            printf 'samtools view -T %s --threads %s -u -f 4 -X %s %s %s \\\n' \
+                "${q_ref}" "${q_threads}" "${q_crai_url}" "${q_cram_url}" "'*'"
+        else
+            printf 'samtools view --threads %s -u -f 4 -X %s %s %s \\\n' \
+                "${q_threads}" "${q_crai_url}" "${q_cram_url}" "'*'"
+        fi
+        printf '| samtools collate --threads %s -u -O - %s \\\n' \
+            "${q_threads}" "${q_collate_tmp}"
     fi
 
-    cat > "${PIPELINE_SCRIPT}" << PIPELINE_EOF
-#!/bin/bash
-set -euo pipefail
-${VIEW_CMD} \\
-| samtools collate \\
-    --threads "${THREADS}" \\
-    -u -O \\
-    - \\
-    "${COLLATE_TMP}/tmp" \\
-| samtools fastq \\
-    --threads "${THREADS}" \\
-    -1 "${R1}" \\
-    -2 "${R2}" \\
-    -s "${SINGLETON}" \\
-    -0 "${OTHER}" \\
-    -
-PIPELINE_EOF
-fi
+    printf '| samtools fastq --threads %s \\\n    -1 %s \\\n    -2 %s \\\n    -s %s \\\n    -0 %s \\\n    -\n' \
+        "${q_threads}" "${q_r1}" "${q_r2}" "${q_singleton}" "${q_other}"
+} > "${PIPELINE_SCRIPT}"
 
 chmod +x "${PIPELINE_SCRIPT}"
 EXIT_CODE=0
