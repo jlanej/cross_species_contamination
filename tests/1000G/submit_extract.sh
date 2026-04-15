@@ -69,7 +69,7 @@ DRY_RUN=0
 MAX_CONCURRENT_JOBS=300
 MAX_CONCURRENT_JOBS_SET=0
 # Keep usage output focused on the documented header/options block and long
-# enough to include all currently documented options.
+# enough to include all currently documented options. Update if option docs grow.
 USAGE_LINES=80
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -106,11 +106,9 @@ if [[ ! -f "${MANIFEST}" ]]; then
     exit 1
 fi
 
-if [[ "${MAX_CONCURRENT_JOBS_SET}" -eq 1 ]]; then
-    if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
-        echo "ERROR: --max-concurrent-jobs must be a positive integer." >&2
-        exit 1
-    fi
+if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --max-concurrent-jobs must be a positive integer." >&2
+    exit 1
 fi
 
 # Total number of samples in the manifest (header = line 1, samples start at 2)
