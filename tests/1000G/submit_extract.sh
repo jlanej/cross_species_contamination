@@ -61,8 +61,8 @@ CPUS=4
 MEM="8G"
 WALLTIME="02:00:00"
 REFERENCE=""
-CONTAINER_SIF=""
-CONTAINER_IMAGE=""
+CONTAINER_SIF="${SCRIPT_DIR}/csc.sif"
+CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 KEEP_CRAM="0"
 DRY_RUN=0
 
@@ -146,7 +146,45 @@ fi
 # ── Create directories ───────────────────────────────────────────────────────
 mkdir -p "${OUTDIR}" "${SCRIPT_DIR}/logs"
 
+# ── Resolve container image – pull once before any array tasks start ─────────
+# Ensures the SIF exists at an absolute, user-writable path so that SLURM
+# worker nodes (which copy the script to /var/spool/slurmd/…) never need to
+# pull or write the lock file themselves.
+CONTAINER_SIF="$(realpath -m "${CONTAINER_SIF}")"
+
+if [[ "${DRY_RUN}" -eq 0 ]] && [[ ! -f "${CONTAINER_SIF}" ]]; then
+    # Detect apptainer / singularity
+    if command -v apptainer &>/dev/null; then
+        APPTAINER_CMD="apptainer"
+    elif command -v singularity &>/dev/null; then
+        APPTAINER_CMD="singularity"
+    else
+        echo "ERROR: Neither 'apptainer' nor 'singularity' found in PATH." >&2
+        echo "       Load the apptainer module (e.g. 'module load apptainer') or" >&2
+        echo "       install it: https://apptainer.org/docs/user/latest/quick_start.html" >&2
+        exit 1
+    fi
+
+    echo "Pulling container image: ${CONTAINER_IMAGE}"
+    echo "Saving to: ${CONTAINER_SIF}"
+    mkdir -p "$(dirname "${CONTAINER_SIF}")"
+
+    if "${APPTAINER_CMD}" pull --force "${CONTAINER_SIF}" "docker://${CONTAINER_IMAGE}"; then
+        echo "Container pulled successfully: ${CONTAINER_SIF}"
+    else
+        echo "ERROR: Failed to pull container image '${CONTAINER_IMAGE}'." >&2
+        exit 1
+    fi
+elif [[ "${DRY_RUN}" -eq 0 ]]; then
+    echo "Container already present: ${CONTAINER_SIF}"
+fi
+
 # ── Build sbatch command ─────────────────────────────────────────────────────
+# CONTAINER_SIF is always passed explicitly so array tasks never fall back to
+# ${SCRIPT_DIR}/csc.sif (which resolves to SLURM's /var/spool/slurmd/… temp dir).
+ARRAY_JOB_EXPORTS="CONTAINER_SIF=${CONTAINER_SIF},CONTAINER_IMAGE=${CONTAINER_IMAGE}"
+[[ -n "${REFERENCE}" ]] && ARRAY_JOB_EXPORTS+=",REFERENCE=${REFERENCE}"
+
 SBATCH_CMD=(
     sbatch
     --job-name=1kg_extract
@@ -157,11 +195,7 @@ SBATCH_CMD=(
     --partition="${PARTITION}"
     --output="${SCRIPT_DIR}/logs/extract_%A_%a.out"
     --error="${SCRIPT_DIR}/logs/extract_%A_%a.err"
-    --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM}$(
-        [[ -n "${REFERENCE}" ]]      && echo ",REFERENCE=${REFERENCE}"           || echo ""
-        [[ -n "${CONTAINER_SIF}" ]]  && echo ",CONTAINER_SIF=${CONTAINER_SIF}"   || echo ""
-        [[ -n "${CONTAINER_IMAGE}" ]] && echo ",CONTAINER_IMAGE=${CONTAINER_IMAGE}" || echo ""
-    )"
+    --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM},${ARRAY_JOB_EXPORTS}"
     "${SCRIPT_DIR}/extract_unmapped_array.sh"
 )
 
