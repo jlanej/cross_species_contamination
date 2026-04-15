@@ -1,31 +1,23 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 LABEL maintainer="jlanej"
 LABEL description="Cross-species contamination detection pipeline"
 
-ARG KRAKEN2_VERSION=v2.1.3
+ARG KRAKEN2_VERSION=v2.17.1
 
 # Install samtools, Kraken2 build dependencies, and runtime libraries
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        samtools \
-        libhts-dev \
-        gcc \
-        g++ \
-        make \
+        build-essential \
         git \
         perl \
         zlib1g-dev \
-        libbz2-dev \
-        liblzma-dev \
-        libcurl4-openssl-dev \
-        libssl-dev && \
-    git clone --depth 1 --branch "${KRAKEN2_VERSION}" \
-        https://github.com/DerrickWood/kraken2.git /tmp/kraken2 && \
-    /tmp/kraken2/install_kraken2.sh /usr/local/bin && \
-    rm -rf /tmp/kraken2 && \
-    apt-get purge -y --auto-remove gcc g++ make git && \
-    rm -rf /var/lib/apt/lists/*
+        samtools \
+    && git clone --depth 1 --branch "${KRAKEN2_VERSION}" \
+        https://github.com/DerrickWood/kraken2.git /tmp/kraken2 \
+    && /tmp/kraken2/install_kraken2.sh /usr/local/bin \
+    && rm -rf /tmp/kraken2 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -51,4 +43,5 @@ RUN python -c "import csc; import csc.extract; import csc.classify; import csc.a
 #   docker run -v /path/to/kraken2_db:/data/kraken2_db ...
 VOLUME ["/data/kraken2_db"]
 
-ENTRYPOINT ["csc-extract"]
+ENTRYPOINT []
+CMD ["/bin/bash"]

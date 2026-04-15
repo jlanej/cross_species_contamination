@@ -6,6 +6,25 @@ high-coverage CRAMs hosted on the EBI FTP server.
 Only the unmapped section of each remote CRAM is fetched (using the CRAI index
 as a seek pointer), so the full ~30 GB file is never downloaded.
 
+All tools run inside an **Apptainer** (Singularity) container that is pulled
+automatically on first use — no local software installation is required beyond
+Apptainer itself.
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| **Apptainer ≥ 1.0** (or Singularity ≥ 3.x) | `module load apptainer` on most HPCs |
+| **SLURM** | For job scheduling |
+| Internet access to `ghcr.io` | Container is pulled on first run |
+| Internet access to `ftp.sra.ebi.ac.uk` | For remote CRAM streaming |
+
+The container (`ghcr.io/jlanej/cross_species_contamination:latest`) bundles
+**samtools**, **Kraken2**, and all CSC Python tools.  It is built and published
+automatically via GitHub Actions on every push to `main`.
+
 ---
 
 ## Files
@@ -21,13 +40,16 @@ as a seek pointer), so the full ~30 GB file is never downloaded.
 ## Quick start
 
 ```bash
-# Clone / navigate to this directory on your HPC
+# Navigate to this directory on your HPC
 cd tests/1000G
 
 # Make scripts executable
 chmod +x submit_extract.sh extract_unmapped_array.sh
 
-# --- Option A: all 3 202 samples ---
+# Load Apptainer (if not already in PATH)
+module load apptainer   # command varies by HPC; skip if already available
+
+# --- Option A: all 3 202 samples (container is pulled automatically) ---
 ./submit_extract.sh
 
 # --- Option B: first 50 samples (good for testing) ---
@@ -39,6 +61,13 @@ echo -e "NA12718\nNA12748\nNA18488" > my_subset.txt
 
 # --- Option D: dry-run to preview the sbatch command ---
 ./submit_extract.sh --limit 10 --dry-run
+```
+
+The container SIF is saved as `csc.sif` next to the script and reused by all
+subsequent jobs.  To use a pre-downloaded image:
+
+```bash
+./submit_extract.sh --container /shared/containers/csc.sif
 ```
 
 ---
@@ -76,8 +105,33 @@ directory.
 | `--mem STR` | `8G` | Memory per task |
 | `--time STR` | `02:00:00` | Wall-clock time limit |
 | `--reference FILE` | – | GRCh38 FASTA for CRAM decoding (recommended) |
+| `--container FILE` | `./csc.sif` | Path to pre-pulled Apptainer SIF image |
+| `--image URI` | `ghcr.io/jlanej/cross_species_contamination:latest` | Docker URI for auto-pull |
 | `--keep-cram` | off | Also save an intermediate unmapped CRAM |
 | `--dry-run` | off | Print sbatch command without submitting |
+
+---
+
+## Container details
+
+The container is built from the repository `Dockerfile` and published to the
+GitHub Container Registry (`ghcr.io`) by the **Build & Publish Docker image**
+GitHub Actions workflow on every push to `main` and on version tags.
+
+You can reference any specific version:
+
+```bash
+# Pin to a specific release tag
+./submit_extract.sh --image ghcr.io/jlanej/cross_species_contamination:v0.2.0
+```
+
+To build and use a local image:
+
+```bash
+docker build -t csc:local .
+apptainer build csc_local.sif docker-daemon://csc:local
+./submit_extract.sh --container csc_local.sif
+```
 
 ---
 
@@ -92,7 +146,7 @@ directory.
 Each task typically completes in **10–30 minutes** for 30× coverage samples,
 and uses **< 2 GB RAM**.  Most of the time is network I/O from the EBI FTP
 server.  If your HPC has an egress firewall, ensure outbound FTP (port 21/20)
-to `ftp.sra.ebi.ac.uk` is allowed.
+to `ftp.sra.ebi.ac.uk` and HTTPS (port 443) to `ghcr.io` are allowed.
 
 ---
 
@@ -136,7 +190,7 @@ nextflow run nextflow/main.nf \
     --input_csv  samples_for_classify.csv \
     --kraken2_db /path/to/prackendb \
     --outdir     results_1kg/ \
-    -profile     slurm,singularity
+    -profile     slurm,apptainer
 ```
 
 ---
