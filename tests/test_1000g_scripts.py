@@ -410,6 +410,16 @@ class TestCraiLocalDownload:
                 + match.group(0).strip()
             )
 
+    def test_array_script_content_passes_cram_then_crai_to_x(self):
+        """samtools -X must receive CRAM first, then CRAI index path."""
+        content = ARRAY_SCRIPT.read_text()
+        assert (
+            '"${q_threads}" "${q_cram_url}" "${q_crai_local}"'
+        ) in content, "Pipeline script should pass -X <CRAM_URL> <CRAI_LOCAL>"
+        assert (
+            '"${q_threads}" "${q_crai_local}" "${q_cram_url}"'
+        ) not in content, "Script must not pass -X <CRAI_LOCAL> <CRAM_URL>"
+
     def test_array_script_curl_downloads_crai_before_pipeline(self):
         """The curl download of CRAI must precede the pipeline script block."""
         import re
