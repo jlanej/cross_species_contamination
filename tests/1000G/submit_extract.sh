@@ -115,6 +115,7 @@ fi
 # Total number of samples in the manifest (header = line 1, samples start at 2)
 TOTAL_SAMPLES=$(( $(wc -l < "${MANIFEST}") - 1 ))
 echo "Manifest: ${MANIFEST} (${TOTAL_SAMPLES} samples)"
+mapfile -t MANIFEST_SAMPLE_IDS < <(awk 'NR>1 {print $1}' FS='\t' "${MANIFEST}")
 
 expand_array_spec() {
     local spec="$1"
@@ -145,7 +146,7 @@ expand_array_spec() {
 sample_complete_for_index() {
     local idx="$1"
     local sid r1
-    sid="$(awk -v target="$((idx + 1))" 'NR==target {print $1; exit}' FS='\t' "${MANIFEST}")"
+    sid="${MANIFEST_SAMPLE_IDS[$((idx - 1))]:-}"
     [[ -z "${sid}" ]] && return 1
     r1="${OUTDIR}/${sid}/${sid}_unmapped_R1.fastq.gz"
     [[ -s "${r1}" ]]

@@ -176,6 +176,8 @@ download_crai_with_aspera() {
     downloaded="${dest_dir}/${remote_basename}"
 
     if ! ascp -i "${aspera_key}" \
+        # -T: disable encryption for speed on public data; -r: recursive mode
+        # tolerated for file paths; -Q: adaptive flow control; -L-: no log dir.
         -Tr -Q -l "${aspera_bandwidth}" -P"${aspera_port}" -L- \
         "${aspera_user}@${aspera_host}:${aspera_path}" \
         "${dest_dir}/"; then
