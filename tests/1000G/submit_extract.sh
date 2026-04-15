@@ -115,7 +115,7 @@ fi
 # Total number of samples in the manifest (header = line 1, samples start at 2)
 TOTAL_SAMPLES=$(( $(wc -l < "${MANIFEST}") - 1 ))
 echo "Manifest: ${MANIFEST} (${TOTAL_SAMPLES} samples)"
-mapfile -t MANIFEST_SAMPLE_IDS < <(awk 'NR>1 {print $1}' FS='\t' "${MANIFEST}")
+mapfile -t MANIFEST_SAMPLE_IDS < <(awk -F'\t' 'NR>1 {print $1}' "${MANIFEST}")
 
 expand_array_spec() {
     local spec="$1"
