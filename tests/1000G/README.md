@@ -6,6 +6,12 @@ high-coverage CRAMs hosted on the EBI FTP server.
 Only the unmapped section of each remote CRAM is fetched (using the CRAI index
 as a seek pointer), so the full ~30 GB file is never downloaded.
 
+The CRAI index is downloaded to a local temporary file before calling
+`samtools view -X`.  This is necessary because some htslib builds do not
+support FTP URLs as the index argument to `-X`, resulting in an
+"Exec format error".  The data CRAM stream itself is still read directly from
+the EBI FTP server.
+
 All tools run inside an **Apptainer** (Singularity) container that is pulled
 automatically on first use — no local software installation is required beyond
 Apptainer itself.
@@ -174,6 +180,47 @@ The EBI FTP also hosts the reference used for the 1KG CRAMs:
 ```
 ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa
 ```
+
+---
+
+## Troubleshooting
+
+### `Exec format error` when opening the CRAI
+
+Some htslib builds (in particular older samtools packages distributed via
+`apt`) cannot open FTP URLs as the index argument to `samtools view -X`.
+The symptom is:
+
+```
+[E::hts_hopen] Failed to open file ftp://...NA12718.final.cram.crai
+samtools view: failed to open "ftp://..." for reading: Exec format error
+```
+
+**This is fixed in `extract_unmapped_array.sh`**: the CRAI is downloaded
+locally with `curl` before the samtools pipeline runs.  The CRAM data stream
+itself is still read directly from the EBI FTP server (only the unmapped
+section is transferred).
+
+If you encounter this on a custom samtools invocation, apply the same pattern:
+
+```bash
+# 1. Download the small CRAI index locally
+curl -fsSL --retry 3 -o /tmp/sample.crai "${CRAI_FTP_URL}"
+
+# 2. Use the local CRAI; stream only the unmapped contig from the remote CRAM
+samtools view -u -f 4 -X /tmp/sample.crai "${CRAM_FTP_URL}" '*' \
+  | samtools collate -u -O - /tmp/collate_tmp \
+  | samtools fastq -1 R1.fastq.gz -2 R2.fastq.gz -s singleton.fastq.gz -0 other.fastq.gz -
+```
+
+### CI / Automated testing of remote access
+
+A dedicated GitHub Actions workflow
+(`.github/workflows/remote-integration.yml`) exercises the full remote
+pipeline against the EBI FTP server.  It runs automatically every Monday and
+can also be triggered manually via the **Actions → Remote Integration** tab.
+This means regressions in FTP connectivity or the samtools pipeline are
+caught in CI rather than discovered during production runs.
 
 ---
 
