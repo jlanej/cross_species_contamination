@@ -68,10 +68,12 @@ KEEP_CRAM="0"
 DRY_RUN=0
 MAX_CONCURRENT_JOBS=300
 MAX_CONCURRENT_JOBS_SET=0
+# Keep usage output focused on the documented header/options block.
+USAGE_LINES=80
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
-    grep '^#' "$0" | sed 's/^# \{0,2\}//' | head -80
+    grep '^#' "$0" | sed 's/^# \{0,2\}//' | head -"${USAGE_LINES}"
     exit 0
 }
 
@@ -103,9 +105,11 @@ if [[ ! -f "${MANIFEST}" ]]; then
     exit 1
 fi
 
-if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: --max-concurrent-jobs must be a positive integer." >&2
-    exit 1
+if [[ "${MAX_CONCURRENT_JOBS_SET}" -eq 1 ]]; then
+    if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: --max-concurrent-jobs must be a positive integer." >&2
+        exit 1
+    fi
 fi
 
 # Total number of samples in the manifest (header = line 1, samples start at 2)
