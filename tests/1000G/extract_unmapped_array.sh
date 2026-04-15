@@ -188,6 +188,7 @@ download_crai_with_aspera() {
     if [[ "${downloaded}" != "${dest}" && -f "${downloaded}" && ! -f "${dest}" ]]; then
         mv -f "${downloaded}" "${dest}"
     elif [[ "${downloaded}" != "${dest}" && -f "${downloaded}" && -f "${dest}" ]]; then
+        echo "WARNING: Aspera produced both '${downloaded}' and '${dest}'; keeping '${dest}'." >&2
         rm -f "${downloaded}"
     fi
 
