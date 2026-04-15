@@ -9,7 +9,6 @@ ARG KRAKEN2_VERSION=v2.1.3
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         samtools \
-        libhts-dev \
         gcc \
         g++ \
         make \
@@ -18,7 +17,7 @@ RUN apt-get update && \
         zlib1g-dev \
         libbz2-dev \
         liblzma-dev \
-        libcurl4-openssl-dev \
+        libcurl4-gnutls-dev \
         libssl-dev && \
     git clone --depth 1 --branch "${KRAKEN2_VERSION}" \
         https://github.com/DerrickWood/kraken2.git /tmp/kraken2 && \
