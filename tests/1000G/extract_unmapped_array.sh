@@ -69,7 +69,11 @@ KEEP_CRAM="${KEEP_CRAM:-0}"
 
 # Container settings – no pre-setup required; image is pulled automatically
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
-CONTAINER_SIF="${CONTAINER_SIF:-${SCRIPT_DIR}/csc.sif}"
+# Default to OUTDIR (a user-writable path) so that if this script is submitted
+# directly (without submit_extract.sh) it still uses a writable location.
+# When submitted via submit_extract.sh, CONTAINER_SIF is always passed
+# explicitly as an absolute path via --export.
+CONTAINER_SIF="${CONTAINER_SIF:-${OUTDIR}/csc.sif}"
 
 # --------------------------------------------------------------------------- #
 # Apptainer bootstrap                                                           #

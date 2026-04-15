@@ -63,8 +63,10 @@ echo -e "NA12718\nNA12748\nNA18488" > my_subset.txt
 ./submit_extract.sh --limit 10 --dry-run
 ```
 
-The container SIF is saved as `csc.sif` next to the script and reused by all
-subsequent jobs.  To use a pre-downloaded image:
+The container SIF is saved as `csc.sif` next to `submit_extract.sh` and reused by all
+subsequent jobs.  The pull happens **once**, in `submit_extract.sh` before the
+SLURM array is submitted, so individual worker nodes never need write access to
+pull the image themselves.  To use a pre-downloaded image:
 
 ```bash
 ./submit_extract.sh --container /shared/containers/csc.sif
