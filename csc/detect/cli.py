@@ -136,7 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _rank_matrix_candidates(matrix: Path, rank: str) -> list[Path]:
-    """Return candidate rank-matrix paths matching the selected matrix type."""
+    """Return candidate rank-matrix paths in highest-to-lowest priority order."""
     matrix_dir = matrix.parent
     matrix_name = matrix.name
     typed_match = TYPED_MATRIX_PATTERN.fullmatch(matrix_name)

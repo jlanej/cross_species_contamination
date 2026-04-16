@@ -245,8 +245,8 @@ class TestAggregateReports:
 
         # Typed CPM matrix should still be produced
         cpm_rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
-        total_cpm = sum(float(row["values"][0]) for row in cpm_rows)
-        assert total_cpm == pytest.approx(1_000_000, rel=1e-4)
+        sample0_cpm_sum = sum(float(row["values"][0]) for row in cpm_rows)
+        assert sample0_cpm_sum == pytest.approx(1_000_000, rel=1e-4)
 
     def test_cpm_normalisation(self, basic_report: Path, tmp_path: Path) -> None:
         out = tmp_path / "cpm"

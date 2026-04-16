@@ -24,7 +24,7 @@ result = aggregate_reports(
     ["sampleA.kraken2.report.txt", "sampleB.kraken2.report.txt"],
     output_dir="results/",
     min_reads=10,       # exclude taxa with fewer than 10 reads per sample
-    normalize=True,     # selects legacy primary matrix format (CPM by default)
+    normalize=True,     # only selects legacy taxa_matrix.tsv content (both typed matrices are always written)
     chunk_size=500,     # reports per processing chunk
     rank_filter=("S", "G", "F"),  # per-rank matrices (default)
 )
