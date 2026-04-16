@@ -122,7 +122,8 @@ process PIPELINE_SUMMARY {
         <h2>Output Files</h2>
         <table>
           <tr><th>Stage</th><th>Path</th></tr>
-          <tr><td>Aggregated matrix</td><td>aggregate/taxa_matrix.tsv</td></tr>
+          <tr><td>Aggregated matrix (CPM)</td><td>aggregate/taxa_matrix_cpm.tsv</td></tr>
+          <tr><td>Aggregated matrix (raw)</td><td>aggregate/taxa_matrix_raw.tsv</td></tr>
           <tr><td>Aggregation metadata</td><td>aggregate/aggregation_metadata.json</td></tr>
           <tr><td>Flagged samples</td><td>detect/flagged_samples.tsv</td></tr>
           <tr><td>QC summary</td><td>detect/qc_summary.json</td></tr>

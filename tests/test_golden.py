@@ -100,11 +100,10 @@ class TestAggregateGolden:
         aggregate_reports(
             sorted(report_dir.glob("*.kraken2.report.txt")),
             out,
-            normalize=False,
             min_reads=0,
         )
 
-        actual = (out / "taxa_matrix.tsv").read_text()
+        actual = (out / "taxa_matrix_raw.tsv").read_text()
         golden = (GOLDEN_DIR / "aggregate_matrix.tsv").read_text()
         assert actual == golden, (
             "Aggregate matrix differs from golden file.  "
@@ -118,7 +117,6 @@ class TestAggregateGolden:
         aggregate_reports(
             sorted(report_dir.glob("*.kraken2.report.txt")),
             out,
-            normalize=False,
             min_reads=0,
         )
 

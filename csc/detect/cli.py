@@ -2,17 +2,17 @@
 
 Usage examples::
 
-    # Run MAD-based outlier detection on an aggregated matrix
-    csc-detect results/taxa_matrix.tsv -o results/detect/
+    # Run MAD-based outlier detection on the CPM aggregate matrix
+    csc-detect results/taxa_matrix_cpm.tsv -o results/detect/
 
     # Use IQR method with custom multiplier
-    csc-detect results/taxa_matrix.tsv -o results/detect/ --method iqr --iqr-multiplier 2.0
+    csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --method iqr --iqr-multiplier 2.0
 
     # Exclude known kitome taxa
-    csc-detect results/taxa_matrix.tsv -o results/detect/ --kitome-taxa 9606 562
+    csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --kitome-taxa 9606 562
 
     # Skip population-background subtraction
-    csc-detect results/taxa_matrix.tsv -o results/detect/ --no-subtract-background
+    csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --no-subtract-background
 """
 
 from __future__ import annotations
@@ -20,14 +20,20 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
 from csc import __version__
-from csc.aggregate.aggregate import DEFAULT_RANK_FILTER, rank_matrix_filename
+from csc.aggregate.aggregate import (
+    DEFAULT_RANK_FILTER,
+    typed_rank_matrix_filename,
+)
 from csc.detect.detect import detect_outliers
 from csc.detect.report import generate_report
 from csc.utils import setup_logging
+
+TYPED_BASE_MATRIX_PATTERN = re.compile(r"taxa_matrix_(raw|cpm)\.tsv")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -41,9 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  csc-detect results/taxa_matrix.tsv -o detect_out/\n"
-            "  csc-detect results/taxa_matrix.tsv -o detect_out/ --method iqr\n"
-            "  csc-detect results/taxa_matrix.tsv -o detect_out/ --kitome-taxa 9606 562\n"
+            "  csc-detect results/taxa_matrix_cpm.tsv -o detect_out/\n"
+            "  csc-detect results/taxa_matrix_cpm.tsv -o detect_out/ --method iqr\n"
+            "  csc-detect results/taxa_matrix_cpm.tsv -o detect_out/ --kitome-taxa 9606 562\n"
         ),
     )
     parser.add_argument(
@@ -105,7 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Taxonomy rank codes to run detection on (default: S G F).  "
             "For each rank, the tool looks for a rank-filtered matrix "
-            "(e.g. taxa_matrix_S.tsv) next to the input matrix.  Results "
+            "(e.g. taxa_matrix_cpm_S.tsv) next to the input matrix.  Results "
             "are written to per-rank subdirectories."
         ),
     )
@@ -126,6 +132,28 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     return parser
+
+
+def _rank_matrix_candidates(matrix: Path, rank: str) -> list[Path]:
+    """Return candidate rank-matrix paths in highest-to-lowest priority order.
+
+    When the input is a typed base matrix (e.g. ``taxa_matrix_cpm.tsv``),
+    the matching typed rank matrix is tried first (e.g.
+    ``taxa_matrix_cpm_S.tsv``).  When the input filename is not a recognised
+    typed base matrix, both typed variants are returned as candidates.
+    """
+    matrix_dir = matrix.parent
+    matrix_name = matrix.name
+    typed_match = TYPED_BASE_MATRIX_PATTERN.fullmatch(matrix_name)
+    if typed_match:
+        matrix_type = typed_match.group(1)
+        return [
+            matrix_dir / typed_rank_matrix_filename(rank, matrix_type),
+        ]
+    return [
+        matrix_dir / typed_rank_matrix_filename(rank, "cpm"),
+        matrix_dir / typed_rank_matrix_filename(rank, "raw"),
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,12 +199,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    {name}: {p}")
 
         # Run on per-rank filtered matrices when available
-        matrix_dir = args.matrix.parent
         for rank in args.rank_filter:
-            rank_matrix = matrix_dir / rank_matrix_filename(rank)
-            if not rank_matrix.exists():
+            rank_matrix: Path | None = None
+            for candidate in _rank_matrix_candidates(args.matrix, rank):
+                if candidate.exists():
+                    rank_matrix = candidate
+                    break
+            if rank_matrix is None:
                 log.info(
-                    "No rank-%s matrix found at %s, skipping", rank, rank_matrix
+                    "No rank-%s matrix found for %s, skipping", rank, args.matrix
                 )
                 continue
 

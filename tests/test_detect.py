@@ -571,7 +571,7 @@ class TestRankFilterDetect:
         """When rank-filtered matrices exist, detect should process them."""
         from csc.detect.cli import main
 
-        # Write a main matrix (mixed ranks)
+        # Write a typed CPM main matrix
         header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
         rows = [
             ["1279", "Staphylococcus", "100", "105", "98", "102", "101"],
@@ -580,17 +580,17 @@ class TestRankFilterDetect:
         ]
         matrix_dir = tmp_path / "agg_out"
         matrix_dir.mkdir()
-        _write_matrix(matrix_dir / "taxa_matrix.tsv", header, rows)
+        _write_matrix(matrix_dir / "taxa_matrix_cpm.tsv", header, rows)
 
-        # Write a species-only matrix
+        # Write a species-only typed CPM matrix
         species_rows = [
             ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
         ]
-        _write_matrix(matrix_dir / "taxa_matrix_S.tsv", header, species_rows)
+        _write_matrix(matrix_dir / "taxa_matrix_cpm_S.tsv", header, species_rows)
 
         out = tmp_path / "detect_out"
         rc = main([
-            str(matrix_dir / "taxa_matrix.tsv"),
+            str(matrix_dir / "taxa_matrix_cpm.tsv"),
             "-o", str(out),
             "--rank-filter", "S",
         ])
@@ -603,6 +603,32 @@ class TestRankFilterDetect:
 
         # Primary (unfiltered) outputs should also exist
         assert (out / "flagged_samples.tsv").exists()
+
+    def test_cli_rank_filter_with_typed_matrix_names(self, tmp_path: Path) -> None:
+        """Rank discovery should follow typed matrix names (taxa_matrix_cpm/raw)."""
+        from csc.detect.cli import main
+
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        rows = [
+            ["1279", "Staphylococcus", "100", "105", "98", "102", "101"],
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        _write_matrix(matrix_dir / "taxa_matrix_cpm.tsv", header, rows)
+        species_rows = [
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        _write_matrix(matrix_dir / "taxa_matrix_cpm_S.tsv", header, species_rows)
+
+        out = tmp_path / "detect_out"
+        rc = main([
+            str(matrix_dir / "taxa_matrix_cpm.tsv"),
+            "-o", str(out),
+            "--rank-filter", "S",
+        ])
+        assert rc == 0
+        assert (out / "S" / "qc_summary.json").exists()
 
     def test_cli_rank_filter_no_rank_matrices(self, tmp_path: Path) -> None:
         """When no rank matrices exist, detection still runs on main matrix."""
@@ -654,18 +680,17 @@ class TestRankFilterDetect:
         agg_result = aggregate_reports(
             sorted(d.glob("*.kraken2.report.txt")),
             agg_out,
-            normalize=False,
             rank_filter=("S", "G"),
         )
 
-        # Species matrix should exist
-        assert "S" in agg_result["rank_matrices"]
-        assert agg_result["rank_matrices"]["S"].exists()
+        # Species typed matrices should exist
+        assert "S" in agg_result["rank_matrices_raw"]
+        assert agg_result["rank_matrices_raw"]["S"].exists()
 
-        # Run detect with rank filter
+        # Run detect with rank filter on the CPM matrix
         detect_out = tmp_path / "detect_out"
         rc = detect_main([
-            str(agg_result["matrix_path"]),
+            str(agg_result["matrix_cpm_path"]),
             "-o", str(detect_out),
             "--rank-filter", "S", "G",
         ])

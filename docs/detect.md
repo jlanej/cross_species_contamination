@@ -57,31 +57,33 @@ detect:
 ## CLI Usage
 
 ```bash
-# MAD-based detection (default)
-csc-detect results/taxa_matrix.tsv -o results/detect/
+# MAD-based detection on CPM matrix (default recommendation)
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/
 
 # IQR method with custom multiplier
-csc-detect results/taxa_matrix.tsv -o results/detect/ --method iqr --iqr-multiplier 2.0
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --method iqr --iqr-multiplier 2.0
 
 # Exclude known kitome taxa
-csc-detect results/taxa_matrix.tsv -o results/detect/ --kitome-taxa 9606 562
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --kitome-taxa 9606 562
 
 # Skip population-background subtraction
-csc-detect results/taxa_matrix.tsv -o results/detect/ --no-subtract-background
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --no-subtract-background
 
-# Run detection on species-only matrix (auto-discovers taxa_matrix_S.tsv)
-csc-detect results/taxa_matrix.tsv -o results/detect/ --rank-filter S
+# Run detection on species-only matrix (auto-discovers matching rank matrix names)
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --rank-filter S
 
 # Run detection on species and genus matrices
-csc-detect results/taxa_matrix.tsv -o results/detect/ --rank-filter S G F
+csc-detect results/taxa_matrix_raw.tsv -o results/detect/ --rank-filter S G F
 
 # Verbose + JSON logging
-csc-detect results/taxa_matrix.tsv -o results/detect/ -v --json-log
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ -v --json-log
 ```
 
 When `--rank-filter` is specified (default: S G F), the tool looks for
-per-rank matrices (e.g. `taxa_matrix_S.tsv`) in the same directory as
-the input matrix.  Results for each rank are written to subdirectories
+per-rank matrices in the same directory as the input matrix. For example,
+`taxa_matrix_cpm.tsv` maps to `taxa_matrix_cpm_S.tsv`;
+`taxa_matrix_raw.tsv` maps to `taxa_matrix_raw_S.tsv`.
+Results for each rank are written to subdirectories
 (e.g. `results/detect/S/`, `results/detect/G/`).
 
 ## Output Files
@@ -110,7 +112,7 @@ the input matrix.  Results for each rank are written to subdirectories
 from csc.detect import detect_outliers, generate_report
 
 result = detect_outliers(
-    "results/taxa_matrix.tsv",
+    "results/taxa_matrix_cpm.tsv",
     method="mad",
     mad_threshold=3.5,
     kitome_taxa=[9606],

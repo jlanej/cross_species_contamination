@@ -819,6 +819,37 @@ class TestSubmitClassifyDryRun:
         assert result.returncode == 0, result.stderr
         assert "RANK_FILTER_CODES=S:G:F" in result.stdout
 
+    def test_dry_run_detect_matrix_default_exported(self, tmp_path):
+        """DETECT_MATRIX should default to cpm in aggregate/detect exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "DETECT_MATRIX=cpm" in result.stdout
+
+    def test_dry_run_detect_matrix_raw_exported(self, tmp_path):
+        """--detect-matrix raw should be exported for aggregate/detect."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--detect-matrix", "raw",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "DETECT_MATRIX=raw" in result.stdout
+
     def test_help_flag(self):
         """-h should print usage and exit 0."""
         result = run(["bash", str(SUBMIT_CLASSIFY_SCRIPT), "-h"])

@@ -42,14 +42,27 @@ classify:
 
 aggregate:
   min_reads: 10
+  rank_filter:
+    - "S"
+    - "G"
+    - "F"
 
 detect:
-  method: "statistical"
-  fdr: 0.05
+  method: "mad"
+  mad_threshold: 3.5
+  iqr_multiplier: 1.5
+  subtract_background: true
+  kitome_taxa: []
 
 logging:
   level: "INFO"
 ```
+
+`csc-aggregate` always writes both `taxa_matrix_raw.tsv` (integer direct-read
+counts) and `taxa_matrix_cpm.tsv` (counts-per-million) plus typed per-rank
+matrices such as `taxa_matrix_raw_S.tsv` and `taxa_matrix_cpm_S.tsv`.
+Use `--detect_matrix cpm` (default) or `--detect_matrix raw` in the pipeline
+to select which matrix is passed to `csc-detect`.
 
 ## Overriding Defaults
 

@@ -60,13 +60,12 @@ def generate_aggregate_golden() -> None:
     aggregate_reports(
         sorted(d.glob("*.kraken2.report.txt")),
         out,
-        normalize=False,
         min_reads=0,
     )
 
-    # Copy matrix
+    # Copy raw matrix as the golden reference
     (GOLDEN_DIR / "aggregate_matrix.tsv").write_text(
-        (out / "taxa_matrix.tsv").read_text()
+        (out / "taxa_matrix_raw.tsv").read_text()
     )
 
     # Copy metadata (strip volatile fields)

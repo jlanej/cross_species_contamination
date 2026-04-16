@@ -2,8 +2,10 @@
   "sample_count": 2,
   "taxon_count": 6,
   "min_reads": 0,
-  "normalized": false,
-  "normalization_method": "raw",
+  "matrix_paths": {
+    "raw": "taxa_matrix_raw.tsv",
+    "cpm": "taxa_matrix_cpm.tsv"
+  },
   "rank_filter": [
     "S",
     "G",

@@ -54,11 +54,13 @@ class TaxonRecord(TypedDict):
 class AggregationResult(TypedDict):
     """Return type for :func:`aggregate_reports`."""
 
-    matrix_path: Path
+    matrix_raw_path: Path
+    matrix_cpm_path: Path
     metadata_path: Path
     sample_count: int
     taxon_count: int
-    rank_matrices: dict[str, Path]
+    rank_matrices_raw: dict[str, Path]
+    rank_matrices_cpm: dict[str, Path]
     rank_metadata_path: Path
 
 
@@ -69,9 +71,34 @@ VALID_RANK_CODES = ("U", "R", "D", "P", "C", "O", "F", "G", "S")
 DEFAULT_RANK_FILTER: tuple[str, ...] = ("S", "G", "F")
 
 
-def rank_matrix_filename(rank: str) -> str:
-    """Return the canonical filename for a rank-filtered matrix."""
-    return f"taxa_matrix_{rank}.tsv"
+def typed_matrix_filename(matrix_type: str) -> str:
+    """Return canonical filename for a typed unfiltered matrix.
+
+    Parameters
+    ----------
+    matrix_type:
+        Matrix type code, typically ``"raw"`` or ``"cpm"``.
+    """
+    if matrix_type not in ("raw", "cpm"):
+        raise ValueError("matrix_type must be 'raw' or 'cpm'")
+    return f"taxa_matrix_{matrix_type}.tsv"
+
+
+def typed_rank_matrix_filename(rank: str, matrix_type: str) -> str:
+    """Return canonical filename for a typed rank-filtered matrix.
+
+    Parameters
+    ----------
+    rank:
+        Kraken2 rank code (for example ``"S"``, ``"G"``, ``"F"``).
+    matrix_type:
+        Matrix type code, typically ``"raw"`` or ``"cpm"``.
+    """
+    if rank not in VALID_RANK_CODES:
+        raise ValueError(f"rank must be one of: {VALID_RANK_CODES}")
+    if matrix_type not in ("raw", "cpm"):
+        raise ValueError("matrix_type must be 'raw' or 'cpm'")
+    return f"taxa_matrix_{matrix_type}_{rank}.tsv"
 
 
 # ---- Parsing -----------------------------------------------------------------
@@ -170,24 +197,24 @@ def aggregate_reports(
     output_dir: str | Path,
     *,
     min_reads: int = 0,
-    normalize: bool = True,
     chunk_size: int = 500,
     rank_filter: tuple[str, ...] | list[str] = DEFAULT_RANK_FILTER,
 ) -> AggregationResult:
     """Build a sample-by-taxon matrix from Kraken2 reports.
 
     The matrix rows are taxa (identified by NCBI taxonomy ID) and the
-    columns are samples.  Values are either raw direct-read counts or,
-    when *normalize* is ``True``, counts-per-million (CPM) based on
-    each sample's total classified reads.
+    columns are samples.  Two matrices are always written: one with raw
+    direct-read counts (``taxa_matrix_raw.tsv``) and one with
+    counts-per-million normalised values (``taxa_matrix_cpm.tsv``).
 
     Processing is chunked so that memory stays bounded even for very
     large cohorts.
 
-    In addition to the unfiltered matrix, per-rank filtered matrices are
-    written for each rank code in *rank_filter* (e.g. ``taxa_matrix_S.tsv``
-    for species).  A sidecar ``rank_filter_metadata.json`` records which
-    taxa were retained in each rank.
+    In addition to the unfiltered matrices, per-rank filtered matrices are
+    written for each rank code in *rank_filter* (e.g.
+    ``taxa_matrix_raw_S.tsv`` / ``taxa_matrix_cpm_S.tsv`` for species).
+    A sidecar ``rank_filter_metadata.json`` records which taxa were
+    retained in each rank.
 
     Parameters
     ----------
@@ -197,8 +224,6 @@ def aggregate_reports(
         Directory for output files.  Created if it does not exist.
     min_reads:
         Minimum direct-read count for a taxon to be included per sample.
-    normalize:
-        If ``True``, values in the matrix are reads-per-million (CPM).
     chunk_size:
         Number of reports to process before flushing intermediate state.
         Helps keep memory bounded for very large cohorts.
@@ -209,7 +234,7 @@ def aggregate_reports(
     Returns
     -------
     AggregationResult
-        Paths to the output matrix TSV and metadata JSON, plus summary
+        Paths to the output matrix TSVs and metadata JSON, plus summary
         counts.
 
     Raises
@@ -277,39 +302,65 @@ def aggregate_reports(
     for sid in sample_ids:
         sample_totals[sid] = sum(sample_data[sid].values())
 
-    # Write the unfiltered matrix
-    matrix_path = output_dir / "taxa_matrix.tsv"
+    # Always write both unfiltered matrices (raw + CPM)
+    matrix_raw_path = output_dir / typed_matrix_filename("raw")
+    matrix_cpm_path = output_dir / typed_matrix_filename("cpm")
     _write_matrix(
-        matrix_path,
+        matrix_raw_path,
         sample_ids=sample_ids,
         all_taxa=all_taxa,
         tax_names=tax_names,
         sample_data=sample_data,
         sample_totals=sample_totals,
-        normalize=normalize,
+        normalize=False,
+    )
+    _write_matrix(
+        matrix_cpm_path,
+        sample_ids=sample_ids,
+        all_taxa=all_taxa,
+        tax_names=tax_names,
+        sample_data=sample_data,
+        sample_totals=sample_totals,
+        normalize=True,
     )
 
-    # Write per-rank filtered matrices
-    rank_matrices: dict[str, Path] = {}
+    # Write per-rank filtered matrices (always raw + CPM)
+    rank_matrices_raw: dict[str, Path] = {}
+    rank_matrices_cpm: dict[str, Path] = {}
     rank_sidecar: dict[str, Any] = {}
     for rank in rank_filter:
         rank_taxa = [t for t in all_taxa if tax_ranks.get(t) == rank]
         if not rank_taxa:
             logger.info("Rank '%s': no taxa found, skipping matrix", rank)
             continue
-        rank_path = output_dir / rank_matrix_filename(rank)
+
+        rank_raw_path = output_dir / typed_rank_matrix_filename(rank, "raw")
         _write_matrix(
-            rank_path,
+            rank_raw_path,
             sample_ids=sample_ids,
             all_taxa=rank_taxa,
             tax_names=tax_names,
             sample_data=sample_data,
             sample_totals=sample_totals,
-            normalize=normalize,
+            normalize=False,
         )
-        rank_matrices[rank] = rank_path
+        rank_matrices_raw[rank] = rank_raw_path
+
+        rank_cpm_path = output_dir / typed_rank_matrix_filename(rank, "cpm")
+        _write_matrix(
+            rank_cpm_path,
+            sample_ids=sample_ids,
+            all_taxa=rank_taxa,
+            tax_names=tax_names,
+            sample_data=sample_data,
+            sample_totals=sample_totals,
+            normalize=True,
+        )
+        rank_matrices_cpm[rank] = rank_cpm_path
+
         rank_sidecar[rank] = {
-            "matrix_path": str(rank_path),
+            "matrix_raw_path": str(rank_raw_path),
+            "matrix_cpm_path": str(rank_cpm_path),
             "taxon_count": len(rank_taxa),
             "taxa": [
                 {"tax_id": t, "name": tax_names.get(t, "")}
@@ -317,7 +368,11 @@ def aggregate_reports(
             ],
         }
         logger.info(
-            "Rank '%s': wrote %d taxa to %s", rank, len(rank_taxa), rank_path
+            "Rank '%s': wrote %d taxa to %s / %s",
+            rank,
+            len(rank_taxa),
+            rank_raw_path,
+            rank_cpm_path,
         )
 
     # Write rank-filter metadata sidecar
@@ -335,8 +390,10 @@ def aggregate_reports(
         "sample_count": len(sample_ids),
         "taxon_count": len(all_taxa),
         "min_reads": min_reads,
-        "normalized": normalize,
-        "normalization_method": "CPM" if normalize else "raw",
+        "matrix_paths": {
+            "raw": matrix_raw_path.name,
+            "cpm": matrix_cpm_path.name,
+        },
         "rank_filter": list(rank_filter),
         "samples": sample_ids,
         "errors": errors,
@@ -345,11 +402,13 @@ def aggregate_reports(
         json.dump(meta, fh, indent=2)
 
     return AggregationResult(
-        matrix_path=matrix_path,
+        matrix_raw_path=matrix_raw_path,
+        matrix_cpm_path=matrix_cpm_path,
         metadata_path=metadata_path,
         sample_count=len(sample_ids),
         taxon_count=len(all_taxa),
-        rank_matrices=rank_matrices,
+        rank_matrices_raw=rank_matrices_raw,
+        rank_matrices_cpm=rank_matrices_cpm,
         rank_metadata_path=rank_metadata_path,
     )
 
