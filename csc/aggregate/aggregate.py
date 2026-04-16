@@ -79,12 +79,26 @@ def rank_matrix_filename(rank: str) -> str:
 
 
 def typed_matrix_filename(matrix_type: str) -> str:
-    """Return canonical filename for a typed unfiltered matrix."""
+    """Return canonical filename for a typed unfiltered matrix.
+
+    Parameters
+    ----------
+    matrix_type:
+        Matrix type code, typically ``"raw"`` or ``"cpm"``.
+    """
     return f"taxa_matrix_{matrix_type}.tsv"
 
 
 def typed_rank_matrix_filename(rank: str, matrix_type: str) -> str:
-    """Return canonical filename for a typed rank-filtered matrix."""
+    """Return canonical filename for a typed rank-filtered matrix.
+
+    Parameters
+    ----------
+    rank:
+        Kraken2 rank code (for example ``"S"``, ``"G"``, ``"F"``).
+    matrix_type:
+        Matrix type code, typically ``"raw"`` or ``"cpm"``.
+    """
     return f"taxa_matrix_{matrix_type}_{rank}.tsv"
 
 

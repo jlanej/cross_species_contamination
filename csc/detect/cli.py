@@ -34,7 +34,7 @@ from csc.detect.detect import detect_outliers
 from csc.detect.report import generate_report
 from csc.utils import setup_logging
 
-TYPED_MATRIX_PATTERN = re.compile(r"taxa_matrix_(raw|cpm)\.tsv")
+TYPED_BASE_MATRIX_PATTERN = re.compile(r"taxa_matrix_(raw|cpm)\.tsv")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -139,7 +139,7 @@ def _rank_matrix_candidates(matrix: Path, rank: str) -> list[Path]:
     """Return candidate rank-matrix paths in highest-to-lowest priority order."""
     matrix_dir = matrix.parent
     matrix_name = matrix.name
-    typed_match = TYPED_MATRIX_PATTERN.fullmatch(matrix_name)
+    typed_match = TYPED_BASE_MATRIX_PATTERN.fullmatch(matrix_name)
     if typed_match:
         matrix_type = typed_match.group(1)
         return [
