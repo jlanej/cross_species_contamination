@@ -1,16 +1,16 @@
 # 1000 Genomes – Unmapped-Read Extraction
 
-Scripts in this directory extract unmapped reads from the 1000 Genomes Project
-high-coverage CRAMs hosted on the EBI FTP server.
+Scripts in this directory extract unmapped reads from 1000 Genomes
+high-coverage CRAMs hosted on EBI endpoints.
 
 Only the unmapped section of each remote CRAM is fetched (using the CRAI index
 as a seek pointer), so the full ~30 GB file is never downloaded.
 
 The CRAI index is downloaded to a local temporary file before calling
-`samtools view -X`.  This is necessary because some htslib builds do not
-support FTP URLs as the index argument to `-X`, resulting in an
-"Exec format error".  The data CRAM stream itself is still read directly from
-the EBI FTP server.
+`samtools view -X` (Aspera first when available, `curl` fallback). This avoids
+`htslib`/`samtools` failures seen when passing FTP URLs directly as the `-X`
+index argument ("Exec format error"). The data CRAM stream is still read
+directly from EBI.
 
 All tools run inside an **Apptainer** (Singularity) container that is pulled
 automatically on first use — no local software installation is required beyond
@@ -25,7 +25,7 @@ Apptainer itself.
 | **Apptainer ≥ 1.0** (or Singularity ≥ 3.x) | `module load apptainer` on most HPCs |
 | **SLURM** | For job scheduling |
 | Internet access to `ghcr.io` | Container is pulled on first run |
-| Internet access to `ftp.sra.ebi.ac.uk` | For remote CRAM streaming |
+| Internet access to EBI CRAM/CRAI endpoints | `ftp.sra.ebi.ac.uk` and/or `ftp.1000genomes.ebi.ac.uk` |
 
 The container (`ghcr.io/jlanej/cross_species_contamination:latest`) bundles
 **samtools**, **Kraken2**, and all CSC Python tools.  It is built and published
@@ -55,7 +55,7 @@ chmod +x submit_extract.sh extract_unmapped_array.sh
 # Load Apptainer (if not already in PATH)
 module load apptainer   # command varies by HPC; skip if already available
 
-# --- Option A: all 3 202 samples (container is pulled automatically) ---
+# --- Option A: all 3202 samples (container is pulled automatically) ---
 ./submit_extract.sh
 
 # --- Option B: first 50 samples (good for testing) ---
@@ -121,13 +121,10 @@ directory.
 
 ---
 
-## Container details
+## Container image
 
-The container is built from the repository `Dockerfile` and published to the
-GitHub Container Registry (`ghcr.io`) by the **Build & Publish Docker image**
-GitHub Actions workflow on every push to `main` and on version tags.
-
-You can reference any specific version:
+The default image is
+`ghcr.io/jlanej/cross_species_contamination:latest`. You can pin a version:
 
 ```bash
 # Pin to a specific release tag
@@ -161,9 +158,10 @@ to `ftp.sra.ebi.ac.uk` and HTTPS (port 443) to `ghcr.io` are allowed.
 
 ## Restarting failed jobs
 
-The job script skips samples whose `_unmapped_R1.fastq.gz` already exists and
-is non-empty.  Simply resubmit the same `--array` spec and only failed samples
-will be reprocessed.
+`submit_extract.sh` automatically excludes samples whose
+`_unmapped_R1.fastq.gz` already exists and is non-empty, and exits cleanly if
+everything selected is already complete. `extract_unmapped_array.sh` also
+checks per-sample output and skips completed work at task runtime.
 
 ---
 
@@ -198,9 +196,9 @@ samtools view: failed to open "ftp://..." for reading: Exec format error
 ```
 
 **This is fixed in `extract_unmapped_array.sh`**: the CRAI is downloaded
-locally with `curl` before the samtools pipeline runs.  The CRAM data stream
-itself is still read directly from the EBI FTP server (only the unmapped
-section is transferred).
+locally (Aspera first when available, `curl` fallback) before the samtools
+pipeline runs. The CRAM data stream itself is still read directly from EBI
+(only the unmapped section is transferred).
 
 If you encounter this on a custom samtools invocation, apply the same pattern:
 
@@ -209,7 +207,7 @@ If you encounter this on a custom samtools invocation, apply the same pattern:
 curl -fsSL --retry 3 -o /tmp/sample.crai "${CRAI_FTP_URL}"
 
 # 2. Use the local CRAI; stream only the unmapped contig from the remote CRAM
-samtools view -u -f 4 -X /tmp/sample.crai "${CRAM_FTP_URL}" '*' \
+samtools view -u -f 4 -X "${CRAM_FTP_URL}" /tmp/sample.crai '*' \
   | samtools collate -u -O - /tmp/collate_tmp \
   | samtools fastq -1 R1.fastq.gz -2 R2.fastq.gz -s singleton.fastq.gz -0 other.fastq.gz -
 ```
