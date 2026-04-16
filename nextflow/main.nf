@@ -111,10 +111,10 @@ workflow {
     AGGREGATE_REPORTS(all_reports_ch)
 
     // --- 5. Detect outliers --------------------------------------------------
-    def detect_matrix_ch = params.detect_matrix == 'raw'
+    def detect_input_ch = params.detect_matrix == 'raw'
         ? AGGREGATE_REPORTS.out.matrix_raw
         : AGGREGATE_REPORTS.out.matrix_cpm
-    DETECT_OUTLIERS(detect_matrix_ch)
+    DETECT_OUTLIERS(detect_input_ch)
 
     // --- 6. Pipeline summary report ------------------------------------------
     PIPELINE_SUMMARY(
