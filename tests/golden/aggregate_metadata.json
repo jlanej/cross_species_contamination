@@ -4,6 +4,11 @@
   "min_reads": 0,
   "normalized": false,
   "normalization_method": "raw",
+  "matrix_paths": {
+    "primary": "taxa_matrix.tsv",
+    "raw": "taxa_matrix_raw.tsv",
+    "cpm": "taxa_matrix_cpm.tsv"
+  },
   "rank_filter": [
     "S",
     "G",

@@ -20,11 +20,16 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
 from csc import __version__
-from csc.aggregate.aggregate import DEFAULT_RANK_FILTER, rank_matrix_filename
+from csc.aggregate.aggregate import (
+    DEFAULT_RANK_FILTER,
+    rank_matrix_filename,
+    typed_rank_matrix_filename,
+)
 from csc.detect.detect import detect_outliers
 from csc.detect.report import generate_report
 from csc.utils import setup_logging
@@ -128,6 +133,24 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _rank_matrix_candidates(matrix: Path, rank: str) -> list[Path]:
+    """Return candidate rank-matrix paths matching the selected matrix type."""
+    matrix_dir = matrix.parent
+    matrix_name = matrix.name
+    typed_match = re.fullmatch(r"taxa_matrix_(raw|cpm)\.tsv", matrix_name)
+    if typed_match:
+        matrix_type = typed_match.group(1)
+        return [
+            matrix_dir / typed_rank_matrix_filename(rank, matrix_type),
+            matrix_dir / rank_matrix_filename(rank),
+        ]
+    return [
+        matrix_dir / rank_matrix_filename(rank),
+        matrix_dir / typed_rank_matrix_filename(rank, "cpm"),
+        matrix_dir / typed_rank_matrix_filename(rank, "raw"),
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point.  Returns 0 on success, 1 on failure."""
     parser = _build_parser()
@@ -171,12 +194,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    {name}: {p}")
 
         # Run on per-rank filtered matrices when available
-        matrix_dir = args.matrix.parent
         for rank in args.rank_filter:
-            rank_matrix = matrix_dir / rank_matrix_filename(rank)
-            if not rank_matrix.exists():
+            rank_matrix: Path | None = None
+            for candidate in _rank_matrix_candidates(args.matrix, rank):
+                if candidate.exists():
+                    rank_matrix = candidate
+                    break
+            if rank_matrix is None:
                 log.info(
-                    "No rank-%s matrix found at %s, skipping", rank, rank_matrix
+                    "No rank-%s matrix found for %s, skipping", rank, args.matrix
                 )
                 continue
 

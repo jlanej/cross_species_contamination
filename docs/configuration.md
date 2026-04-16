@@ -42,14 +42,25 @@ classify:
 
 aggregate:
   min_reads: 10
+  rank_filter:
+    - "S"
+    - "G"
+    - "F"
 
 detect:
-  method: "statistical"
-  fdr: 0.05
+  method: "mad"
+  mad_threshold: 3.5
+  iqr_multiplier: 1.5
+  subtract_background: true
+  kitome_taxa: []
 
 logging:
   level: "INFO"
 ```
+
+`csc-aggregate` always writes both `taxa_matrix_raw.tsv` and
+`taxa_matrix_cpm.tsv`. The legacy `taxa_matrix.tsv` filename is retained for
+compatibility and follows the selected primary mode.
 
 ## Overriding Defaults
 

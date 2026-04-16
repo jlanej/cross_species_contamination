@@ -61,7 +61,8 @@ SAMPLE_B,/data/crams/sample_b.cram,/data/refs/GRCh38.fa
 | Parameter              | Default | Description                           |
 |------------------------|---------|---------------------------------------|
 | `--min_reads`          | `0`     | Min reads per taxon for inclusion     |
-| `--no_normalize`       | `false` | Skip CPM normalization               |
+| `--no_normalize`       | `false` | Use raw counts for legacy primary matrix names |
+| `--detect_matrix`      | `cpm`   | Matrix type used by detect stage (`cpm` or `raw`) |
 | `--aggregate_cpus`     | `2`     | CPUs for aggregation                  |
 | `--aggregate_memory`   | `4 GB`  | Memory for aggregation               |
 | `--aggregate_time`     | `1h`    | Wall-time limit for aggregation      |
@@ -127,6 +128,8 @@ results/
 │       └── SAMPLE_A.kraken2.output.txt
 ├── aggregate/
 │   ├── taxa_matrix.tsv
+│   ├── taxa_matrix_cpm.tsv
+│   ├── taxa_matrix_raw.tsv
 │   └── aggregation_metadata.json
 ├── detect/
 │   ├── flagged_samples.tsv

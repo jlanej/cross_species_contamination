@@ -20,6 +20,8 @@ process AGGREGATE_REPORTS {
 
     output:
     path("taxa_matrix.tsv"),              emit: matrix
+    path("taxa_matrix_cpm.tsv"),          emit: matrix_cpm
+    path("taxa_matrix_raw.tsv"),          emit: matrix_raw
     path("taxa_matrix_*.tsv"),            emit: rank_matrices, optional: true
     path("aggregation_metadata.json"),    emit: metadata
     path("rank_filter_metadata.json"),    emit: rank_metadata

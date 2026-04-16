@@ -11,7 +11,9 @@
 # so it starts automatically when all classification array tasks have finished.
 #
 # Output:
-#   <AGG_OUTDIR>/taxa_matrix.tsv          – all-sample CPM matrix
+#   <AGG_OUTDIR>/taxa_matrix.tsv          – primary compatibility matrix (CPM by default)
+#   <AGG_OUTDIR>/taxa_matrix_cpm.tsv      – all-sample CPM matrix
+#   <AGG_OUTDIR>/taxa_matrix_raw.tsv      – all-sample raw-count matrix
 #   <AGG_OUTDIR>/taxa_matrix_S.tsv        – species-level matrix
 #   <AGG_OUTDIR>/taxa_matrix_G.tsv        – genus-level matrix
 #   <AGG_OUTDIR>/taxa_matrix_F.tsv        – family-level matrix
@@ -37,6 +39,7 @@
 #   NO_NORMALIZE    – set to "1" to output raw counts instead of CPM (default: 0)
 #   RANK_FILTER_CODES – colon-separated rank codes for per-rank matrices
 #                       (default: S:G:F)
+#   DETECT_MATRIX   – matrix type for csc-detect input: cpm or raw (default: cpm)
 #   DETECT_METHOD   – outlier detection method: mad or iqr (default: mad)
 #   MAD_THRESHOLD   – MAD threshold (default: 3.5)
 #   IQR_MULTIPLIER  – IQR multiplier (default: 1.5)
@@ -71,6 +74,7 @@ MIN_READS="${MIN_READS:-0}"
 NO_NORMALIZE="${NO_NORMALIZE:-0}"
 # Colon-separated rank codes to avoid spaces in the --export string
 RANK_FILTER_CODES="${RANK_FILTER_CODES:-S:G:F}"
+DETECT_MATRIX="${DETECT_MATRIX:-cpm}"
 DETECT_METHOD="${DETECT_METHOD:-mad}"
 MAD_THRESHOLD="${MAD_THRESHOLD:-3.5}"
 IQR_MULTIPLIER="${IQR_MULTIPLIER:-1.5}"
@@ -94,6 +98,10 @@ fi
 
 if [[ -z "${AGG_OUTDIR}" ]]; then
     echo "ERROR: AGG_OUTDIR is not set." >&2
+    exit 1
+fi
+if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
+    echo "ERROR: DETECT_MATRIX must be 'cpm' or 'raw'." >&2
     exit 1
 fi
 
@@ -185,6 +193,7 @@ echo "  Detect outdir   : ${DETECT_OUTDIR}"
 echo "  Reports found   : ${#REPORTS[@]}"
 echo "  Min reads       : ${MIN_READS}"
 echo "  Normalize       : $([[ "${NO_NORMALIZE}" == "1" ]] && echo "no (raw counts)" || echo "yes (CPM)")"
+echo "  Detect matrix   : ${DETECT_MATRIX}"
 echo "  Rank filter     : ${RANK_FILTER_DISPLAY}"
 echo "  Skip detect     : ${SKIP_DETECT}"
 if [[ "${SKIP_DETECT}" != "1" ]]; then
@@ -233,7 +242,7 @@ if [[ "${SKIP_DETECT}" == "1" ]]; then
     exit 0
 fi
 
-MATRIX="${AGG_OUTDIR}/taxa_matrix.tsv"
+MATRIX="${AGG_OUTDIR}/taxa_matrix_${DETECT_MATRIX}.tsv"
 if [[ ! -s "${MATRIX}" ]]; then
     echo "ERROR: Expected aggregate matrix not found: ${MATRIX}" >&2
     exit 1

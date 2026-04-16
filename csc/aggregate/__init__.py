@@ -27,6 +27,8 @@ from csc.aggregate.aggregate import (
     parse_kraken2_report,
     rank_matrix_filename,
     sample_id_from_report,
+    typed_matrix_filename,
+    typed_rank_matrix_filename,
 )
 
 __all__ = [
@@ -38,4 +40,6 @@ __all__ = [
     "parse_kraken2_report",
     "rank_matrix_filename",
     "sample_id_from_report",
+    "typed_matrix_filename",
+    "typed_rank_matrix_filename",
 ]

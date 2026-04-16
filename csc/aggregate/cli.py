@@ -8,7 +8,7 @@ Usage examples::
     # Only include taxa with ≥ 50 direct reads per sample
     csc-aggregate reports/*.kraken2.report.txt -o results/ --min-reads 50
 
-    # Raw counts instead of CPM normalisation
+    # Keep legacy primary matrix as raw counts instead of CPM
     csc-aggregate reports/*.kraken2.report.txt -o results/ --no-normalize
 
     # Structured JSON logging
@@ -34,7 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Aggregate Kraken2 classification reports into a sample-by-taxon "
             "matrix.  Accepts the report files produced by csc-classify and "
-            "writes a TSV matrix with optional CPM normalisation."
+            "always writes both raw-count and CPM TSV matrices."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -70,8 +70,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-normalize",
         action="store_true",
         help=(
-            "Output raw read counts instead of CPM (counts-per-million) "
-            "normalised values."
+            "Use raw counts for compatibility output names (taxa_matrix.tsv and "
+            "taxa_matrix_<RANK>.tsv).  Raw and CPM typed matrices are always "
+            "written as taxa_matrix_raw.tsv and taxa_matrix_cpm.tsv."
         ),
     )
     parser.add_argument(
@@ -146,7 +147,9 @@ def main(argv: list[str] | None = None) -> int:
             chunk_size=args.chunk_size,
             rank_filter=tuple(args.rank_filter),
         )
-        print(f"  matrix: {result['matrix_path']}")
+        print(f"  matrix (primary): {result['matrix_path']}")
+        print(f"  matrix (raw): {result['matrix_raw_path']}")
+        print(f"  matrix (cpm): {result['matrix_cpm_path']}")
         print(f"  metadata: {result['metadata_path']}")
         print(
             f"  samples: {result['sample_count']}, "

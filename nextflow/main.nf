@@ -56,6 +56,7 @@ params.classify_time   = '4h'
 params.min_reads       = 0
 params.no_normalize    = false
 params.rank_filter     = 'S G F'
+params.detect_matrix   = 'cpm'    // 'cpm' or 'raw'
 params.aggregate_cpus   = 2
 params.aggregate_memory = '4 GB'
 params.aggregate_time   = '1h'
@@ -79,6 +80,9 @@ workflow {
     }
     if (!params.kraken2_db) {
         error "ERROR: --kraken2_db is required. Supply the path to a Kraken2 database directory."
+    }
+    if (!(params.detect_matrix in ['cpm', 'raw'])) {
+        error "ERROR: --detect_matrix must be either 'cpm' or 'raw'."
     }
 
     // --- 1. Read sample sheet ------------------------------------------------
@@ -107,7 +111,10 @@ workflow {
     AGGREGATE_REPORTS(all_reports_ch)
 
     // --- 5. Detect outliers --------------------------------------------------
-    DETECT_OUTLIERS(AGGREGATE_REPORTS.out.matrix)
+    def detect_matrix_ch = params.detect_matrix == 'raw'
+        ? AGGREGATE_REPORTS.out.matrix_raw
+        : AGGREGATE_REPORTS.out.matrix_cpm
+    DETECT_OUTLIERS(detect_matrix_ch)
 
     // --- 6. Pipeline summary report ------------------------------------------
     PIPELINE_SUMMARY(

@@ -66,6 +66,7 @@
 #   --no-normalize         Output raw counts instead of CPM
 #   --rank-filter   STR    Space-separated rank codes for per-rank matrices
 #                          [default: "S G F"]
+#   --detect-matrix STR    Matrix type for detect input: cpm or raw [default: cpm]
 #   --detect-method STR    Outlier detection method: mad or iqr [default: mad]
 #   --mad-threshold FLOAT  MAD threshold for outlier detection [default: 3.5]
 #   --iqr-multiplier FLOAT IQR multiplier for outlier detection [default: 1.5]
@@ -106,6 +107,7 @@ MEMORY_MAPPING=0
 MIN_READS=0
 NO_NORMALIZE=0
 RANK_FILTER="S G F"
+DETECT_MATRIX="cpm"
 DETECT_METHOD="mad"
 MAD_THRESHOLD=3.5
 IQR_MULTIPLIER=1.5
@@ -144,6 +146,7 @@ while [[ $# -gt 0 ]]; do
         --min-reads)      MIN_READS="$2";      shift 2 ;;
         --no-normalize)   NO_NORMALIZE=1;      shift ;;
         --rank-filter)    RANK_FILTER="$2";    shift 2 ;;
+        --detect-matrix)  DETECT_MATRIX="$2";  shift 2 ;;
         --detect-method)  DETECT_METHOD="$2";  shift 2 ;;
         --mad-threshold)  MAD_THRESHOLD="$2";  shift 2 ;;
         --iqr-multiplier) IQR_MULTIPLIER="$2"; shift 2 ;;
@@ -178,6 +181,10 @@ fi
 
 if [[ "${DETECT_METHOD}" != "mad" && "${DETECT_METHOD}" != "iqr" ]]; then
     echo "ERROR: --detect-method must be 'mad' or 'iqr'." >&2
+    exit 1
+fi
+if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
+    echo "ERROR: --detect-matrix must be 'cpm' or 'raw'." >&2
     exit 1
 fi
 
@@ -488,6 +495,7 @@ AGG_EXPORTS=(
     "MIN_READS=${MIN_READS}"
     "NO_NORMALIZE=${NO_NORMALIZE}"
     "RANK_FILTER_CODES=${RANK_FILTER_CODES}"
+    "DETECT_MATRIX=${DETECT_MATRIX}"
     "DETECT_METHOD=${DETECT_METHOD}"
     "MAD_THRESHOLD=${MAD_THRESHOLD}"
     "IQR_MULTIPLIER=${IQR_MULTIPLIER}"

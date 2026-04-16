@@ -5,8 +5,8 @@
 ## Overview
 
 The **aggregate** module (`csc.aggregate`) collects per-sample Kraken2
-classification reports and produces a sample-by-taxon matrix.  Values can
-be raw direct-read counts or counts-per-million (CPM) normalised.
+classification reports and produces sample-by-taxon matrices in **both**
+raw direct-read counts and counts-per-million (CPM).
 
 The implementation is designed to handle very large cohorts (100 K+ samples)
 efficiently by processing reports in configurable chunks.
@@ -24,11 +24,13 @@ result = aggregate_reports(
     ["sampleA.kraken2.report.txt", "sampleB.kraken2.report.txt"],
     output_dir="results/",
     min_reads=10,       # exclude taxa with fewer than 10 reads per sample
-    normalize=True,     # CPM normalisation (default)
+    normalize=True,     # selects legacy primary matrix format (CPM by default)
     chunk_size=500,     # reports per processing chunk
     rank_filter=("S", "G", "F"),  # per-rank matrices (default)
 )
-print(result["matrix_path"])    # results/taxa_matrix.tsv
+print(result["matrix_path"])    # results/taxa_matrix.tsv (legacy primary)
+print(result["matrix_raw_path"])  # results/taxa_matrix_raw.tsv
+print(result["matrix_cpm_path"])  # results/taxa_matrix_cpm.tsv
 print(result["metadata_path"])  # results/aggregation_metadata.json
 print(result["rank_matrices"])  # {'S': Path('results/taxa_matrix_S.tsv'), ...}
 ```
@@ -62,13 +64,13 @@ print(result["rank_matrices"])  # {'S': Path('results/taxa_matrix_S.tsv'), ...}
 ## CLI Usage
 
 ```bash
-# Basic usage – CPM-normalised matrix
+# Basic usage – writes both CPM and raw matrices
 csc-aggregate reports/*.kraken2.report.txt -o results/
 
 # Filter low-count taxa
 csc-aggregate reports/*.kraken2.report.txt -o results/ --min-reads 50
 
-# Raw counts (no normalisation)
+# Keep legacy primary matrix as raw counts (typed matrices are still both written)
 csc-aggregate reports/*.kraken2.report.txt -o results/ --no-normalize
 
 # Custom rank filter (species only)
@@ -88,7 +90,7 @@ csc-aggregate reports/*.kraken2.report.txt -o results/ -v --json-log
 | `input` | Kraken2 report files (positional, one or more) | required |
 | `-o, --output-dir` | Output directory | required |
 | `--min-reads` | Minimum direct reads to include a taxon | `0` |
-| `--no-normalize` | Output raw counts instead of CPM | `False` |
+| `--no-normalize` | Use raw counts for legacy primary outputs (`taxa_matrix.tsv`, `taxa_matrix_<RANK>.tsv`) | `False` |
 | `--chunk-size` | Reports per processing chunk | `500` |
 | `--rank-filter` | Taxonomy rank codes for per-rank matrices | `S G F` |
 | `--json-log` | Structured JSON logging | `False` |
@@ -96,7 +98,7 @@ csc-aggregate reports/*.kraken2.report.txt -o results/ -v --json-log
 
 ## Output Files
 
-### `taxa_matrix.tsv`
+### `taxa_matrix_raw.tsv` and `taxa_matrix_cpm.tsv`
 
 Tab-separated matrix.  Rows are taxa, columns are samples.
 
@@ -110,13 +112,22 @@ First two columns are `tax_id` and `name`.  Remaining columns are
 sample IDs derived from report file names.  Missing taxa are filled
 with `0`.
 
-When `normalize=True` (default), values are CPM (counts per million):
-each sample column sums to 1,000,000.
+`taxa_matrix_raw.tsv` stores integer direct-read counts.  
+`taxa_matrix_cpm.tsv` stores CPM values where each sample column sums to
+approximately 1,000,000.
+
+### `taxa_matrix.tsv`
+
+Backward-compatible primary matrix path.  Its content is CPM by default,
+or raw counts when `--no-normalize` / `normalize=False` is used.
 
 ### `taxa_matrix_S.tsv`, `taxa_matrix_G.tsv`, `taxa_matrix_F.tsv`
 
 Per-rank filtered matrices containing only taxa of the specified
-rank.  Produced for each rank in `--rank-filter` (default: S, G, F).
+rank for the legacy primary output type.
+
+Typed per-rank matrices are also written for both matrix types, e.g.
+`taxa_matrix_raw_S.tsv` and `taxa_matrix_cpm_S.tsv`.
 
 ### `rank_filter_metadata.json`
 
@@ -126,6 +137,8 @@ rank.  Produced for each rank in `--rank-filter` (default: S, G, F).
   "ranks": {
     "S": {
       "matrix_path": "results/taxa_matrix_S.tsv",
+      "matrix_raw_path": "results/taxa_matrix_raw_S.tsv",
+      "matrix_cpm_path": "results/taxa_matrix_cpm_S.tsv",
       "taxon_count": 15,
       "taxa": [
         {"tax_id": 562, "name": "Escherichia coli"},
@@ -145,6 +158,11 @@ rank.  Produced for each rank in `--rank-filter` (default: S, G, F).
   "min_reads": 10,
   "normalized": true,
   "normalization_method": "CPM",
+  "matrix_paths": {
+    "primary": "results/taxa_matrix.tsv",
+    "raw": "results/taxa_matrix_raw.tsv",
+    "cpm": "results/taxa_matrix_cpm.tsv"
+  },
   "samples": ["sampleA", "sampleB", "sampleC"],
   "errors": []
 }

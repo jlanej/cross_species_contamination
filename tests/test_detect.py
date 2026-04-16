@@ -604,6 +604,32 @@ class TestRankFilterDetect:
         # Primary (unfiltered) outputs should also exist
         assert (out / "flagged_samples.tsv").exists()
 
+    def test_cli_rank_filter_with_typed_matrix_names(self, tmp_path: Path) -> None:
+        """Rank discovery should follow typed matrix names (taxa_matrix_cpm/raw)."""
+        from csc.detect.cli import main
+
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        rows = [
+            ["1279", "Staphylococcus", "100", "105", "98", "102", "101"],
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        _write_matrix(matrix_dir / "taxa_matrix_cpm.tsv", header, rows)
+        species_rows = [
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        _write_matrix(matrix_dir / "taxa_matrix_cpm_S.tsv", header, species_rows)
+
+        out = tmp_path / "detect_out"
+        rc = main([
+            str(matrix_dir / "taxa_matrix_cpm.tsv"),
+            "-o", str(out),
+            "--rank-filter", "S",
+        ])
+        assert rc == 0
+        assert (out / "S" / "qc_summary.json").exists()
+
     def test_cli_rank_filter_no_rank_matrices(self, tmp_path: Path) -> None:
         """When no rank matrices exist, detection still runs on main matrix."""
         from csc.detect.cli import main

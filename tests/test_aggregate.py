@@ -232,13 +232,21 @@ class TestAggregateReports:
 
     def test_raw_counts(self, basic_report: Path, tmp_path: Path) -> None:
         out = tmp_path / "raw"
-        aggregate_reports([basic_report], out, normalize=False)
+        result = aggregate_reports([basic_report], out, normalize=False)
+
+        assert result["matrix_raw_path"].exists()
+        assert result["matrix_cpm_path"].exists()
 
         rows = _read_matrix(out / "taxa_matrix.tsv")
         # All values should be integers (no decimal points)
         for row in rows:
             for val in row["values"]:
                 assert "." not in val
+
+        # Typed CPM matrix should still be produced
+        cpm_rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
+        total_cpm = sum(float(row["values"][0]) for row in cpm_rows)
+        assert total_cpm == pytest.approx(1_000_000, rel=1e-4)
 
     def test_cpm_normalisation(self, basic_report: Path, tmp_path: Path) -> None:
         out = tmp_path / "cpm"
@@ -259,6 +267,9 @@ class TestAggregateReports:
         assert meta["sample_count"] == 1
         assert meta["normalized"] is True
         assert meta["normalization_method"] == "CPM"
+        assert "matrix_paths" in meta
+        assert meta["matrix_paths"]["raw"].endswith("taxa_matrix_raw.tsv")
+        assert meta["matrix_paths"]["cpm"].endswith("taxa_matrix_cpm.tsv")
         assert isinstance(meta["samples"], list)
 
     def test_missing_report_skipped(self, basic_report: Path, tmp_path: Path) -> None:
@@ -466,6 +477,8 @@ class TestCLI:
         ])
         assert rc == 0
         assert (tmp_path / "cli_out" / "taxa_matrix.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_raw.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_cpm.tsv").exists()
         assert (tmp_path / "cli_out" / "aggregation_metadata.json").exists()
 
     def test_cli_passes_params(
@@ -587,7 +600,11 @@ class TestRankFilter:
 
         # The report_dir fixture has S, G, D ranks present
         assert "S" in result["rank_matrices"]
+        assert "S" in result["rank_matrices_raw"]
+        assert "S" in result["rank_matrices_cpm"]
         assert result["rank_matrices"]["S"].exists()
+        assert result["rank_matrices_raw"]["S"].exists()
+        assert result["rank_matrices_cpm"]["S"].exists()
 
         # The unfiltered matrix should still exist
         assert result["matrix_path"].exists()
