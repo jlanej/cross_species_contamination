@@ -63,7 +63,6 @@
 #   --confidence    FLOAT  Kraken2 confidence threshold [default: 0.0]
 #   --memory-mapping       Use memory-mapped Kraken2 DB (lower RAM, slower)
 #   --min-reads     N      Min direct reads per taxon in aggregate [default: 0]
-#   --no-normalize         Output raw counts instead of CPM
 #   --rank-filter   STR    Space-separated rank codes for per-rank matrices
 #                          [default: "S G F"]
 #   --detect-matrix STR    Matrix type for detect input: cpm or raw [default: cpm]
@@ -105,7 +104,6 @@ MAX_CONCURRENT_JOBS_SET=0
 CONFIDENCE=0.0
 MEMORY_MAPPING=0
 MIN_READS=0
-NO_NORMALIZE=0
 RANK_FILTER="S G F"
 DETECT_MATRIX="cpm"
 DETECT_METHOD="mad"
@@ -144,7 +142,6 @@ while [[ $# -gt 0 ]]; do
         --confidence)     CONFIDENCE="$2";     shift 2 ;;
         --memory-mapping) MEMORY_MAPPING=1;    shift ;;
         --min-reads)      MIN_READS="$2";      shift 2 ;;
-        --no-normalize)   NO_NORMALIZE=1;      shift ;;
         --rank-filter)    RANK_FILTER="$2";    shift 2 ;;
         --detect-matrix)  DETECT_MATRIX="$2";  shift 2 ;;
         --detect-method)  DETECT_METHOD="$2";  shift 2 ;;
@@ -493,7 +490,6 @@ AGG_EXPORTS=(
     "DETECT_OUTDIR=${DETECT_OUTDIR}"
     "THREADS=${AGG_CPUS}"
     "MIN_READS=${MIN_READS}"
-    "NO_NORMALIZE=${NO_NORMALIZE}"
     "RANK_FILTER_CODES=${RANK_FILTER_CODES}"
     "DETECT_MATRIX=${DETECT_MATRIX}"
     "DETECT_METHOD=${DETECT_METHOD}"

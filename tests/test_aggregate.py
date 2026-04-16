@@ -201,7 +201,8 @@ class TestAggregateReports:
 
         assert result["sample_count"] == 1
         assert result["taxon_count"] == 6
-        assert result["matrix_path"].exists()
+        assert result["matrix_raw_path"].exists()
+        assert result["matrix_cpm_path"].exists()
         assert result["metadata_path"].exists()
 
     def test_multiple_reports(self, report_dir: Path, tmp_path: Path) -> None:
@@ -212,13 +213,14 @@ class TestAggregateReports:
         assert result["sample_count"] == 3
         # All three samples share some taxa + have some unique ones
         assert result["taxon_count"] > 0
-        assert result["matrix_path"].exists()
+        assert result["matrix_raw_path"].exists()
+        assert result["matrix_cpm_path"].exists()
 
     def test_output_dir_created(self, basic_report: Path, tmp_path: Path) -> None:
         out = tmp_path / "nested" / "deep" / "out"
         result = aggregate_reports([basic_report], out)
         assert out.is_dir()
-        assert result["matrix_path"].parent == out
+        assert result["matrix_raw_path"].parent == out
 
     def test_min_reads_filter(self, basic_report: Path, tmp_path: Path) -> None:
         out_all = tmp_path / "all"
@@ -232,27 +234,27 @@ class TestAggregateReports:
 
     def test_raw_counts(self, basic_report: Path, tmp_path: Path) -> None:
         out = tmp_path / "raw"
-        result = aggregate_reports([basic_report], out, normalize=False)
+        result = aggregate_reports([basic_report], out)
 
         assert result["matrix_raw_path"].exists()
         assert result["matrix_cpm_path"].exists()
 
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_raw.tsv")
         # All values should be integers (no decimal points)
         for row in rows:
             for val in row["values"]:
                 assert "." not in val
 
-        # Typed CPM matrix should still be produced
+        # CPM matrix should still be produced
         cpm_rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
         sample0_cpm_sum = sum(float(row["values"][0]) for row in cpm_rows)
         assert sample0_cpm_sum == pytest.approx(1_000_000, rel=1e-4)
 
     def test_cpm_normalisation(self, basic_report: Path, tmp_path: Path) -> None:
         out = tmp_path / "cpm"
-        aggregate_reports([basic_report], out, normalize=True)
+        aggregate_reports([basic_report], out)
 
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
         # Sum of CPM values for the single sample should be ≈ 1,000,000
         total_cpm = sum(float(row["values"][0]) for row in rows)
         assert total_cpm == pytest.approx(1_000_000, rel=1e-4)
@@ -265,11 +267,11 @@ class TestAggregateReports:
             meta = json.load(fh)
 
         assert meta["sample_count"] == 1
-        assert meta["normalized"] is True
-        assert meta["normalization_method"] == "CPM"
         assert "matrix_paths" in meta
         assert meta["matrix_paths"]["raw"].endswith("taxa_matrix_raw.tsv")
         assert meta["matrix_paths"]["cpm"].endswith("taxa_matrix_cpm.tsv")
+        assert "primary" not in meta["matrix_paths"]
+        assert "normalized" not in meta
         assert isinstance(meta["samples"], list)
 
     def test_missing_report_skipped(self, basic_report: Path, tmp_path: Path) -> None:
@@ -290,9 +292,9 @@ class TestAggregateReports:
         """Taxa absent in one sample should appear as 0 in the matrix."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "union"
-        aggregate_reports(reports, out, normalize=False)
+        aggregate_reports(reports, out)
 
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_raw.tsv")
         # Each row should have a value for every sample (even if 0)
         for row in rows:
             assert len(row["values"]) == 3  # sampleA, sampleB, sampleC
@@ -303,17 +305,17 @@ class TestAggregateReports:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         out1 = tmp_path / "chunk1"
-        r1 = aggregate_reports(reports, out1, normalize=False, chunk_size=1)
+        r1 = aggregate_reports(reports, out1, chunk_size=1)
 
         out2 = tmp_path / "chunk500"
-        r2 = aggregate_reports(reports, out2, normalize=False, chunk_size=500)
+        r2 = aggregate_reports(reports, out2, chunk_size=500)
 
         assert r1["sample_count"] == r2["sample_count"]
         assert r1["taxon_count"] == r2["taxon_count"]
 
         # Matrices should be identical
-        m1 = (out1 / "taxa_matrix.tsv").read_text()
-        m2 = (out2 / "taxa_matrix.tsv").read_text()
+        m1 = (out1 / "taxa_matrix_raw.tsv").read_text()
+        m2 = (out2 / "taxa_matrix_raw.tsv").read_text()
         assert m1 == m2
 
 
@@ -330,10 +332,10 @@ class TestEdgeCases:
             "0.00\t0\t0\tR\t1\troot\n"
         )
         out = tmp_path / "out"
-        result = aggregate_reports([f], out, normalize=True)
+        result = aggregate_reports([f], out)
         assert result["sample_count"] == 1
 
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
         for row in rows:
             # All CPM values should be 0.0 (not NaN or Inf)
             for v in row["values"]:
@@ -344,9 +346,9 @@ class TestEdgeCases:
         f = tmp_path / "one.kraken2.report.txt"
         f.write_text("100.00\t500\t500\tS\t562\tEscherichia coli\n")
         out = tmp_path / "out"
-        aggregate_reports([f], out, normalize=True)
+        aggregate_reports([f], out)
 
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
         assert len(rows) == 1
         assert float(rows[0]["values"][0]) == pytest.approx(1_000_000)
 
@@ -367,14 +369,14 @@ class TestEdgeCases:
 
         out = tmp_path / "out"
         result = aggregate_reports(
-            sorted(d.glob("*.kraken2.report.txt")), out, normalize=False
+            sorted(d.glob("*.kraken2.report.txt")), out
         )
 
         # s1 has taxa 562 and 1280; s2 has taxa 562 and 9606
         # Union should be 3 taxa
         assert result["taxon_count"] == 3
 
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_raw.tsv")
         by_tid = {int(r["tax_id"]): r for r in rows}
 
         # s1 column (index 0), s2 column (index 1)
@@ -421,16 +423,15 @@ class TestStress:
         result = aggregate_reports(
             sorted(d.glob("*.kraken2.report.txt")),
             out,
-            normalize=True,
             chunk_size=200,
         )
 
         assert result["sample_count"] == n_samples
         assert result["taxon_count"] == n_taxa
-        assert result["matrix_path"].exists()
+        assert result["matrix_cpm_path"].exists()
 
         # Spot-check: CPM per sample should sum to ≈ 1,000,000
-        rows = _read_matrix(out / "taxa_matrix.tsv")
+        rows = _read_matrix(out / "taxa_matrix_cpm.tsv")
         # Check first and last sample columns
         for col_idx in [0, n_samples - 1]:
             total = sum(float(r["values"][col_idx]) for r in rows)
@@ -476,7 +477,7 @@ class TestCLI:
             "-o", str(tmp_path / "cli_out"),
         ])
         assert rc == 0
-        assert (tmp_path / "cli_out" / "taxa_matrix.tsv").exists()
+        assert not (tmp_path / "cli_out" / "taxa_matrix.tsv").exists()
         assert (tmp_path / "cli_out" / "taxa_matrix_raw.tsv").exists()
         assert (tmp_path / "cli_out" / "taxa_matrix_cpm.tsv").exists()
         assert (tmp_path / "cli_out" / "aggregation_metadata.json").exists()
@@ -490,7 +491,6 @@ class TestCLI:
             str(basic_report),
             "-o", str(tmp_path / "cli_out"),
             "--min-reads", "50",
-            "--no-normalize",
             "--chunk-size", "100",
         ])
         assert rc == 0
@@ -498,7 +498,7 @@ class TestCLI:
         with open(tmp_path / "cli_out" / "aggregation_metadata.json") as fh:
             meta = json.load(fh)
         assert meta["min_reads"] == 50
-        assert meta["normalized"] is False
+        assert "normalized" not in meta
 
     @mock.patch(
         "csc.aggregate.cli.aggregate_reports",
@@ -559,13 +559,14 @@ class TestPipelineIntegration:
         agg_out = tmp_path / "agg_out"
         reports = sorted(classify_out.glob("*.kraken2.report.txt"))
 
-        result = aggregate_reports(reports, agg_out, normalize=True)
+        result = aggregate_reports(reports, agg_out)
 
         assert result["sample_count"] == 2
-        assert result["matrix_path"].exists()
+        assert result["matrix_raw_path"].exists()
+        assert result["matrix_cpm_path"].exists()
 
         # Verify both sample IDs are in the matrix header
-        with open(result["matrix_path"]) as fh:
+        with open(result["matrix_raw_path"]) as fh:
             header = fh.readline().strip().split("\t")
         assert "SAMPLE_001" in header
         assert "SAMPLE_002" in header
@@ -596,18 +597,17 @@ class TestRankFilter:
         """Per-rank matrices are created for ranks present in the data."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
-        result = aggregate_reports(reports, out, normalize=False)
+        result = aggregate_reports(reports, out)
 
         # The report_dir fixture has S, G, D ranks present
-        assert "S" in result["rank_matrices"]
         assert "S" in result["rank_matrices_raw"]
         assert "S" in result["rank_matrices_cpm"]
-        assert result["rank_matrices"]["S"].exists()
         assert result["rank_matrices_raw"]["S"].exists()
         assert result["rank_matrices_cpm"]["S"].exists()
 
-        # The unfiltered matrix should still exist
-        assert result["matrix_path"].exists()
+        # No legacy compat matrices should exist
+        assert not (out / "taxa_matrix.tsv").exists()
+        assert not (out / "taxa_matrix_S.tsv").exists()
 
     def test_rank_matrix_contains_only_matching_rank(
         self, report_dir: Path, tmp_path: Path
@@ -615,17 +615,17 @@ class TestRankFilter:
         """The species-only matrix should contain only S-rank taxa."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
-        result = aggregate_reports(reports, out, normalize=False)
+        result = aggregate_reports(reports, out)
 
-        if "S" not in result["rank_matrices"]:
+        if "S" not in result["rank_matrices_raw"]:
             pytest.skip("No species-rank taxa in fixture")
 
         # Read the species matrix
-        rows = _read_matrix(result["rank_matrices"]["S"])
+        rows = _read_matrix(result["rank_matrices_raw"]["S"])
         # All rows should correspond to taxa that were S in the reports
         assert len(rows) > 0
         # Verify that the species matrix has fewer rows than the full matrix
-        full_rows = _read_matrix(result["matrix_path"])
+        full_rows = _read_matrix(result["matrix_raw_path"])
         assert len(rows) < len(full_rows)
 
     def test_rank_filter_metadata_sidecar(
@@ -634,7 +634,7 @@ class TestRankFilter:
         """The rank_filter_metadata.json sidecar should be written."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
-        result = aggregate_reports(reports, out, normalize=False)
+        result = aggregate_reports(reports, out)
 
         assert result["rank_metadata_path"].exists()
 
@@ -647,7 +647,8 @@ class TestRankFilter:
 
         # Ranks that have matrices should be present
         for rank, info in meta["ranks"].items():
-            assert "matrix_path" in info
+            assert "matrix_raw_path" in info
+            assert "matrix_cpm_path" in info
             assert "taxon_count" in info
             assert "taxa" in info
             assert info["taxon_count"] == len(info["taxa"])
@@ -658,7 +659,7 @@ class TestRankFilter:
         """The aggregation_metadata.json should include rank_filter."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
-        result = aggregate_reports(reports, out, normalize=False)
+        result = aggregate_reports(reports, out)
 
         with open(result["metadata_path"]) as fh:
             meta = json.load(fh)
@@ -671,25 +672,27 @@ class TestRankFilter:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
         result = aggregate_reports(
-            reports, out, normalize=False, rank_filter=("D",)
+            reports, out, rank_filter=("D",)
         )
 
-        # D (domain) should be in rank_matrices if Bacteria is present
-        assert "D" in result["rank_matrices"]
-        assert "S" not in result["rank_matrices"]
-        assert "G" not in result["rank_matrices"]
+        # D (domain) should be in rank_matrices_raw if Bacteria is present
+        assert "D" in result["rank_matrices_raw"]
+        assert "S" not in result["rank_matrices_raw"]
+        assert "G" not in result["rank_matrices_raw"]
 
     def test_empty_rank_filter(self, report_dir: Path, tmp_path: Path) -> None:
         """An empty rank_filter should produce no rank matrices."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
         result = aggregate_reports(
-            reports, out, normalize=False, rank_filter=()
+            reports, out, rank_filter=()
         )
 
-        assert result["rank_matrices"] == {}
-        # Unfiltered matrix should still exist
-        assert result["matrix_path"].exists()
+        assert result["rank_matrices_raw"] == {}
+        assert result["rank_matrices_cpm"] == {}
+        # Typed unfiltered matrices should still exist
+        assert result["matrix_raw_path"].exists()
+        assert result["matrix_cpm_path"].exists()
 
     def test_rank_filter_with_no_matching_taxa(
         self, tmp_path: Path
@@ -699,11 +702,12 @@ class TestRankFilter:
         f.write_text("100.00\t500\t500\tS\t562\tEscherichia coli\n")
         out = tmp_path / "out"
         result = aggregate_reports(
-            [f], out, normalize=False, rank_filter=("G",)
+            [f], out, rank_filter=("G",)
         )
 
         # No genus-rank taxa exist, so no G matrix
-        assert "G" not in result["rank_matrices"]
+        assert "G" not in result["rank_matrices_raw"]
+        assert "G" not in result["rank_matrices_cpm"]
 
     def test_rank_matrix_values_match_full_matrix(
         self, report_dir: Path, tmp_path: Path
@@ -711,12 +715,12 @@ class TestRankFilter:
         """Values in rank-filtered matrices should match the unfiltered matrix."""
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
-        result = aggregate_reports(reports, out, normalize=False)
+        result = aggregate_reports(reports, out)
 
-        full_rows = _read_matrix(result["matrix_path"])
+        full_rows = _read_matrix(result["matrix_raw_path"])
         full_by_tid = {r["tax_id"]: r for r in full_rows}
 
-        for rank, rank_path in result["rank_matrices"].items():
+        for rank, rank_path in result["rank_matrices_raw"].items():
             rank_rows = _read_matrix(rank_path)
             for rrow in rank_rows:
                 tid = rrow["tax_id"]
@@ -732,9 +736,11 @@ class TestRankFilter:
             "--rank-filter", "S",
         ])
         assert rc == 0
-        assert (tmp_path / "cli_out" / "taxa_matrix.tsv").exists()
-        assert (tmp_path / "cli_out" / "taxa_matrix_S.tsv").exists()
-        assert not (tmp_path / "cli_out" / "taxa_matrix_G.tsv").exists()
+        assert not (tmp_path / "cli_out" / "taxa_matrix.tsv").exists()
+        assert not (tmp_path / "cli_out" / "taxa_matrix_S.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_raw_S.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_cpm_S.tsv").exists()
+        assert not (tmp_path / "cli_out" / "taxa_matrix_raw_G.tsv").exists()
 
     def test_cli_rank_filter_multiple(
         self, basic_report: Path, tmp_path: Path
@@ -747,8 +753,10 @@ class TestRankFilter:
             "--rank-filter", "S", "G",
         ])
         assert rc == 0
-        assert (tmp_path / "cli_out" / "taxa_matrix_S.tsv").exists()
-        assert (tmp_path / "cli_out" / "taxa_matrix_G.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_raw_S.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_cpm_S.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_raw_G.tsv").exists()
+        assert (tmp_path / "cli_out" / "taxa_matrix_cpm_G.tsv").exists()
 
 
 # ---------------------------------------------------------------------------

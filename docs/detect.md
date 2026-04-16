@@ -81,8 +81,9 @@ csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ -v --json-log
 
 When `--rank-filter` is specified (default: S G F), the tool looks for
 per-rank matrices in the same directory as the input matrix. For example,
-`taxa_matrix_cpm.tsv` maps to `taxa_matrix_cpm_S.tsv` (fallback:
-`taxa_matrix_S.tsv`).  Results for each rank are written to subdirectories
+`taxa_matrix_cpm.tsv` maps to `taxa_matrix_cpm_S.tsv`;
+`taxa_matrix_raw.tsv` maps to `taxa_matrix_raw_S.tsv`.
+Results for each rank are written to subdirectories
 (e.g. `results/detect/S/`, `results/detect/G/`).
 
 ## Output Files

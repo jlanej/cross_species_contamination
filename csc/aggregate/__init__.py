@@ -1,15 +1,15 @@
 """Aggregate module – aggregation of Kraken2 classification results.
 
 This module collects per-sample Kraken2 report files and produces a
-sample-by-taxon count matrix with optional CPM normalisation.  It is
-designed to handle very large cohorts (100K+ samples) efficiently.
+sample-by-taxon count matrix in both raw counts and CPM-normalised form.
+It is designed to handle very large cohorts (100K+ samples) efficiently.
 
 Public API
 ----------
 parse_kraken2_report
     Parse a single Kraken2 report into structured records.
 aggregate_reports
-    Build a sample×taxon matrix from a list of report paths.
+    Build sample×taxon matrices (raw + CPM) from a list of report paths.
 sample_id_from_report
     Derive a sample identifier from a report file path.
 AggregationResult
@@ -25,7 +25,6 @@ from csc.aggregate.aggregate import (
     VALID_RANK_CODES,
     aggregate_reports,
     parse_kraken2_report,
-    rank_matrix_filename,
     sample_id_from_report,
     typed_matrix_filename,
     typed_rank_matrix_filename,
@@ -38,7 +37,6 @@ __all__ = [
     "VALID_RANK_CODES",
     "aggregate_reports",
     "parse_kraken2_report",
-    "rank_matrix_filename",
     "sample_id_from_report",
     "typed_matrix_filename",
     "typed_rank_matrix_filename",

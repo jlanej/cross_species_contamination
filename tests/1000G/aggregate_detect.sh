@@ -11,12 +11,14 @@
 # so it starts automatically when all classification array tasks have finished.
 #
 # Output:
-#   <AGG_OUTDIR>/taxa_matrix.tsv          – primary compatibility matrix (CPM by default)
 #   <AGG_OUTDIR>/taxa_matrix_cpm.tsv      – all-sample CPM matrix
 #   <AGG_OUTDIR>/taxa_matrix_raw.tsv      – all-sample raw-count matrix
-#   <AGG_OUTDIR>/taxa_matrix_S.tsv        – species-level matrix
-#   <AGG_OUTDIR>/taxa_matrix_G.tsv        – genus-level matrix
-#   <AGG_OUTDIR>/taxa_matrix_F.tsv        – family-level matrix
+#   <AGG_OUTDIR>/taxa_matrix_cpm_S.tsv    – species-level CPM matrix
+#   <AGG_OUTDIR>/taxa_matrix_cpm_G.tsv    – genus-level CPM matrix
+#   <AGG_OUTDIR>/taxa_matrix_cpm_F.tsv    – family-level CPM matrix
+#   <AGG_OUTDIR>/taxa_matrix_raw_S.tsv    – species-level raw matrix
+#   <AGG_OUTDIR>/taxa_matrix_raw_G.tsv    – genus-level raw matrix
+#   <AGG_OUTDIR>/taxa_matrix_raw_F.tsv    – family-level raw matrix
 #   <AGG_OUTDIR>/aggregation_metadata.json
 #   <DETECT_OUTDIR>/flagged_samples.tsv
 #   <DETECT_OUTDIR>/qc_summary.json
@@ -36,7 +38,7 @@
 #                     (default: <AGG_OUTDIR>/../detect)
 #   THREADS         – CPUs for aggregate/detect (default: SLURM_CPUS_PER_TASK or 4)
 #   MIN_READS       – minimum direct-read count per taxon (default: 0)
-#   NO_NORMALIZE    – set to "1" to output raw counts instead of CPM (default: 0)
+#   NO_NORMALIZE    – removed; both raw and CPM matrices are always produced
 #   RANK_FILTER_CODES – colon-separated rank codes for per-rank matrices
 #                       (default: S:G:F)
 #   DETECT_MATRIX   – matrix type for csc-detect input: cpm or raw (default: cpm)
@@ -71,7 +73,6 @@ AGG_OUTDIR="${AGG_OUTDIR:-}"
 DETECT_OUTDIR="${DETECT_OUTDIR:-}"
 THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-4}}"
 MIN_READS="${MIN_READS:-0}"
-NO_NORMALIZE="${NO_NORMALIZE:-0}"
 # Colon-separated rank codes to avoid spaces in the --export string
 RANK_FILTER_CODES="${RANK_FILTER_CODES:-S:G:F}"
 DETECT_MATRIX="${DETECT_MATRIX:-cpm}"
@@ -188,7 +189,6 @@ echo "  Aggregate outdir: ${AGG_OUTDIR}"
 echo "  Detect outdir   : ${DETECT_OUTDIR}"
 echo "  Reports found   : ${#REPORTS[@]}"
 echo "  Min reads       : ${MIN_READS}"
-echo "  Normalize       : $([[ "${NO_NORMALIZE}" == "1" ]] && echo "no (raw counts)" || echo "yes (CPM)")"
 echo "  Detect matrix   : ${DETECT_MATRIX}"
 echo "  Rank filter     : ${RANK_FILTER_DISPLAY}"
 echo "  Skip detect     : ${SKIP_DETECT}"
@@ -201,7 +201,7 @@ echo "  Container       : ${CONTAINER_SIF}"
 echo "======================================================"
 
 # --------------------------------------------------------------------------- #
-# Step 1: Aggregate reports → taxa matrix                                       #
+# Step 1: Aggregate reports → taxa matrices                                     #
 # --------------------------------------------------------------------------- #
 mkdir -p "${AGG_OUTDIR}"
 
@@ -212,9 +212,6 @@ AGGREGATE_ARGS=(
 )
 if [[ "${MIN_READS}" -gt 0 ]]; then
     AGGREGATE_ARGS+=("--min-reads" "${MIN_READS}")
-fi
-if [[ "${NO_NORMALIZE}" == "1" ]]; then
-    AGGREGATE_ARGS+=("--no-normalize")
 fi
 AGGREGATE_ARGS+=("--rank-filter" "${RANK_CODES[@]}")
 
@@ -228,7 +225,7 @@ if [[ ${EXIT_CODE} -ne 0 ]]; then
     exit ${EXIT_CODE}
 fi
 
-echo "Aggregation complete. Matrix: ${AGG_OUTDIR}/taxa_matrix.tsv"
+echo "Aggregation complete. Raw: ${AGG_OUTDIR}/taxa_matrix_raw.tsv  CPM: ${AGG_OUTDIR}/taxa_matrix_cpm.tsv"
 
 # --------------------------------------------------------------------------- #
 # Step 2: Detect outliers (optional)                                            #

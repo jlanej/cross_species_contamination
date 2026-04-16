@@ -77,11 +77,11 @@ class TestNegativeControlCleanCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
         assert agg_result["sample_count"] == 10
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         assert detect_result["summary"]["flagged_count"] == 0
         assert detect_result["flagged"] == []
@@ -92,10 +92,10 @@ class TestNegativeControlCleanCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="iqr"
+            agg_result["matrix_raw_path"], method="iqr"
         )
         assert detect_result["summary"]["flagged_count"] == 0
 
@@ -107,10 +107,10 @@ class TestNegativeControlCleanCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         detect_out = tmp_path / "detect_out"
         report_files = generate_report(detect_result, detect_out)
@@ -184,10 +184,10 @@ class TestPositiveControlContaminatedCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         flagged = set(detect_result["summary"]["flagged_samples"])
 
@@ -203,10 +203,10 @@ class TestPositiveControlContaminatedCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         flagged = set(detect_result["summary"]["flagged_samples"])
 
@@ -223,10 +223,10 @@ class TestPositiveControlContaminatedCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         flagged = set(detect_result["summary"]["flagged_samples"])
 
@@ -242,10 +242,10 @@ class TestPositiveControlContaminatedCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         flagged = set(detect_result["summary"]["flagged_samples"])
 
@@ -263,10 +263,10 @@ class TestPositiveControlContaminatedCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         flagged = set(detect_result["summary"]["flagged_samples"])
 
@@ -282,10 +282,10 @@ class TestPositiveControlContaminatedCohort:
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
 
         agg_out = tmp_path / "agg_out"
-        agg_result = aggregate_reports(reports, agg_out, normalize=False)
+        agg_result = aggregate_reports(reports, agg_out)
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         detect_out = tmp_path / "detect_out"
         report_files = generate_report(detect_result, detect_out)
@@ -316,11 +316,11 @@ class TestEndToEndEdgeCases:
 
         agg_out = tmp_path / "agg_out"
         agg_result = aggregate_reports(
-            [d / "only.kraken2.report.txt"], agg_out, normalize=False
+            [d / "only.kraken2.report.txt"], agg_out
         )
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         # Single sample → MAD=0 → no outliers can be detected
         assert detect_result["summary"]["flagged_count"] == 0
@@ -369,11 +369,10 @@ class TestEndToEndEdgeCases:
         agg_result = aggregate_reports(
             sorted(d.glob("*.kraken2.report.txt")),
             agg_out,
-            normalize=True,
         )
 
         detect_result = detect_outliers(
-            agg_result["matrix_path"], method="mad"
+            agg_result["matrix_raw_path"], method="mad"
         )
         flagged = set(detect_result["summary"]["flagged_samples"])
         assert "contam" in flagged

@@ -19,20 +19,19 @@ from csc.aggregate import parse_kraken2_report, aggregate_reports
 # Parse a single report
 records = parse_kraken2_report("sample.kraken2.report.txt")
 
-# Build a matrix from multiple reports
+# Build both raw and CPM matrices from multiple reports
 result = aggregate_reports(
     ["sampleA.kraken2.report.txt", "sampleB.kraken2.report.txt"],
     output_dir="results/",
     min_reads=10,       # exclude taxa with fewer than 10 reads per sample
-    normalize=True,     # only selects legacy taxa_matrix.tsv content (both typed matrices are always written)
     chunk_size=500,     # reports per processing chunk
     rank_filter=("S", "G", "F"),  # per-rank matrices (default)
 )
-print(result["matrix_path"])    # results/taxa_matrix.tsv (legacy primary)
 print(result["matrix_raw_path"])  # results/taxa_matrix_raw.tsv
 print(result["matrix_cpm_path"])  # results/taxa_matrix_cpm.tsv
-print(result["metadata_path"])  # results/aggregation_metadata.json
-print(result["rank_matrices"])  # {'S': Path('results/taxa_matrix_S.tsv'), ...}
+print(result["metadata_path"])    # results/aggregation_metadata.json
+print(result["rank_matrices_raw"])  # {'S': Path('results/taxa_matrix_raw_S.tsv'), ...}
+print(result["rank_matrices_cpm"])  # {'S': Path('results/taxa_matrix_cpm_S.tsv'), ...}
 ```
 
 ### Key Functions
@@ -46,11 +45,13 @@ print(result["rank_matrices"])  # {'S': Path('results/taxa_matrix_S.tsv'), ...}
 ### Return Types
 
 **`AggregationResult`** (TypedDict):
-- `matrix_path` – Path to the unfiltered output TSV matrix
+- `matrix_raw_path` – Path to the unfiltered raw-count TSV matrix
+- `matrix_cpm_path` – Path to the unfiltered CPM-normalised TSV matrix
 - `metadata_path` – Path to the JSON metadata file
 - `sample_count` – Number of samples in the matrix
 - `taxon_count` – Number of taxa (rows) in the unfiltered matrix
-- `rank_matrices` – Dict mapping rank code to per-rank filtered matrix path
+- `rank_matrices_raw` – Dict mapping rank code to per-rank raw matrix path
+- `rank_matrices_cpm` – Dict mapping rank code to per-rank CPM matrix path
 - `rank_metadata_path` – Path to the rank-filter sidecar JSON
 
 **`TaxonRecord`** (TypedDict):
@@ -70,9 +71,6 @@ csc-aggregate reports/*.kraken2.report.txt -o results/
 # Filter low-count taxa
 csc-aggregate reports/*.kraken2.report.txt -o results/ --min-reads 50
 
-# Keep legacy primary matrix as raw counts (typed matrices are still both written)
-csc-aggregate reports/*.kraken2.report.txt -o results/ --no-normalize
-
 # Custom rank filter (species only)
 csc-aggregate reports/*.kraken2.report.txt -o results/ --rank-filter S
 
@@ -90,7 +88,6 @@ csc-aggregate reports/*.kraken2.report.txt -o results/ -v --json-log
 | `input` | Kraken2 report files (positional, one or more) | required |
 | `-o, --output-dir` | Output directory | required |
 | `--min-reads` | Minimum direct reads to include a taxon | `0` |
-| `--no-normalize` | Use raw counts for legacy primary outputs (`taxa_matrix.tsv`, `taxa_matrix_<RANK>.tsv`) | `False` |
 | `--chunk-size` | Reports per processing chunk | `500` |
 | `--rank-filter` | Taxonomy rank codes for per-rank matrices | `S G F` |
 | `--json-log` | Structured JSON logging | `False` |
@@ -104,8 +101,8 @@ Tab-separated matrix.  Rows are taxa, columns are samples.
 
 ```
 tax_id  name                   sampleA   sampleB   sampleC
-562     Escherichia coli       500.0000  12500.00  0.0000
-1280    Staphylococcus aureus  2500.00   0.0000    3000.00
+562     Escherichia coli       500       12500     0
+1280    Staphylococcus aureus  2500      0         3000
 ```
 
 First two columns are `tax_id` and `name`.  Remaining columns are
@@ -116,18 +113,11 @@ with `0`.
 `taxa_matrix_cpm.tsv` stores CPM values where each sample column sums to
 approximately 1,000,000.
 
-### `taxa_matrix.tsv`
+### `taxa_matrix_raw_S.tsv`, `taxa_matrix_cpm_S.tsv`, etc.
 
-Backward-compatible primary matrix path.  Its content is CPM by default,
-or raw counts when `--no-normalize` / `normalize=False` is used.
-
-### `taxa_matrix_S.tsv`, `taxa_matrix_G.tsv`, `taxa_matrix_F.tsv`
-
-Per-rank filtered matrices containing only taxa of the specified
-rank for the legacy primary output type.
-
-Typed per-rank matrices are also written for both matrix types, e.g.
-`taxa_matrix_raw_S.tsv` and `taxa_matrix_cpm_S.tsv`.
+Per-rank filtered matrices containing only taxa of the specified rank.
+Both a raw-count version and a CPM-normalised version are written for
+each rank code requested via `--rank-filter` (e.g. `S`, `G`, `F`).
 
 ### `rank_filter_metadata.json`
 
@@ -136,7 +126,6 @@ Typed per-rank matrices are also written for both matrix types, e.g.
   "rank_filter": ["S", "G", "F"],
   "ranks": {
     "S": {
-      "matrix_path": "results/taxa_matrix_S.tsv",
       "matrix_raw_path": "results/taxa_matrix_raw_S.tsv",
       "matrix_cpm_path": "results/taxa_matrix_cpm_S.tsv",
       "taxon_count": 15,
@@ -156,12 +145,9 @@ Typed per-rank matrices are also written for both matrix types, e.g.
   "sample_count": 3,
   "taxon_count": 25,
   "min_reads": 10,
-  "normalized": true,
-  "normalization_method": "CPM",
   "matrix_paths": {
-    "primary": "results/taxa_matrix.tsv",
-    "raw": "results/taxa_matrix_raw.tsv",
-    "cpm": "results/taxa_matrix_cpm.tsv"
+    "raw": "taxa_matrix_raw.tsv",
+    "cpm": "taxa_matrix_cpm.tsv"
   },
   "samples": ["sampleA", "sampleB", "sampleC"],
   "errors": []

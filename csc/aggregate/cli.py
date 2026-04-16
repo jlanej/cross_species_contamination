@@ -2,14 +2,11 @@
 
 Usage examples::
 
-    # Build a sample-by-taxon matrix from Kraken2 reports
+    # Build sample-by-taxon matrices (raw + CPM) from Kraken2 reports
     csc-aggregate reports/*.kraken2.report.txt -o results/
 
     # Only include taxa with ≥ 50 direct reads per sample
     csc-aggregate reports/*.kraken2.report.txt -o results/ --min-reads 50
-
-    # Keep legacy primary matrix as raw counts instead of CPM
-    csc-aggregate reports/*.kraken2.report.txt -o results/ --no-normalize
 
     # Structured JSON logging
     csc-aggregate reports/*.kraken2.report.txt -o results/ --json-log
@@ -32,16 +29,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="csc-aggregate",
         description=(
-            "Aggregate Kraken2 classification reports into a sample-by-taxon "
-            "matrix.  Accepts the report files produced by csc-classify and "
-            "always writes both raw-count and CPM TSV matrices."
+            "Aggregate Kraken2 classification reports into sample-by-taxon "
+            "matrices.  Accepts the report files produced by csc-classify and "
+            "always writes both raw-count (taxa_matrix_raw.tsv) and CPM "
+            "(taxa_matrix_cpm.tsv) TSV matrices."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  csc-aggregate reports/*.kraken2.report.txt -o results/\n"
             "  csc-aggregate reports/*.kraken2.report.txt -o results/ --min-reads 50\n"
-            "  csc-aggregate reports/*.kraken2.report.txt -o results/ --no-normalize\n"
         ),
     )
     parser.add_argument(
@@ -64,15 +61,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Minimum direct-read count for a taxon to be included per "
             "sample (default: 0)."
-        ),
-    )
-    parser.add_argument(
-        "--no-normalize",
-        action="store_true",
-        help=(
-            "Use raw counts for compatibility output names (taxa_matrix.tsv and "
-            "taxa_matrix_<RANK>.tsv).  Raw and CPM typed matrices are always "
-            "written as taxa_matrix_raw.tsv and taxa_matrix_cpm.tsv."
         ),
     )
     parser.add_argument(
@@ -143,11 +131,9 @@ def main(argv: list[str] | None = None) -> int:
             args.input,
             args.output_dir,
             min_reads=args.min_reads,
-            normalize=not args.no_normalize,
             chunk_size=args.chunk_size,
             rank_filter=tuple(args.rank_filter),
         )
-        print(f"  matrix (primary): {result['matrix_path']}")
         print(f"  matrix (raw): {result['matrix_raw_path']}")
         print(f"  matrix (cpm): {result['matrix_cpm_path']}")
         print(f"  metadata: {result['metadata_path']}")
@@ -155,9 +141,12 @@ def main(argv: list[str] | None = None) -> int:
             f"  samples: {result['sample_count']}, "
             f"taxa: {result['taxon_count']}"
         )
-        if result["rank_matrices"]:
-            for rank, rpath in sorted(result["rank_matrices"].items()):
-                print(f"  rank {rank} matrix: {rpath}")
+        if result["rank_matrices_raw"]:
+            for rank, rpath in sorted(result["rank_matrices_raw"].items()):
+                print(f"  rank {rank} matrix (raw): {rpath}")
+        if result["rank_matrices_cpm"]:
+            for rank, rpath in sorted(result["rank_matrices_cpm"].items()):
+                print(f"  rank {rank} matrix (cpm): {rpath}")
         return 0
     except Exception as exc:
         log.error("Aggregation failed: %s", exc)
