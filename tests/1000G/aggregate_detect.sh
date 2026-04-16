@@ -238,11 +238,11 @@ if [[ "${SKIP_DETECT}" == "1" ]]; then
     exit 0
 fi
 
-MATRIX="${AGG_OUTDIR}/taxa_matrix_${DETECT_MATRIX}.tsv"
 if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
     echo "ERROR: DETECT_MATRIX must be 'cpm' or 'raw'." >&2
     exit 1
 fi
+MATRIX="${AGG_OUTDIR}/taxa_matrix_${DETECT_MATRIX}.tsv"
 if [[ ! -s "${MATRIX}" ]]; then
     echo "ERROR: Expected aggregate matrix not found: ${MATRIX}" >&2
     exit 1

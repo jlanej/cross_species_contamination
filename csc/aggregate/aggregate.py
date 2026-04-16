@@ -86,6 +86,8 @@ def typed_matrix_filename(matrix_type: str) -> str:
     matrix_type:
         Matrix type code, typically ``"raw"`` or ``"cpm"``.
     """
+    if matrix_type not in ("raw", "cpm"):
+        raise ValueError("matrix_type must be 'raw' or 'cpm'")
     return f"taxa_matrix_{matrix_type}.tsv"
 
 
@@ -99,6 +101,10 @@ def typed_rank_matrix_filename(rank: str, matrix_type: str) -> str:
     matrix_type:
         Matrix type code, typically ``"raw"`` or ``"cpm"``.
     """
+    if rank not in VALID_RANK_CODES:
+        raise ValueError(f"rank must be one of: {VALID_RANK_CODES}")
+    if matrix_type not in ("raw", "cpm"):
+        raise ValueError("matrix_type must be 'raw' or 'cpm'")
     return f"taxa_matrix_{matrix_type}_{rank}.tsv"
 
 
