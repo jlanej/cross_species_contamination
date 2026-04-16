@@ -100,10 +100,6 @@ if [[ -z "${AGG_OUTDIR}" ]]; then
     echo "ERROR: AGG_OUTDIR is not set." >&2
     exit 1
 fi
-if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
-    echo "ERROR: DETECT_MATRIX must be 'cpm' or 'raw'." >&2
-    exit 1
-fi
 
 # Default DETECT_OUTDIR now that AGG_OUTDIR is validated
 if [[ -z "${DETECT_OUTDIR}" ]]; then
