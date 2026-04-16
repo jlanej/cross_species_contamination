@@ -29,6 +29,9 @@ import pytest
 SCRIPTS_DIR = Path(__file__).parent / "1000G"
 SUBMIT_SCRIPT = SCRIPTS_DIR / "submit_extract.sh"
 ARRAY_SCRIPT = SCRIPTS_DIR / "extract_unmapped_array.sh"
+SUBMIT_CLASSIFY_SCRIPT = SCRIPTS_DIR / "submit_classify.sh"
+CLASSIFY_ARRAY_SCRIPT = SCRIPTS_DIR / "classify_array.sh"
+AGGREGATE_DETECT_SCRIPT = SCRIPTS_DIR / "aggregate_detect.sh"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,7 +72,13 @@ def minimal_manifest(tmp_path: Path) -> Path:
 # Syntax checks (bash -n)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("script", [SUBMIT_SCRIPT, ARRAY_SCRIPT])
+@pytest.mark.parametrize("script", [
+    SUBMIT_SCRIPT,
+    ARRAY_SCRIPT,
+    SUBMIT_CLASSIFY_SCRIPT,
+    CLASSIFY_ARRAY_SCRIPT,
+    AGGREGATE_DETECT_SCRIPT,
+])
 def test_bash_syntax(script):
     """Both scripts must pass bash syntax checking."""
     result = run(["bash", "-n", str(script)])
@@ -511,3 +520,543 @@ class TestCraiLocalDownload:
         assert "command -v ascp" in content
         assert 'aspera_user="era-fasp"' in content
         assert 'aspera_host="fasp.sra.ebi.ac.uk"' in content
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by classify pipeline tests
+# ---------------------------------------------------------------------------
+
+def _fake_extracted_samples(outdir: Path, sample_ids: list) -> None:
+    """Create dummy extraction output dirs and R1/R2 FASTQ files."""
+    for sid in sample_ids:
+        sample_dir = outdir / sid
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        # write non-empty files so [[ -s ]] passes
+        (sample_dir / f"{sid}_unmapped_R1.fastq.gz").write_bytes(b"\x1f\x8b\x08\x00")
+        (sample_dir / f"{sid}_unmapped_R2.fastq.gz").write_bytes(b"\x1f\x8b\x08\x00")
+
+
+def _fake_db(tmp_path: Path) -> Path:
+    """Create a minimal fake Kraken2 DB directory."""
+    db = tmp_path / "kraken2_db"
+    db.mkdir()
+    for f in ("hash.k2d", "opts.k2d", "taxo.k2d"):
+        (db / f).touch()
+    return db
+
+
+# ---------------------------------------------------------------------------
+# Syntax checks already covered by the expanded parametrize above.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# submit_classify.sh dry-run tests
+# ---------------------------------------------------------------------------
+
+class TestSubmitClassifyDryRun:
+    """Tests that use --dry-run so no SLURM / Apptainer / Kraken2 is needed."""
+
+    def test_dry_run_basic(self, tmp_path):
+        """dry-run with minimal args should succeed and mention sbatch."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "sbatch" in result.stdout
+
+    def test_dry_run_missing_db(self, tmp_path):
+        """Missing --db should exit with an error."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--dry-run",
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+    def test_dry_run_missing_extract_outdir(self, tmp_path):
+        """Nonexistent --extract-outdir should exit with an error."""
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(tmp_path / "nonexistent"),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+    def test_dry_run_no_extracted_samples(self, tmp_path):
+        """Empty extraction dir should exit with an error."""
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode != 0
+        assert "No extracted" in result.stderr or "No extracted" in result.stdout
+
+    def test_dry_run_writes_classify_manifest(self, tmp_path):
+        """dry-run should still write classify_manifest.tsv."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748", "NA18488"])
+        db = _fake_db(tmp_path)
+        out = tmp_path / "classify_out"
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        manifest = out / "classify_manifest.tsv"
+        assert manifest.exists(), "classify_manifest.tsv should be written"
+        lines = manifest.read_text().splitlines()
+        # header + 3 samples
+        assert len(lines) == 4
+        # header
+        assert lines[0].startswith("SAMPLE_ID")
+        # data lines contain sample IDs and R1 paths
+        assert "NA12718" in lines[1]
+        assert "_unmapped_R1.fastq.gz" in lines[1]
+
+    def test_dry_run_limit(self, tmp_path):
+        """--limit should cap the array spec to N."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748", "NA18488"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--limit", "2",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        # Array spec has 2 samples; they may be rendered as "1-2" or "1,2"
+        assert "1,2" in result.stdout or "1-2" in result.stdout
+
+    def test_dry_run_samples_file(self, tmp_path):
+        """--samples resolves sample IDs and only those appear in the manifest."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748", "NA18488"])
+        db = _fake_db(tmp_path)
+        samples_file = tmp_path / "subset.txt"
+        samples_file.write_text("NA12718\nNA18488\n")
+        out = tmp_path / "classify_out"
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(out),
+            "--db", str(db),
+            "--samples", str(samples_file),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        manifest = out / "classify_manifest.tsv"
+        lines = manifest.read_text().splitlines()
+        assert len(lines) == 3  # header + 2 samples
+        sample_ids_in_manifest = [l.split("\t")[0] for l in lines[1:]]
+        assert "NA12718" in sample_ids_in_manifest
+        assert "NA18488" in sample_ids_in_manifest
+        assert "NA12748" not in sample_ids_in_manifest
+
+    def test_dry_run_unknown_sample_warns(self, tmp_path):
+        """Unknown sample ID in --samples file should warn but not fail."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        samples_file = tmp_path / "subset.txt"
+        samples_file.write_text("NA12718\nNONEXISTENT\n")
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--samples", str(samples_file),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "WARNING" in result.stderr or "WARNING" in result.stdout
+
+    def test_dry_run_array_spec_includes_throttle(self, tmp_path):
+        """Default array spec must include %200 concurrency throttle."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "%200" in result.stdout
+
+    def test_dry_run_custom_max_concurrent_jobs(self, tmp_path):
+        """--max-concurrent-jobs should override default throttle."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--max-concurrent-jobs", "50",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "%50" in result.stdout
+
+    def test_dry_run_skips_completed_samples(self, tmp_path):
+        """Already-classified samples should be excluded from the array."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748", "NA18488"])
+        db = _fake_db(tmp_path)
+        classify_out = tmp_path / "classify_out"
+        # Mark NA12718 as already classified
+        done_dir = classify_out / "classify" / "NA12718"
+        done_dir.mkdir(parents=True)
+        (done_dir / "NA12718.kraken2.report.txt").write_text("# classified\n")
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(classify_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "Skipping 1 already-classified" in result.stdout
+        # Only 2 and 3 should appear (NA12748, NA18488)
+        assert "2,3" in result.stdout or "2-3" in result.stdout
+
+    def test_dry_run_all_completed_no_classify_job(self, tmp_path):
+        """If all samples are classified, no classify array job should appear."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718", "NA12748"])
+        db = _fake_db(tmp_path)
+        classify_out = tmp_path / "classify_out"
+        for sid in ["NA12718", "NA12748"]:
+            done_dir = classify_out / "classify" / sid
+            done_dir.mkdir(parents=True)
+            (done_dir / f"{sid}.kraken2.report.txt").write_text("# classified\n")
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(classify_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "All selected samples already have classification output" in result.stdout
+        # Aggregate/detect job should still be printed (for existing results)
+        assert "aggregate_detect" in result.stdout or "sbatch" in result.stdout
+
+    def test_dry_run_skip_aggregate(self, tmp_path):
+        """--skip-aggregate should suppress the aggregate/detect sbatch command."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--skip-aggregate",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "aggregate_detect" not in result.stdout
+
+    def test_dry_run_container_sif_exported(self, tmp_path):
+        """CONTAINER_SIF must appear in the classify --export string."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "CONTAINER_SIF=" in result.stdout
+
+    def test_dry_run_rank_filter_colon_encoded(self, tmp_path):
+        """RANK_FILTER_CODES must use colon separator (no spaces) for safe export."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--rank-filter", "S G F",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "RANK_FILTER_CODES=S:G:F" in result.stdout
+
+    def test_help_flag(self):
+        """-h should print usage and exit 0."""
+        result = run(["bash", str(SUBMIT_CLASSIFY_SCRIPT), "-h"])
+        assert result.returncode == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout
+
+    def test_unknown_flag_errors(self, tmp_path):
+        """Unknown flags should exit non-zero with a message."""
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--this-flag-does-not-exist",
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+    def test_dry_run_paired_r2_in_manifest(self, tmp_path):
+        """Samples with R2 files should have R2 path in the manifest."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        out = tmp_path / "classify_out"
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        manifest = out / "classify_manifest.tsv"
+        line = manifest.read_text().splitlines()[1]
+        cols = line.split("\t")
+        assert len(cols) == 3
+        # R2 column should be non-empty (we created both R1 and R2 above)
+        assert "_unmapped_R2.fastq.gz" in cols[2]
+
+    def test_dry_run_single_end_empty_r2_in_manifest(self, tmp_path):
+        """Samples with only R1 should have empty R2 column in the manifest."""
+        extract_out = tmp_path / "output"
+        sid = "SE_SAMPLE"
+        sample_dir = extract_out / sid
+        sample_dir.mkdir(parents=True)
+        (sample_dir / f"{sid}_unmapped_R1.fastq.gz").write_bytes(b"\x1f\x8b\x08\x00")
+        # No R2 file created
+        db = _fake_db(tmp_path)
+        out = tmp_path / "classify_out"
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        manifest = out / "classify_manifest.tsv"
+        line = manifest.read_text().splitlines()[1]
+        cols = line.split("\t")
+        # R2 column should be empty
+        assert cols[2] == ""
+
+
+# ---------------------------------------------------------------------------
+# classify_array.sh unit checks
+# ---------------------------------------------------------------------------
+
+class TestClassifyArrayScript:
+
+    @staticmethod
+    def _make_fake_apptainer(tmp_path: Path) -> Path:
+        """Write a fake apptainer/singularity that always exits 0 (never pulls)."""
+        bin_dir = tmp_path / "fakebin"
+        bin_dir.mkdir(exist_ok=True)
+        for name in ("apptainer", "singularity"):
+            exe = bin_dir / name
+            exe.write_text("#!/usr/bin/env bash\nexit 0\n")
+            exe.chmod(0o755)
+        return bin_dir
+
+    @staticmethod
+    def _fake_sif(tmp_path: Path) -> Path:
+        """Return path to a zero-byte fake SIF file (just needs to exist as a regular file)."""
+        sif = tmp_path / "fake.sif"
+        sif.touch()
+        return sif
+
+    def test_fails_without_slurm_task_id(self, tmp_path):
+        """Script should exit non-zero if SLURM_ARRAY_TASK_ID is unset."""
+        env = {**os.environ}
+        env.pop("SLURM_ARRAY_TASK_ID", None)
+        result = run(["bash", str(CLASSIFY_ARRAY_SCRIPT)], env=env)
+        assert result.returncode != 0
+        # Either apptainer is missing (no HPC) or SLURM_ARRAY_TASK_ID check fires;
+        # both are expected failure modes in a non-HPC environment.
+        assert result.stderr != ""
+
+    def test_fails_without_classify_manifest(self, tmp_path):
+        """Missing CLASSIFY_MANIFEST should exit with an error."""
+        bin_dir = self._make_fake_apptainer(tmp_path)
+        env = {**os.environ,
+               "PATH": f"{bin_dir}:{os.environ['PATH']}",
+               "SLURM_ARRAY_TASK_ID": "1",
+               "CLASSIFY_MANIFEST": str(tmp_path / "nonexistent.tsv"),
+               "CLASSIFY_OUTDIR": str(tmp_path / "classify"),
+               "EXTRACT_OUTDIR": str(tmp_path / "output"),
+               "DB": str(tmp_path / "db"),
+               "CONTAINER_SIF": str(self._fake_sif(tmp_path))}
+        result = run(["bash", str(CLASSIFY_ARRAY_SCRIPT)], env=env)
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr
+
+    def test_fails_without_db(self, tmp_path):
+        """Missing DB environment variable should exit with an error."""
+        bin_dir = self._make_fake_apptainer(tmp_path)
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text("SAMPLE_ID\tR1\tR2\nNA12718\t/r1.fq.gz\t\n")
+        env = {**os.environ,
+               "PATH": f"{bin_dir}:{os.environ['PATH']}",
+               "SLURM_ARRAY_TASK_ID": "1",
+               "CLASSIFY_MANIFEST": str(manifest),
+               "CLASSIFY_OUTDIR": str(tmp_path / "classify"),
+               "EXTRACT_OUTDIR": str(tmp_path / "output"),
+               "DB": "",
+               "CONTAINER_SIF": str(self._fake_sif(tmp_path))}
+        result = run(["bash", str(CLASSIFY_ARRAY_SCRIPT)], env=env)
+        assert result.returncode != 0
+        assert "DB" in result.stderr
+
+    def test_idempotence_skips_completed_sample(self, tmp_path):
+        """If report already exists, the array task should exit 0 immediately."""
+        bin_dir = self._make_fake_apptainer(tmp_path)
+        # Build a minimal classify manifest
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        manifest = tmp_path / "classify_manifest.tsv"
+        r1 = extract_out / "NA12718" / "NA12718_unmapped_R1.fastq.gz"
+        r2 = extract_out / "NA12718" / "NA12718_unmapped_R2.fastq.gz"
+        manifest.write_text(
+            f"SAMPLE_ID\tR1\tR2\n"
+            f"NA12718\t{r1}\t{r2}\n"
+        )
+
+        # Create a pre-existing (non-empty) report
+        classify_dir = tmp_path / "classify" / "NA12718"
+        classify_dir.mkdir(parents=True)
+        (classify_dir / "NA12718.kraken2.report.txt").write_text("# done\n")
+
+        # Provide a fake DB dir so the DB check passes
+        db = tmp_path / "db"
+        db.mkdir()
+
+        env = {**os.environ,
+               "PATH": f"{bin_dir}:{os.environ['PATH']}",
+               "SLURM_ARRAY_TASK_ID": "1",
+               "CLASSIFY_MANIFEST": str(manifest),
+               "CLASSIFY_OUTDIR": str(tmp_path / "classify"),
+               "EXTRACT_OUTDIR": str(extract_out),
+               "DB": str(db),
+               # Provide a real (zero-byte) fake SIF so pull_container is skipped
+               "CONTAINER_SIF": str(self._fake_sif(tmp_path))}
+        result = run(["bash", str(CLASSIFY_ARRAY_SCRIPT)], env=env)
+        # Should exit 0 with "already complete" message
+        assert result.returncode == 0, result.stderr
+        assert "already complete" in result.stdout or "Skipping" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# aggregate_detect.sh unit checks
+# ---------------------------------------------------------------------------
+
+class TestAggregateDetectScript:
+
+    def test_fails_without_classify_outdir(self, tmp_path):
+        """Missing CLASSIFY_OUTDIR should exit with an error."""
+        env = {**os.environ,
+               "CLASSIFY_OUTDIR": "",
+               "AGG_OUTDIR": str(tmp_path / "agg")}
+        result = run(["bash", str(AGGREGATE_DETECT_SCRIPT)], env=env)
+        assert result.returncode != 0
+        assert "CLASSIFY_OUTDIR" in result.stderr
+
+    def test_fails_without_agg_outdir(self, tmp_path):
+        """Missing AGG_OUTDIR should exit with an error."""
+        classify_out = tmp_path / "classify"
+        classify_out.mkdir()
+        env = {**os.environ,
+               "CLASSIFY_OUTDIR": str(classify_out),
+               "AGG_OUTDIR": ""}
+        result = run(["bash", str(AGGREGATE_DETECT_SCRIPT)], env=env)
+        assert result.returncode != 0
+        assert "AGG_OUTDIR" in result.stderr
+
+    def test_fails_when_no_reports_found(self, tmp_path):
+        """Empty classify dir (no .kraken2.report.txt files) should fail."""
+        classify_out = tmp_path / "classify"
+        classify_out.mkdir()
+        env = {**os.environ,
+               "CLASSIFY_OUTDIR": str(classify_out),
+               "AGG_OUTDIR": str(tmp_path / "agg"),
+               "CONTAINER_SIF": "/dev/null"}
+        # apptainer will not be called because it fails on missing reports first
+        result = run(["bash", str(AGGREGATE_DETECT_SCRIPT)], env=env)
+        assert result.returncode != 0
+        assert "No .kraken2.report.txt" in result.stderr or "ERROR" in result.stderr
+
+    def test_rank_filter_colon_expansion(self, tmp_path):
+        """RANK_FILTER_CODES colon separator must expand to space-separated codes."""
+        # We test the expansion logic inline to avoid requiring apptainer/csc tools
+        inline = textwrap.dedent("""\
+            RANK_FILTER_CODES="S:G:F"
+            IFS=':' read -ra RANK_CODES <<< "${RANK_FILTER_CODES}"
+            echo "${RANK_CODES[@]}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert result.stdout.strip() == "S G F"
+
+    def test_detect_outdir_defaults_to_sibling_of_agg(self, tmp_path):
+        """When DETECT_OUTDIR is not set, it should default to <parent>/detect."""
+        agg_dir = tmp_path / "classify_out" / "aggregate"
+        agg_dir.mkdir(parents=True)
+        classify_out = tmp_path / "classify_out" / "classify"
+        classify_out.mkdir(parents=True)
+
+        # Build the default-derivation logic inline
+        inline = textwrap.dedent(f"""\
+            AGG_OUTDIR="{agg_dir}"
+            DETECT_OUTDIR="${{DETECT_OUTDIR:-}}"
+            if [[ -z "$DETECT_OUTDIR" ]]; then
+                DETECT_OUTDIR="$(dirname "$AGG_OUTDIR")/detect"
+            fi
+            echo "DETECT_OUTDIR=$DETECT_OUTDIR"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        detect_path = [
+            l.split("=", 1)[1]
+            for l in result.stdout.splitlines()
+            if l.startswith("DETECT_OUTDIR=")
+        ][0]
+        expected = str(tmp_path / "classify_out" / "detect")
+        assert detect_path == expected
