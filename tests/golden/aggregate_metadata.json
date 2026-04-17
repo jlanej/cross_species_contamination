@@ -11,6 +11,7 @@
     "G",
     "F"
   ],
+  "domain_annotated": false,
   "samples": [
     "sampleA",
     "sampleB"

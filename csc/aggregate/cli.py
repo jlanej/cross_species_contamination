@@ -84,6 +84,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=None,
+        help=(
+            "Path to the Kraken2 database directory containing "
+            "taxonomy/nodes.dmp.  When provided, a lineage-aware "
+            "'domain' column is added to every output matrix."
+        ),
+    )
+    parser.add_argument(
         "--json-log",
         action="store_true",
         help="Emit structured JSON log lines instead of human-readable text.",
@@ -133,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
             min_reads=args.min_reads,
             chunk_size=args.chunk_size,
             rank_filter=tuple(args.rank_filter),
+            db_path=args.db_path,
         )
         print(f"  matrix (raw): {result['matrix_raw_path']}")
         print(f"  matrix (cpm): {result['matrix_cpm_path']}")
