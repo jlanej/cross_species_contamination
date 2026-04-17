@@ -29,6 +29,10 @@ from csc.aggregate.aggregate import (
     typed_matrix_filename,
     typed_rank_matrix_filename,
 )
+from csc.aggregate.taxonomy import (
+    assign_domains,
+    load_taxonomy_tree,
+)
 
 __all__ = [
     "AggregationResult",
@@ -36,6 +40,8 @@ __all__ = [
     "TaxonRecord",
     "VALID_RANK_CODES",
     "aggregate_reports",
+    "assign_domains",
+    "load_taxonomy_tree",
     "parse_kraken2_report",
     "sample_id_from_report",
     "typed_matrix_filename",

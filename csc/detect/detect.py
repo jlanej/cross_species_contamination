@@ -64,13 +64,18 @@ class DetectionResult(TypedDict):
 def load_matrix(path: str | Path) -> tuple[list[str], list[dict[str, Any]], dict[int, str]]:
     """Read a taxa-matrix TSV produced by :mod:`csc.aggregate`.
 
+    Handles both the classic two-metadata-column layout
+    (``tax_id, name, sample1, …``) and the domain-annotated three-column
+    layout (``tax_id, name, domain, sample1, …``).
+
     Returns
     -------
     sample_ids : list[str]
         Column headers (sample identifiers).
     rows : list[dict]
         One dict per taxon row with keys ``tax_id`` (int) and one float
-        entry per sample.
+        entry per sample.  If a ``domain`` column is present the dict
+        also contains a ``"domain"`` key.
     tax_names : dict[int, str]
         Mapping from tax_id to taxon name.
     """
@@ -80,15 +85,20 @@ def load_matrix(path: str | Path) -> tuple[list[str], list[dict[str, Any]], dict
 
     with open(path) as fh:
         reader = csv.reader(fh, delimiter="\t")
-        header = next(reader)  # tax_id, name, sample1, sample2, …
+        header = next(reader)  # tax_id, name, [domain,] sample1, sample2, …
 
-    if len(header) < 3:
+    # Detect whether a "domain" metadata column is present.
+    has_domain = len(header) > 2 and header[2] == "domain"
+    meta_cols = 3 if has_domain else 2
+
+    if len(header) < meta_cols + 1:
         raise ValueError(
-            f"Matrix must have at least 3 columns (tax_id, name, and one "
+            f"Matrix must have at least {meta_cols + 1} columns "
+            f"(tax_id, name, {'domain, ' if has_domain else ''}and one "
             f"sample), got {len(header)}"
         )
 
-    sample_ids = header[2:]
+    sample_ids = header[meta_cols:]
     rows: list[dict[str, Any]] = []
     tax_names: dict[int, str] = {}
 
@@ -96,7 +106,7 @@ def load_matrix(path: str | Path) -> tuple[list[str], list[dict[str, Any]], dict
         reader = csv.reader(fh, delimiter="\t")
         next(reader)  # skip header
         for lineno, cols in enumerate(reader, 2):
-            if len(cols) < 3:
+            if len(cols) < meta_cols + 1:
                 logger.warning("Skipping line %d: too few columns", lineno)
                 continue
             try:
@@ -107,9 +117,11 @@ def load_matrix(path: str | Path) -> tuple[list[str], list[dict[str, Any]], dict
             name = cols[1]
             tax_names[tid] = name
             entry: dict[str, Any] = {"tax_id": tid}
+            if has_domain:
+                entry["domain"] = cols[2]
             for i, sid in enumerate(sample_ids):
                 try:
-                    entry[sid] = float(cols[2 + i])
+                    entry[sid] = float(cols[meta_cols + i])
                 except (ValueError, IndexError):
                     entry[sid] = 0.0
             rows.append(entry)

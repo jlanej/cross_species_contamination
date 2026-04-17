@@ -199,6 +199,7 @@ def aggregate_reports(
     min_reads: int = 0,
     chunk_size: int = 500,
     rank_filter: tuple[str, ...] | list[str] = DEFAULT_RANK_FILTER,
+    db_path: str | Path | None = None,
 ) -> AggregationResult:
     """Build a sample-by-taxon matrix from Kraken2 reports.
 
@@ -216,6 +217,11 @@ def aggregate_reports(
     A sidecar ``rank_filter_metadata.json`` records which taxa were
     retained in each rank.
 
+    When *db_path* is provided, the taxonomy tree (``taxonomy/nodes.dmp``)
+    is loaded and every taxon row is annotated with a lineage-aware
+    ``domain`` column (e.g. Bacteria, Archaea, Fungi, Protists, Viruses,
+    UniVec_Core, Human, or Unclassified).
+
     Parameters
     ----------
     report_paths:
@@ -230,6 +236,10 @@ def aggregate_reports(
     rank_filter:
         Taxonomy rank codes for which per-rank matrices are produced.
         Defaults to ``("S", "G", "F")`` (species, genus, family).
+    db_path:
+        Optional path to the Kraken2 database directory.  When provided,
+        ``taxonomy/nodes.dmp`` is loaded and a ``domain`` column is added
+        to every output matrix.
 
     Returns
     -------
@@ -302,6 +312,15 @@ def aggregate_reports(
     for sid in sample_ids:
         sample_totals[sid] = sum(sample_data[sid].values())
 
+    # Lineage-aware domain assignment (optional)
+    tax_domains: dict[int, str] | None = None
+    if db_path is not None:
+        from csc.aggregate.taxonomy import assign_domains, load_taxonomy_tree
+
+        tree = load_taxonomy_tree(db_path)
+        tax_domains = assign_domains(all_taxa, tree)
+        logger.info("Assigned domains for %d taxa", len(tax_domains))
+
     # Always write both unfiltered matrices (raw + CPM)
     matrix_raw_path = output_dir / typed_matrix_filename("raw")
     matrix_cpm_path = output_dir / typed_matrix_filename("cpm")
@@ -313,6 +332,7 @@ def aggregate_reports(
         sample_data=sample_data,
         sample_totals=sample_totals,
         normalize=False,
+        tax_domains=tax_domains,
     )
     _write_matrix(
         matrix_cpm_path,
@@ -322,6 +342,7 @@ def aggregate_reports(
         sample_data=sample_data,
         sample_totals=sample_totals,
         normalize=True,
+        tax_domains=tax_domains,
     )
 
     # Write per-rank filtered matrices (always raw + CPM)
@@ -343,6 +364,7 @@ def aggregate_reports(
             sample_data=sample_data,
             sample_totals=sample_totals,
             normalize=False,
+            tax_domains=tax_domains,
         )
         rank_matrices_raw[rank] = rank_raw_path
 
@@ -355,6 +377,7 @@ def aggregate_reports(
             sample_data=sample_data,
             sample_totals=sample_totals,
             normalize=True,
+            tax_domains=tax_domains,
         )
         rank_matrices_cpm[rank] = rank_cpm_path
 
@@ -395,6 +418,7 @@ def aggregate_reports(
             "cpm": matrix_cpm_path.name,
         },
         "rank_filter": list(rank_filter),
+        "domain_annotated": db_path is not None,
         "samples": sample_ids,
         "errors": errors,
     }
@@ -422,19 +446,27 @@ def _write_matrix(
     sample_data: dict[str, dict[int, int]],
     sample_totals: dict[str, int],
     normalize: bool,
+    tax_domains: dict[int, str] | None = None,
 ) -> None:
     """Write the taxa-by-sample matrix as a TSV file.
 
     Rows are taxa; columns are samples.  First two columns are
-    ``tax_id`` and ``name``.
+    ``tax_id`` and ``name``.  When *tax_domains* is provided a
+    ``domain`` column is inserted after ``name``.
     """
+    has_domain = tax_domains is not None
     with open(path, "w", newline="") as fh:
         writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
         # Header
-        writer.writerow(["tax_id", "name"] + sample_ids)
+        meta_cols = ["tax_id", "name"]
+        if has_domain:
+            meta_cols.append("domain")
+        writer.writerow(meta_cols + sample_ids)
         # Data rows
         for tid in all_taxa:
             row: list[str] = [str(tid), tax_names.get(tid, "")]
+            if has_domain:
+                row.append(tax_domains.get(tid, ""))  # type: ignore[union-attr]
             for sid in sample_ids:
                 raw = sample_data[sid].get(tid, 0)
                 if normalize:
