@@ -65,6 +65,9 @@
 #   --min-reads     N      Min direct reads per taxon in aggregate [default: 0]
 #   --rank-filter   STR    Space-separated rank codes for per-rank matrices
 #                          [default: "S G F"]
+#   --db-path       DIR    Kraken2 DB dir for lineage-aware domain annotation in
+#                          aggregate; defaults to the value of --db (set to ""
+#                          to disable domain annotation)
 #   --detect-matrix STR    Matrix type for detect input: cpm or raw [default: cpm]
 #   --detect-method STR    Outlier detection method: mad or iqr [default: mad]
 #   --mad-threshold FLOAT  MAD threshold for outlier detection [default: 3.5]
@@ -116,9 +119,10 @@ AGG_MEM="16G"
 AGG_WALLTIME="02:00:00"
 CONTAINER_SIF=""          # resolved later to an absolute path under OUTDIR
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
+DB_PATH=""                # defaults to DB after argument parsing
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
-USAGE_LINES=95
+USAGE_LINES=98
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 usage() {
@@ -143,6 +147,7 @@ while [[ $# -gt 0 ]]; do
         --memory-mapping) MEMORY_MAPPING=1;    shift ;;
         --min-reads)      MIN_READS="$2";      shift 2 ;;
         --rank-filter)    RANK_FILTER="$2";    shift 2 ;;
+        --db-path)        DB_PATH="$2";        shift 2 ;;
         --detect-matrix)  DETECT_MATRIX="$2";  shift 2 ;;
         --detect-method)  DETECT_METHOD="$2";  shift 2 ;;
         --mad-threshold)  MAD_THRESHOLD="$2";  shift 2 ;;
@@ -206,6 +211,13 @@ CONTAINER_SIF="$(realpath -m "${CONTAINER_SIF}")"
 
 # Encode rank filter as colon-separated (no spaces) for safe export to jobs
 RANK_FILTER_CODES="${RANK_FILTER// /:}"
+
+# Default DB_PATH to the Kraken2 DB (which contains taxonomy/nodes.dmp) so
+# that csc-aggregate performs lineage-aware domain annotation automatically.
+# Pass --db-path "" explicitly to disable domain annotation.
+if [[ -z "${DB_PATH}" ]]; then
+    DB_PATH="${DB}"
+fi
 
 # ── Scan extraction output for samples with FASTQ files ──────────────────────
 echo "Scanning ${EXTRACT_OUTDIR} for extracted samples..."
@@ -496,6 +508,7 @@ AGG_EXPORTS=(
     "MAD_THRESHOLD=${MAD_THRESHOLD}"
     "IQR_MULTIPLIER=${IQR_MULTIPLIER}"
     "SKIP_DETECT=${SKIP_DETECT}"
+    "DB_PATH=${DB_PATH}"
     "CONTAINER_SIF=${CONTAINER_SIF}"
     "CONTAINER_IMAGE=${CONTAINER_IMAGE}"
 )

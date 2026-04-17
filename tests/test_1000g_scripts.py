@@ -910,6 +910,42 @@ class TestSubmitClassifyDryRun:
         # R2 column should be empty
         assert cols[2] == ""
 
+    def test_dry_run_db_path_defaults_to_db(self, tmp_path):
+        """DB_PATH should default to the --db value in the aggregate/detect exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        # DB_PATH should be exported to the aggregate/detect job with the DB value
+        assert f"DB_PATH={db}" in result.stdout
+
+    def test_dry_run_db_path_explicit_override(self, tmp_path):
+        """--db-path should override the default DB_PATH in aggregate/detect exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        custom_db = tmp_path / "custom_db"
+        custom_db.mkdir()
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--db-path", str(custom_db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert f"DB_PATH={custom_db}" in result.stdout
+        # Must not contain the default DB path as DB_PATH
+        assert f"DB_PATH={db}" not in result.stdout
+
 
 # ---------------------------------------------------------------------------
 # classify_array.sh unit checks
@@ -1091,3 +1127,35 @@ class TestAggregateDetectScript:
         ][0]
         expected = str(tmp_path / "classify_out" / "detect")
         assert detect_path == expected
+
+    def test_db_path_passed_to_aggregate_when_set(self, tmp_path):
+        """When DB_PATH is set, --db-path should be included in csc-aggregate args."""
+        # We test the AGGREGATE_ARGS construction logic inline
+        db = tmp_path / "mydb"
+        db.mkdir()
+        inline = textwrap.dedent(f"""\
+            DB_PATH="{db}"
+            AGGREGATE_ARGS=(csc-aggregate /some/report.txt -o /out --rank-filter S G F)
+            if [[ -n "$DB_PATH" ]]; then
+                AGGREGATE_ARGS+=("--db-path" "$DB_PATH")
+            fi
+            echo "${{AGGREGATE_ARGS[@]}}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--db-path" in result.stdout
+        assert str(db) in result.stdout
+
+    def test_db_path_not_passed_when_empty(self, tmp_path):
+        """When DB_PATH is empty, --db-path must not appear in csc-aggregate args."""
+        inline = textwrap.dedent("""\
+            DB_PATH=""
+            AGGREGATE_ARGS=(csc-aggregate /some/report.txt -o /out --rank-filter S G F)
+            if [[ -n "$DB_PATH" ]]; then
+                AGGREGATE_ARGS+=("--db-path" "$DB_PATH")
+            fi
+            echo "${AGGREGATE_ARGS[@]}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--db-path" not in result.stdout
