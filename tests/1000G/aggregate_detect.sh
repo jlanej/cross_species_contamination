@@ -46,6 +46,9 @@
 #   MAD_THRESHOLD   – MAD threshold (default: 3.5)
 #   IQR_MULTIPLIER  – IQR multiplier (default: 1.5)
 #   SKIP_DETECT     – set to "1" to skip outlier detection (default: 0)
+#   DB_PATH         – path to the Kraken2 database directory (must contain
+#                     taxonomy/nodes.dmp); when set, a lineage-aware "domain"
+#                     column is added to every output matrix (default: unset)
 #   CONTAINER_SIF   – path to the Apptainer SIF image
 #   CONTAINER_IMAGE – Docker URI for auto-pull
 #                     (default: ghcr.io/jlanej/cross_species_contamination:latest)
@@ -80,6 +83,7 @@ DETECT_METHOD="${DETECT_METHOD:-mad}"
 MAD_THRESHOLD="${MAD_THRESHOLD:-3.5}"
 IQR_MULTIPLIER="${IQR_MULTIPLIER:-1.5}"
 SKIP_DETECT="${SKIP_DETECT:-0}"
+DB_PATH="${DB_PATH:-}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
 CONTAINER_SIF="${CONTAINER_SIF:-${AGG_OUTDIR}/csc.sif}"
@@ -161,6 +165,9 @@ container_run() {
     if [[ "${SKIP_DETECT}" != "1" ]]; then
         bind_args+=("--bind" "${DETECT_OUTDIR}:${DETECT_OUTDIR}")
     fi
+    if [[ -n "${DB_PATH}" ]]; then
+        bind_args+=("--bind" "${DB_PATH}:${DB_PATH}")
+    fi
     "${APPTAINER_CMD}" exec "${bind_args[@]}" "${CONTAINER_SIF}" "$@"
 }
 
@@ -192,6 +199,11 @@ echo "  Min reads       : ${MIN_READS}"
 echo "  Detect matrix   : ${DETECT_MATRIX}"
 echo "  Rank filter     : ${RANK_FILTER_DISPLAY}"
 echo "  Skip detect     : ${SKIP_DETECT}"
+if [[ -n "${DB_PATH}" ]]; then
+    echo "  DB path         : ${DB_PATH} (domain annotation enabled)"
+else
+    echo "  DB path         : (not set – domain annotation disabled)"
+fi
 if [[ "${SKIP_DETECT}" != "1" ]]; then
     echo "  Detect method   : ${DETECT_METHOD}"
     echo "  MAD threshold   : ${MAD_THRESHOLD}"
@@ -214,6 +226,9 @@ if [[ "${MIN_READS}" -gt 0 ]]; then
     AGGREGATE_ARGS+=("--min-reads" "${MIN_READS}")
 fi
 AGGREGATE_ARGS+=("--rank-filter" "${RANK_CODES[@]}")
+if [[ -n "${DB_PATH}" ]]; then
+    AGGREGATE_ARGS+=("--db-path" "${DB_PATH}")
+fi
 
 echo ""
 echo "=== Step 1: Aggregating ${#REPORTS[@]} reports ==="
