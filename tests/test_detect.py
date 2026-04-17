@@ -458,15 +458,15 @@ class TestPrecisionRecall:
         header = ["tax_id", "name"] + samples
         # Taxon 1: background (~100 CPM ± small noise)
         row_bg = ["1279", "Staphylococcus"]
-        for sid in samples:
-            row_bg.append(str(100 + (hash(sid) % 10)))
+        for i, _sid in enumerate(samples):
+            row_bg.append(str(100 + (i % 10)))
         # Taxon 2: E. coli – spiked in contaminated samples
         row_ecoli = ["562", "Escherichia coli"]
-        for sid in samples:
+        for i, sid in enumerate(samples):
             if sid in contaminated_ids:
                 row_ecoli.append(str(spike_value))
             else:
-                row_ecoli.append(str(50 + (hash(sid) % 5)))
+                row_ecoli.append(str(50 + (i % 5)))
 
         p = tmp_path / "cohort.tsv"
         _write_matrix(p, header, [row_bg, row_ecoli])
