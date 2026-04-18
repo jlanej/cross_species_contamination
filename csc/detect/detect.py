@@ -192,6 +192,11 @@ _GMM_TOL = 1e-6
 # Floor for component standard deviations to prevent numerical collapse.
 _GMM_STD_FLOOR = 1e-8
 
+# Minimum Cohen's d (separation / max sigma) required between the two
+# GMM components.  A value of 3 demands an "extreme" effect size,
+# preventing the model from flagging minor noise as contamination.
+_GMM_MIN_COHENS_D = 3.0
+
 
 def _normal_pdf(x: float, mu: float, sigma: float) -> float:
     """Univariate normal density, returning a small floor when *sigma* ≈ 0."""
@@ -236,6 +241,11 @@ class _GMMResult:
         self.weight_contam = weight_contam
         self.posteriors = posteriors
         self.log_likelihood = log_likelihood
+
+
+def _sample_variance(values: list[float], mu: float) -> float:
+    """Compute sample variance of *values* around *mu*."""
+    return sum((v - mu) ** 2 for v in values) / len(values)
 
 
 def _fit_two_component_gmm(
@@ -285,8 +295,8 @@ def _fit_two_component_gmm(
     mu_a = sum(lower) / len(lower)
     mu_b = sum(upper) / len(upper)
 
-    var_a = sum((v - mu_a) ** 2 for v in lower) / len(lower) if len(lower) > 1 else (vmax - vmin) ** 2 / 4
-    var_b = sum((v - mu_b) ** 2 for v in upper) / len(upper) if len(upper) > 1 else (vmax - vmin) ** 2 / 4
+    var_a = _sample_variance(lower, mu_a) if len(lower) > 1 else (vmax - vmin) ** 2 / 4
+    var_b = _sample_variance(upper, mu_b) if len(upper) > 1 else (vmax - vmin) ** 2 / 4
 
     sigma_a = max(math.sqrt(var_a), _GMM_STD_FLOOR)
     sigma_b = max(math.sqrt(var_b), _GMM_STD_FLOOR)
@@ -581,8 +591,8 @@ def _run_gmm(
         if eff_contam < 2.0:
             continue
         separation = gmm_result.mu_contam - gmm_result.mu_bg
-        if separation < 3.0 * max(gmm_result.sigma_bg,
-                                  gmm_result.sigma_contam):
+        if separation < _GMM_MIN_COHENS_D * max(gmm_result.sigma_bg,
+                                                gmm_result.sigma_contam):
             continue
         for sid, v, posterior in zip(
             sample_ids, values, gmm_result.posteriors
