@@ -23,8 +23,10 @@ import pytest
 from csc.detect.detect import (
     DetectionResult,
     FlaggedSample,
+    _fit_two_component_gmm,
     _mad,
     _median,
+    _normal_pdf,
     _quartiles,
     detect_outliers,
     filter_kitome,
@@ -275,6 +277,228 @@ class TestDetectOutliersIQR:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests — outlier detection ("all" — default multi-method mode)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectOutliersAll:
+    """Tests for method='all', which runs MAD + IQR + GMM together."""
+
+    def test_all_is_default(self, contaminated_matrix: Path) -> None:
+        """detect_outliers() should use 'all' by default."""
+        result = detect_outliers(contaminated_matrix)
+        assert result["summary"]["method"] == "all"
+
+    def test_clean_no_flags(self, clean_matrix: Path) -> None:
+        result = detect_outliers(clean_matrix, method="all")
+        assert result["summary"]["flagged_count"] == 0
+
+    def test_contaminated_merges_methods(self, contaminated_iqr_matrix: Path) -> None:
+        """All methods should contribute flags for a clearly spiked sample."""
+        result = detect_outliers(contaminated_iqr_matrix, method="all")
+        methods_used = {f["method"] for f in result["flagged"]}
+        # At least MAD and IQR should flag the spike (GMM may or may not
+        # depending on BIC/separation criteria)
+        assert "mad" in methods_used or "iqr" in methods_used
+        flagged_ids = {f["sample_id"] for f in result["flagged"]}
+        assert "s2" in flagged_ids
+
+    def test_summary_records_method_all(self, clean_matrix: Path) -> None:
+        result = detect_outliers(clean_matrix, method="all")
+        assert result["summary"]["method"] == "all"
+
+    def test_all_flags_are_annotated(self, contaminated_iqr_matrix: Path) -> None:
+        result = detect_outliers(contaminated_iqr_matrix, method="all")
+        for f in result["flagged"]:
+            assert f["method"] in ("mad", "iqr", "gmm")
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — GMM helpers
+# ---------------------------------------------------------------------------
+
+
+class TestGMMHelpers:
+    def test_normal_pdf_basic(self) -> None:
+        # Standard normal at x=0 should give 1/sqrt(2*pi) ≈ 0.3989
+        val = _normal_pdf(0.0, 0.0, 1.0)
+        assert val == pytest.approx(0.3989, abs=1e-3)
+
+    def test_normal_pdf_zero_sigma(self) -> None:
+        # Near-zero sigma should return a small positive floor, not crash
+        val = _normal_pdf(0.0, 0.0, 0.0)
+        assert val > 0
+        assert val < 1e-100
+
+    def test_gmm_fit_two_clusters(self) -> None:
+        """Two well-separated clusters should yield distinct component means."""
+        values = [10.0, 11.0, 12.0, 9.0, 11.0, 500.0, 510.0, 490.0]
+        result = _fit_two_component_gmm(values)
+        assert result is not None
+        assert result.mu_bg < result.mu_contam
+        # Background mean should be near ~10, contamination near ~500
+        assert result.mu_bg < 50
+        assert result.mu_contam > 200
+        assert len(result.posteriors) == len(values)
+
+    def test_gmm_fit_identical_values_returns_none(self) -> None:
+        """All-identical values → None (no variance)."""
+        result = _fit_two_component_gmm([5.0, 5.0, 5.0, 5.0])
+        assert result is None
+
+    def test_gmm_fit_single_value_returns_none(self) -> None:
+        """Only one value → None (too few points)."""
+        result = _fit_two_component_gmm([42.0])
+        assert result is None
+
+    def test_gmm_posteriors_sum_to_about_one(self) -> None:
+        """Each sample's P(bg) + P(contam) ≈ 1 by definition."""
+        values = [10.0, 12.0, 11.0, 9.0, 500.0]
+        result = _fit_two_component_gmm(values)
+        assert result is not None
+        # posteriors = P(contamination); complement = P(background)
+        for p in result.posteriors:
+            assert 0.0 <= p <= 1.0
+
+    def test_gmm_contaminated_sample_high_posterior(self) -> None:
+        """Spiked sample should get a very high contamination posterior."""
+        # 9 clean + 1 spiked
+        values = [50.0, 48.0, 52.0, 49.0, 51.0, 50.0, 47.0, 53.0, 48.0, 5000.0]
+        result = _fit_two_component_gmm(values)
+        assert result is not None
+        # The last value (5000) should have posterior > 0.9
+        assert result.posteriors[-1] > 0.9
+        # Clean values should have low posteriors
+        for p in result.posteriors[:-1]:
+            assert p < 0.5
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — outlier detection (GMM)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectOutliersGMM:
+    def test_clean_no_flags(self, clean_matrix: Path) -> None:
+        result = detect_outliers(clean_matrix, method="gmm")
+        assert result["summary"]["flagged_count"] == 0
+
+    def test_single_spike_in_small_cohort_not_flagged(
+        self, contaminated_matrix: Path
+    ) -> None:
+        """With only 5 samples and 1 contaminated, GMM correctly
+        does not flag because it requires ≥ 2 effective members in the
+        contamination component.  MAD/IQR handle this case instead."""
+        result = detect_outliers(contaminated_matrix, method="gmm")
+        assert result["summary"]["flagged_count"] == 0
+
+    def test_contaminated_flags_spike_10_samples(
+        self, tmp_path: Path
+    ) -> None:
+        """With 10 samples and multiple contaminated, GMM should flag them."""
+        # 7 clean + 3 contaminated — enough for a meaningful contamination
+        # component (effective size ≥ 2).
+        samples = [f"s{i}" for i in range(10)]
+        header = ["tax_id", "name"] + samples
+        # s7, s8, s9 are spiked
+        ecoli_vals = ["50", "48", "52", "49", "51", "47", "50",
+                      "5000", "5100", "4900"]
+        rows = [["562", "Escherichia coli"] + ecoli_vals]
+        matrix = _write_matrix(tmp_path / "gmm10.tsv", header, rows)
+
+        result = detect_outliers(matrix, method="gmm")
+        flagged_ids = {f["sample_id"] for f in result["flagged"]}
+        assert "s7" in flagged_ids
+        assert "s8" in flagged_ids
+        assert "s9" in flagged_ids
+        ecoli_flags = [f for f in result["flagged"] if f["tax_id"] == 562]
+        assert len(ecoli_flags) >= 3
+        assert ecoli_flags[0]["method"] == "gmm"
+
+    def test_result_structure(self, contaminated_matrix: Path) -> None:
+        result = detect_outliers(contaminated_matrix, method="gmm")
+        assert "flagged" in result
+        assert "summary" in result
+        assert result["summary"]["method"] == "gmm"
+        assert isinstance(result["flagged"], list)
+        for f in result["flagged"]:
+            assert f["method"] == "gmm"
+            # deviation for GMM is the posterior probability
+            assert 0.0 < f["deviation"] <= 1.0
+
+    def test_custom_threshold(self, contaminated_matrix: Path) -> None:
+        # Very high threshold → fewer or no flags
+        result_high = detect_outliers(
+            contaminated_matrix, method="gmm", gmm_threshold=0.999
+        )
+        result_low = detect_outliers(
+            contaminated_matrix, method="gmm", gmm_threshold=0.1
+        )
+        assert result_high["summary"]["flagged_count"] <= result_low["summary"]["flagged_count"]
+
+    def test_gmm_method_in_summary(self, contaminated_matrix: Path) -> None:
+        result = detect_outliers(contaminated_matrix, method="gmm")
+        assert result["summary"]["method"] == "gmm"
+
+    def test_widespread_contamination(self, tmp_path: Path) -> None:
+        """GMM should still detect when >50% of samples are contaminated.
+
+        This is the key advantage over MAD/IQR, which assume the majority
+        are clean.
+        """
+        # 3 clean + 7 contaminated (majority contaminated!)
+        samples = [f"s{i}" for i in range(10)]
+        header = ["tax_id", "name"] + samples
+        # Clean samples: ~50 CPM; contaminated: ~5000 CPM
+        ecoli_vals = ["50", "48", "52",
+                      "5000", "5100", "4900", "5050", "4950", "5200", "4800"]
+        rows = [["562", "Escherichia coli"] + ecoli_vals]
+        matrix = _write_matrix(tmp_path / "widespread.tsv", header, rows)
+
+        result = detect_outliers(matrix, method="gmm", subtract_background=False)
+        flagged_ids = {f["sample_id"] for f in result["flagged"]}
+
+        # GMM should flag the contaminated samples (s3-s9)
+        contaminated = {f"s{i}" for i in range(3, 10)}
+        clean = {f"s{i}" for i in range(3)}
+
+        # At least some contaminated samples flagged
+        assert len(flagged_ids & contaminated) >= 5
+        # Clean samples should not be flagged
+        assert len(flagged_ids & clean) == 0
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — CLI (GMM method)
+# ---------------------------------------------------------------------------
+
+
+class TestCLIGMM:
+    def test_gmm_method(self, contaminated_matrix: Path, tmp_path: Path) -> None:
+        from csc.detect.cli import main
+        out = tmp_path / "cli_gmm"
+        rc = main([
+            str(contaminated_matrix),
+            "-o", str(out),
+            "--method", "gmm",
+        ])
+        assert rc == 0
+        assert (out / "flagged_samples.tsv").exists()
+        assert (out / "qc_summary.json").exists()
+
+    def test_gmm_custom_threshold(self, contaminated_matrix: Path, tmp_path: Path) -> None:
+        from csc.detect.cli import main
+        out = tmp_path / "cli_gmm_thresh"
+        rc = main([
+            str(contaminated_matrix),
+            "-o", str(out),
+            "--method", "gmm",
+            "--gmm-threshold", "0.8",
+        ])
+        assert rc == 0
+
+
+# ---------------------------------------------------------------------------
 # Unit tests — kitome exclusion in detection
 # ---------------------------------------------------------------------------
 
@@ -521,6 +745,42 @@ class TestPrecisionRecall:
         false_positives = flagged_ids & clean
         fdr = len(false_positives) / len(flagged_ids) if flagged_ids else 0.0
         assert fdr <= 0.2, f"FDR too high: {fdr}"
+
+    def test_precision_recall_gmm(self, tmp_path: Path) -> None:
+        matrix, clean, contam = self._build_cohort(tmp_path)
+        result = detect_outliers(matrix, method="gmm")
+        flagged_ids = set(result["summary"]["flagged_samples"])
+
+        true_positives = flagged_ids & contam
+
+        # Recall: should detect all contaminated samples
+        recall = len(true_positives) / len(contam) if contam else 0.0
+        assert recall >= 0.8, f"Recall too low: {recall}"
+
+        # Precision: should not flag clean samples
+        assert not (flagged_ids & clean), "Clean samples should not be flagged"
+        precision = (
+            len(true_positives) / len(flagged_ids)
+            if flagged_ids
+            else 1.0
+        )
+        assert precision >= 0.8, f"Precision too low: {precision}"
+
+    def test_gmm_widespread_contamination_cohort(self, tmp_path: Path) -> None:
+        """GMM should detect contamination even when majority of samples are dirty.
+
+        This scenario breaks MAD/IQR but should still work for GMM.
+        """
+        matrix, clean, contam = self._build_cohort(
+            tmp_path, n_clean=5, n_contaminated=15, spike_value=5000.0
+        )
+        result = detect_outliers(matrix, method="gmm")
+        flagged_ids = set(result["summary"]["flagged_samples"])
+
+        true_positives = flagged_ids & contam
+        # GMM should detect at least some of the contaminated samples
+        recall = len(true_positives) / len(contam) if contam else 0.0
+        assert recall >= 0.5, f"GMM recall too low with widespread contamination: {recall}"
 
 
 # ---------------------------------------------------------------------------

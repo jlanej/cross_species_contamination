@@ -1,6 +1,6 @@
 """Detect module – statistical detection of cross-species contamination.
 
-This module applies statistical methods (MAD, IQR) to aggregated
+This module applies statistical methods (MAD, IQR, GMM) to aggregated
 classification results to flag samples with significant cross-species
 contamination.  It also supports kitome/environmental-background
 exclusion and generates reviewable reports and quarantine lists.

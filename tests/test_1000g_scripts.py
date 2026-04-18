@@ -851,7 +851,7 @@ class TestSubmitClassifyDryRun:
         assert "DETECT_MATRIX=raw" in result.stdout
 
     def test_dry_run_detect_method_default_exported(self, tmp_path):
-        """DETECT_METHOD should default to 'mad' in the aggregate/detect exports."""
+        """DETECT_METHOD should default to 'all' in the aggregate/detect exports."""
         extract_out = tmp_path / "output"
         _fake_extracted_samples(extract_out, ["NA12718"])
         db = _fake_db(tmp_path)
@@ -863,7 +863,7 @@ class TestSubmitClassifyDryRun:
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        assert "DETECT_METHOD=mad" in result.stdout
+        assert "DETECT_METHOD=all" in result.stdout
 
     def test_dry_run_mad_threshold_default_exported(self, tmp_path):
         """MAD_THRESHOLD should default to 3.5 in the aggregate/detect exports."""
@@ -1227,11 +1227,12 @@ class TestAggregateDetectScript:
         assert "--rank-filter S G F" in result.stdout
 
     def test_detect_args_include_method_and_thresholds(self, tmp_path):
-        """DETECT_ARGS must include --method, --mad-threshold, --iqr-multiplier, --rank-filter."""
+        """DETECT_ARGS must include --method, --mad-threshold, --iqr-multiplier, --gmm-threshold, --rank-filter."""
         inline = textwrap.dedent("""\
-            DETECT_METHOD="mad"
+            DETECT_METHOD="all"
             MAD_THRESHOLD=3.5
             IQR_MULTIPLIER=1.5
+            GMM_THRESHOLD=0.5
             RANK_FILTER_CODES="S:G:F"
             IFS=':' read -ra RANK_CODES <<< "${RANK_FILTER_CODES}"
             MATRIX="/agg/taxa_matrix_cpm.tsv"
@@ -1243,15 +1244,17 @@ class TestAggregateDetectScript:
                 --method       "${DETECT_METHOD}"
                 --mad-threshold "${MAD_THRESHOLD}"
                 --iqr-multiplier "${IQR_MULTIPLIER}"
+                --gmm-threshold "${GMM_THRESHOLD}"
                 --rank-filter  "${RANK_CODES[@]}"
             )
             echo "${DETECT_ARGS[@]}"
         """)
         result = run(["bash", "-c", inline])
         assert result.returncode == 0
-        assert "--method mad" in result.stdout
+        assert "--method all" in result.stdout
         assert "--mad-threshold 3.5" in result.stdout
         assert "--iqr-multiplier 1.5" in result.stdout
+        assert "--gmm-threshold 0.5" in result.stdout
         assert "--rank-filter S G F" in result.stdout
 
     def test_detect_matrix_path_uses_cpm_by_default(self, tmp_path):

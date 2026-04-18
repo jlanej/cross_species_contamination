@@ -38,6 +38,7 @@ process DETECT_OUTLIERS {
     def method_arg    = params.detect_method ? "--method ${params.detect_method}" : ''
     def mad_arg       = params.mad_threshold ? "--mad-threshold ${params.mad_threshold}" : ''
     def iqr_arg       = params.iqr_multiplier ? "--iqr-multiplier ${params.iqr_multiplier}" : ''
+    def gmm_arg       = params.gmm_threshold ? "--gmm-threshold ${params.gmm_threshold}" : ''
     def kitome_arg    = params.kitome_taxa ? "--kitome-taxa ${params.kitome_taxa}" : ''
     def bg_arg        = params.no_subtract_background ? '--no-subtract-background' : ''
     def rank_arg      = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
@@ -48,6 +49,7 @@ process DETECT_OUTLIERS {
         ${method_arg} \\
         ${mad_arg} \\
         ${iqr_arg} \\
+        ${gmm_arg} \\
         ${kitome_arg} \\
         ${bg_arg} \\
         ${rank_arg}

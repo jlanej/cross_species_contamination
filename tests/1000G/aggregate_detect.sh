@@ -42,9 +42,10 @@
 #   RANK_FILTER_CODES – colon-separated rank codes for per-rank matrices
 #                       (default: S:G:F)
 #   DETECT_MATRIX   – matrix type for csc-detect input: cpm or raw (default: cpm)
-#   DETECT_METHOD   – outlier detection method: mad or iqr (default: mad)
+#   DETECT_METHOD   – outlier detection method: all, mad, iqr, or gmm (default: all)
 #   MAD_THRESHOLD   – MAD threshold (default: 3.5)
 #   IQR_MULTIPLIER  – IQR multiplier (default: 1.5)
+#   GMM_THRESHOLD   – GMM posterior probability threshold (default: 0.5)
 #   SKIP_DETECT     – set to "1" to skip outlier detection (default: 0)
 #   DB_PATH         – path to the Kraken2 database directory (must contain
 #                     taxonomy/nodes.dmp); when set, a lineage-aware "domain"
@@ -79,9 +80,10 @@ MIN_READS="${MIN_READS:-0}"
 # Colon-separated rank codes to avoid spaces in the --export string
 RANK_FILTER_CODES="${RANK_FILTER_CODES:-S:G:F}"
 DETECT_MATRIX="${DETECT_MATRIX:-cpm}"
-DETECT_METHOD="${DETECT_METHOD:-mad}"
+DETECT_METHOD="${DETECT_METHOD:-all}"
 MAD_THRESHOLD="${MAD_THRESHOLD:-3.5}"
 IQR_MULTIPLIER="${IQR_MULTIPLIER:-1.5}"
+GMM_THRESHOLD="${GMM_THRESHOLD:-0.5}"
 SKIP_DETECT="${SKIP_DETECT:-0}"
 DB_PATH="${DB_PATH:-}"
 
@@ -208,6 +210,7 @@ if [[ "${SKIP_DETECT}" != "1" ]]; then
     echo "  Detect method   : ${DETECT_METHOD}"
     echo "  MAD threshold   : ${MAD_THRESHOLD}"
     echo "  IQR multiplier  : ${IQR_MULTIPLIER}"
+    echo "  GMM threshold   : ${GMM_THRESHOLD}"
 fi
 echo "  Container       : ${CONTAINER_SIF}"
 echo "======================================================"
@@ -269,6 +272,7 @@ DETECT_ARGS=(
     --method       "${DETECT_METHOD}"
     --mad-threshold "${MAD_THRESHOLD}"
     --iqr-multiplier "${IQR_MULTIPLIER}"
+    --gmm-threshold "${GMM_THRESHOLD}"
     --rank-filter  "${RANK_CODES[@]}"
 )
 
