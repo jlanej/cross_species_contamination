@@ -130,9 +130,9 @@ def run_idxstats(
     samtools = _find_samtools()
     # Note: ``samtools idxstats`` reads only the BAM/CRAM index; it does
     # not decode records and therefore does not accept --reference.  The
-    # *reference* argument is kept in the API for signature parity with
+    # *reference* parameter is kept in the signature for API parity with
     # other extract helpers but is intentionally unused here.
-    del reference  # unused on purpose; index-only operation
+    _ = reference
 
     cmd = [samtools, "idxstats", "-@", str(threads), str(input_path)]
     logger.debug("Running: %s", " ".join(cmd))

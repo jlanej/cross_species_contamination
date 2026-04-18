@@ -503,15 +503,18 @@ class TestIdxstats:
     def test_run_idxstats_missing_index_is_nonfatal_for_extract(
         self, test_bam: Path, tmp_path: Path
     ) -> None:
-        """If extract_reads cannot compute idxstats, it should still succeed."""
-        import shutil as _shutil
+        """If idxstats fails (e.g. missing index), extract still succeeds."""
+        from unittest import mock
 
-        # Copy the BAM without its .bai so idxstats fails
-        unindexed = tmp_path / "noidx.bam"
-        _shutil.copy(test_bam, unindexed)
-        # No corresponding .bai – extract_reads should skip the sidecar
-        result = extract_reads(unindexed, tmp_path / "out")
+        # Simulate idxstats failure without breaking the main extraction.
+        with mock.patch(
+            "csc.extract.extract.run_idxstats",
+            side_effect=RuntimeError("no index"),
+        ):
+            result = extract_reads(test_bam, tmp_path / "out_noidx")
+
         # Core extraction still worked
         assert result["read_count"] == EXPECTED_UNMAPPED_READS * 2
-        # idxstats fields may be absent
-        assert "total_reads" not in result or result.get("total_reads") is not None
+        # idxstats-derived fields are absent when the sidecar call failed
+        assert "total_reads" not in result
+        assert "reads_summary_path" not in result

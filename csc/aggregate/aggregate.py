@@ -147,11 +147,13 @@ def load_idxstats_map(
 ) -> dict[str, dict[str, Any]]:
     """Parse a list of ``reads_summary.json`` paths into a sample_id map.
 
-    Duplicate ``sample_id`` entries emit a warning and the latter wins.
-    Invalid files emit a warning and are skipped so that aggregation can
+    Duplicate ``sample_id`` entries emit a warning naming both the
+    previous and incoming source paths and the latter wins.  Invalid
+    files emit a warning and are skipped so that aggregation can
     proceed for the remaining samples.
     """
     out: dict[str, dict[str, Any]] = {}
+    source_paths: dict[str, str] = {}
     if not paths:
         return out
     for p in paths:
@@ -164,9 +166,11 @@ def load_idxstats_map(
         if sid in out:
             logger.warning(
                 "Duplicate sample_id '%s' in idxstats sidecars; overwriting "
-                "previous entry from %s", sid, p,
+                "entry from %s with %s",
+                sid, source_paths[sid], p,
             )
         out[sid] = doc
+        source_paths[sid] = str(p)
     return out
 
 
