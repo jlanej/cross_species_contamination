@@ -46,6 +46,61 @@ cmds = build_extract_command(Path("sample.bam"), mapq_threshold=10)
 | `{sample}.unmapped.singleton.fastq.gz` | Singleton reads |
 | `{sample}.unmapped.other.fastq.gz` | Other reads |
 | `{sample}.unmapped.fastq.gz` | Interleaved output (if `--interleaved`) |
+| `{sample}.idxstats.tsv` | Raw `samtools idxstats` per-chromosome counts |
+| `{sample}.reads_summary.json` | Aggregate mapped / unmapped / total reads (see below) |
+
+### `{sample}.idxstats.tsv`
+
+Produced by running `samtools idxstats` on the input BAM/CRAM.  The
+command reads only the BAM index (milliseconds per sample) and produces
+one TSV row per reference contig plus a final `*` row capturing reads
+unmapped **and** without coordinates (mate also unmapped).  Columns:
+
+```
+chrom<TAB>length<TAB>mapped<TAB>unmapped
+```
+
+### `{sample}.reads_summary.json`
+
+Structured summary parsed from the idxstats TSV.  Schema (versioned via
+`schema_version`):
+
+```json
+{
+  "schema_version": "1.0",
+  "sample_id": "NA12878",
+  "input": "/abs/path/NA12878.bam",
+  "extraction_time": "2024-01-01T12:00:00+00:00",
+  "total_mapped": 900123456,
+  "total_unmapped": 12345678,
+  "total_reads": 912469134,
+  "per_chromosome": [
+    {"chrom": "chr1", "length": 248956422, "mapped": 70123456, "unmapped": 0},
+    {"chrom": "*",    "length": 0,         "mapped": 0,        "unmapped": 12345678}
+  ]
+}
+```
+
+`total_reads` is used by `csc-aggregate` (see
+[docs/aggregate.md](aggregate.md)) as the denominator for the
+**absolute contamination burden** matrix.
+
+> **Interpretation note – denominator provenance.**  `total_unmapped`
+> counts reads in the source BAM with the unmapped flag set.  The
+> number of reads that ultimately reach the taxonomic classifier may be
+> smaller (adapter trimming, host-read removal, `--mapq` filter) or
+> larger (if poorly-mapped reads are routed through classification).
+> Always use `reads_summary.json` (captured **at extract time**, before
+> any downstream filtering) as the authoritative denominator for
+> absolute-burden calculations and manuscript reporting.
+
+### Batch summary TSV (`--summary`)
+
+When `--summary summary.tsv` is passed, the CLI writes a cohort-level
+TSV containing per-sample `read_count`, `total_mapped`,
+`total_unmapped` and `total_reads` columns – enough to compute
+cohort-level absolute burden without re-reading every
+`reads_summary.json`.
 
 ## Configuration
 

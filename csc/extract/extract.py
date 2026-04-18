@@ -12,6 +12,8 @@ specific implementation details.
 
 from __future__ import annotations
 
+import datetime as _dt
+import json
 import logging
 import os
 import shutil
@@ -24,14 +26,181 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".bam", ".cram"}
 
+# Schema version for reads_summary.json.  Bump when breaking changes are
+# introduced so downstream consumers (aggregate, reporting, PR #55
+# summary report) can detect and adapt.
+READS_SUMMARY_SCHEMA_VERSION = "1.0"
 
-class ExtractionResult(TypedDict):
+
+class ReadsSummary(TypedDict):
+    """Per-sample mapped/unmapped read counts derived from ``samtools idxstats``.
+
+    Written to ``{sample_id}.reads_summary.json`` alongside the raw
+    idxstats TSV.  Downstream modules (e.g. :mod:`csc.aggregate`) use
+    ``total_reads`` as the denominator for absolute contamination
+    burden.
+    """
+
+    schema_version: str
+    sample_id: str
+    input: str
+    extraction_time: str
+    total_mapped: int
+    total_unmapped: int
+    total_reads: int
+    per_chromosome: list[dict[str, Any]]
+
+
+class ExtractionResult(TypedDict, total=False):
     """Return type for :func:`extract_reads`."""
 
     files: dict[str, Path]
     read_count: int
     sample_id: str
     input: str
+    # idxstats-derived fields (always present when idxstats succeeds)
+    total_mapped: int
+    total_unmapped: int
+    total_reads: int
+    idxstats_path: Path
+    reads_summary_path: Path
+
+
+def run_idxstats(
+    input_path: str | Path,
+    output_dir: str | Path,
+    *,
+    sample_id: str | None = None,
+    reference: str | Path | None = None,
+    threads: int = 1,
+) -> ReadsSummary:
+    """Run ``samtools idxstats`` on an indexed BAM/CRAM and write sidecars.
+
+    Two files are written into *output_dir*:
+
+    * ``{sample_id}.idxstats.tsv`` – raw TSV from ``samtools idxstats``
+      with columns ``chrom<TAB>length<TAB>mapped<TAB>unmapped``.  The
+      final row (``*``) reports reads unmapped and without coordinates
+      (i.e. reads whose mate is also unmapped).
+    * ``{sample_id}.reads_summary.json`` – structured summary with
+      ``total_mapped``, ``total_unmapped``, ``total_reads`` (sum),
+      schema version, and a per-chromosome breakdown for transparency
+      and reproducibility.
+
+    ``samtools idxstats`` reads only the BAM index and is effectively
+    free (milliseconds per sample) compared to a full scan.
+
+    Notes
+    -----
+    ``total_unmapped`` returned here is the count of reads in the BAM
+    file with the unmapped flag set.  Downstream classifier totals may
+    differ because post-extraction filtering (e.g. adapter trimming,
+    host-read removal, or the ``--mapq`` filter in :func:`extract_reads`)
+    can drop or add reads before classification.  Always use
+    ``reads_summary.json`` (emitted at extract time) as the authoritative
+    denominator for absolute contamination burden.
+
+    Parameters
+    ----------
+    input_path:
+        BAM or CRAM file.  Must be indexed (``.bai`` or ``.crai``).
+    output_dir:
+        Directory to write sidecar files into.  Created if needed.
+    sample_id:
+        Output file basename.  Defaults to the input file stem.
+    reference:
+        Reference FASTA for CRAM (optional for BAM).
+    threads:
+        Additional samtools decompression threads.
+
+    Returns
+    -------
+    ReadsSummary
+        Parsed counts plus provenance (sample_id, input, extraction_time).
+    """
+    input_path = Path(input_path).resolve()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if sample_id is None:
+        sample_id = input_path.stem
+        if sample_id.endswith(".sorted"):
+            sample_id = sample_id[: -len(".sorted")]
+
+    samtools = _find_samtools()
+    # Note: ``samtools idxstats`` reads only the BAM/CRAM index; it does
+    # not decode records and therefore does not accept --reference.  The
+    # *reference* parameter is kept in the signature for API parity with
+    # other extract helpers but is intentionally unused here.
+    _ = reference
+
+    cmd = [samtools, "idxstats", "-@", str(threads), str(input_path)]
+    logger.debug("Running: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"samtools idxstats failed (exit {proc.returncode}): "
+            f"{proc.stderr.decode(errors='replace')}"
+        )
+    raw = proc.stdout.decode(errors="replace")
+
+    # Persist raw TSV verbatim.
+    idxstats_path = output_dir / f"{sample_id}.idxstats.tsv"
+    idxstats_path.write_text(raw)
+
+    # Parse into structured per-chromosome rows.
+    per_chrom: list[dict[str, Any]] = []
+    total_mapped = 0
+    total_unmapped = 0
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 4:
+            logger.warning("Skipping malformed idxstats line: %r", line)
+            continue
+        chrom, length_s, mapped_s, unmapped_s = parts[0], parts[1], parts[2], parts[3]
+        try:
+            length = int(length_s)
+            mapped = int(mapped_s)
+            unmapped = int(unmapped_s)
+        except ValueError:
+            logger.warning("Skipping non-numeric idxstats line: %r", line)
+            continue
+        per_chrom.append(
+            {
+                "chrom": chrom,
+                "length": length,
+                "mapped": mapped,
+                "unmapped": unmapped,
+            }
+        )
+        total_mapped += mapped
+        total_unmapped += unmapped
+
+    summary: ReadsSummary = {
+        "schema_version": READS_SUMMARY_SCHEMA_VERSION,
+        "sample_id": sample_id,
+        "input": str(input_path),
+        "extraction_time": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "total_mapped": total_mapped,
+        "total_unmapped": total_unmapped,
+        "total_reads": total_mapped + total_unmapped,
+        "per_chromosome": per_chrom,
+    }
+
+    reads_summary_path = output_dir / f"{sample_id}.reads_summary.json"
+    with open(reads_summary_path, "w") as fh:
+        json.dump(summary, fh, indent=2)
+
+    logger.info(
+        "idxstats for %s: mapped=%d unmapped=%d total=%d",
+        sample_id,
+        total_mapped,
+        total_unmapped,
+        total_mapped + total_unmapped,
+    )
+    return summary
 
 
 def _find_samtools() -> str:
@@ -323,12 +492,34 @@ def extract_reads(
 
     read_count = _count_reads(final_outputs)
     logger.info("Extracted %d reads to %s", read_count, output_dir)
-    return {
+
+    result: ExtractionResult = {
         "files": final_outputs,
         "read_count": read_count,
         "sample_id": sample_id,
         "input": str(input_path),
     }
+
+    # Always emit idxstats sidecars.  Failures are logged but do not
+    # abort extraction – idxstats requires an index which may be absent
+    # for test fixtures or streamed inputs.
+    try:
+        summary = run_idxstats(
+            input_path,
+            output_dir,
+            sample_id=sample_id,
+            reference=reference,
+            threads=threads,
+        )
+        result["total_mapped"] = summary["total_mapped"]
+        result["total_unmapped"] = summary["total_unmapped"]
+        result["total_reads"] = summary["total_reads"]
+        result["idxstats_path"] = output_dir / f"{sample_id}.idxstats.tsv"
+        result["reads_summary_path"] = output_dir / f"{sample_id}.reads_summary.json"
+    except Exception as exc:  # noqa: BLE001 - non-fatal sidecar
+        logger.warning("idxstats sidecar skipped for %s: %s", sample_id, exc)
+
+    return result
 
 
 def _count_reads(outputs: dict[str, Path]) -> int:

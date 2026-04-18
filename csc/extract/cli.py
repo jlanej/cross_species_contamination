@@ -125,17 +125,43 @@ def _write_summary_tsv(
     results: list[dict[str, Any]],
     errors: list[dict[str, str]],
 ) -> None:
-    """Write a batch summary TSV."""
+    """Write a batch summary TSV.
+
+    Columns include per-sample idxstats totals (``total_mapped``,
+    ``total_unmapped``, ``total_reads``) when available, so cohort-level
+    absolute burden can be computed directly from the summary without
+    re-reading every ``reads_summary.json``.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as fh:
         writer = csv.writer(fh, delimiter="\t")
-        writer.writerow(["sample_id", "input", "status", "read_count", "output_files"])
+        writer.writerow(
+            [
+                "sample_id",
+                "input",
+                "status",
+                "read_count",
+                "total_mapped",
+                "total_unmapped",
+                "total_reads",
+                "output_files",
+            ]
+        )
         for r in results:
             files = ";".join(str(p) for p in r["files"].values())
-            writer.writerow([r["sample_id"], r["input"], "OK", r["read_count"], files])
+            writer.writerow([
+                r["sample_id"],
+                r["input"],
+                "OK",
+                r["read_count"],
+                r.get("total_mapped", ""),
+                r.get("total_unmapped", ""),
+                r.get("total_reads", ""),
+                files,
+            ])
         for e in errors:
             writer.writerow([
-                Path(e["input"]).stem, e["input"], "FAILED", 0, e["error"],
+                Path(e["input"]).stem, e["input"], "FAILED", 0, "", "", "", e["error"],
             ])
 
 
