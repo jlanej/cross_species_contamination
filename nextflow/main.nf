@@ -55,6 +55,7 @@ params.classify_time   = '4h'
 // Aggregate
 params.min_reads       = 0
 params.rank_filter     = 'S G F'
+params.db_path         = null       // path to Kraken2 DB for domain annotation (optional)
 params.detect_matrix   = 'cpm'    // 'cpm' or 'raw'
 params.aggregate_cpus   = 2
 params.aggregate_memory = '4 GB'
@@ -113,7 +114,15 @@ workflow {
     def detect_input_ch = params.detect_matrix == 'raw'
         ? AGGREGATE_REPORTS.out.matrix_raw
         : AGGREGATE_REPORTS.out.matrix_cpm
-    DETECT_OUTLIERS(detect_input_ch)
+
+    // Stage per-rank matrices alongside the primary matrix so that
+    // csc-detect --rank-filter can locate sibling files in the work dir.
+    def rank_matrices_ch = AGGREGATE_REPORTS.out.rank_matrices
+        .flatten()
+        .collect()
+        .ifEmpty([])
+
+    DETECT_OUTLIERS(detect_input_ch, rank_matrices_ch)
 
     // --- 6. Pipeline summary report ------------------------------------------
     PIPELINE_SUMMARY(

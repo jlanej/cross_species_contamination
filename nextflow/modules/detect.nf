@@ -4,6 +4,11 @@
  * Wraps the ``csc-detect`` CLI to perform statistical outlier
  * analysis on the aggregated sample-by-taxon matrix.
  *
+ * rank_matrices contains the per-rank typed matrices produced by
+ * AGGREGATE_REPORTS (e.g. taxa_matrix_cpm_S.tsv).  Staging them
+ * in the same work directory lets csc-detect find sibling rank
+ * files automatically when --rank-filter is active.
+ *
  * AI assistance acknowledgment: developed with AI assistance.
  */
 
@@ -17,11 +22,17 @@ process DETECT_OUTLIERS {
 
     input:
     path(matrix)
+    path(rank_matrices)
 
     output:
-    path("flagged_samples.tsv"),  emit: flagged
-    path("qc_summary.json"),      emit: qc_summary
-    path("quarantine_list.txt"),   emit: quarantine
+    path("flagged_samples.tsv"),          emit: flagged
+    path("qc_summary.json"),              emit: qc_summary
+    path("quarantine_list.txt"),          emit: quarantine
+    // csc-detect writes per-rank results into subdirectories named after the
+    // rank code (e.g. S/, G/, F/) when --rank-filter is active.
+    path("*/flagged_samples.tsv"),        emit: rank_flagged,    optional: true
+    path("*/qc_summary.json"),            emit: rank_qc,         optional: true
+    path("*/quarantine_list.txt"),        emit: rank_quarantine, optional: true
 
     script:
     def method_arg    = params.detect_method ? "--method ${params.detect_method}" : ''

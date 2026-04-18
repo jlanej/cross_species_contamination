@@ -850,6 +850,51 @@ class TestSubmitClassifyDryRun:
         assert result.returncode == 0, result.stderr
         assert "DETECT_MATRIX=raw" in result.stdout
 
+    def test_dry_run_detect_method_default_exported(self, tmp_path):
+        """DETECT_METHOD should default to 'mad' in the aggregate/detect exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "DETECT_METHOD=mad" in result.stdout
+
+    def test_dry_run_mad_threshold_default_exported(self, tmp_path):
+        """MAD_THRESHOLD should default to 3.5 in the aggregate/detect exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "MAD_THRESHOLD=3.5" in result.stdout
+
+    def test_dry_run_iqr_multiplier_default_exported(self, tmp_path):
+        """IQR_MULTIPLIER should default to 1.5 in the aggregate/detect exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "IQR_MULTIPLIER=1.5" in result.stdout
+
     def test_help_flag(self):
         """-h should print usage and exit 0."""
         result = run(["bash", str(SUBMIT_CLASSIFY_SCRIPT), "-h"])
@@ -1159,3 +1204,104 @@ class TestAggregateDetectScript:
         result = run(["bash", "-c", inline])
         assert result.returncode == 0
         assert "--db-path" not in result.stdout
+
+    def test_aggregate_args_always_include_rank_filter(self, tmp_path):
+        """csc-aggregate AGGREGATE_ARGS must always include --rank-filter with rank codes."""
+        inline = textwrap.dedent("""\
+            RANK_FILTER_CODES="S:G:F"
+            MIN_READS=0
+            IFS=':' read -ra RANK_CODES <<< "${RANK_FILTER_CODES}"
+            AGGREGATE_ARGS=(
+                csc-aggregate
+                /report.txt
+                -o /out
+            )
+            if [[ "${MIN_READS}" -gt 0 ]]; then
+                AGGREGATE_ARGS+=("--min-reads" "${MIN_READS}")
+            fi
+            AGGREGATE_ARGS+=("--rank-filter" "${RANK_CODES[@]}")
+            echo "${AGGREGATE_ARGS[@]}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--rank-filter S G F" in result.stdout
+
+    def test_detect_args_include_method_and_thresholds(self, tmp_path):
+        """DETECT_ARGS must include --method, --mad-threshold, --iqr-multiplier, --rank-filter."""
+        inline = textwrap.dedent("""\
+            DETECT_METHOD="mad"
+            MAD_THRESHOLD=3.5
+            IQR_MULTIPLIER=1.5
+            RANK_FILTER_CODES="S:G:F"
+            IFS=':' read -ra RANK_CODES <<< "${RANK_FILTER_CODES}"
+            MATRIX="/agg/taxa_matrix_cpm.tsv"
+            DETECT_OUTDIR="/detect"
+            DETECT_ARGS=(
+                csc-detect
+                "${MATRIX}"
+                -o "${DETECT_OUTDIR}"
+                --method       "${DETECT_METHOD}"
+                --mad-threshold "${MAD_THRESHOLD}"
+                --iqr-multiplier "${IQR_MULTIPLIER}"
+                --rank-filter  "${RANK_CODES[@]}"
+            )
+            echo "${DETECT_ARGS[@]}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--method mad" in result.stdout
+        assert "--mad-threshold 3.5" in result.stdout
+        assert "--iqr-multiplier 1.5" in result.stdout
+        assert "--rank-filter S G F" in result.stdout
+
+    def test_detect_matrix_path_uses_cpm_by_default(self, tmp_path):
+        """With DETECT_MATRIX=cpm, MATRIX should point to taxa_matrix_cpm.tsv."""
+        inline = textwrap.dedent("""\
+            AGG_OUTDIR="/some/agg"
+            DETECT_MATRIX="cpm"
+            MATRIX="${AGG_OUTDIR}/taxa_matrix_${DETECT_MATRIX}.tsv"
+            echo "MATRIX=$MATRIX"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "taxa_matrix_cpm.tsv" in result.stdout
+
+    def test_detect_matrix_path_raw_selection(self, tmp_path):
+        """With DETECT_MATRIX=raw, MATRIX should point to taxa_matrix_raw.tsv."""
+        inline = textwrap.dedent("""\
+            AGG_OUTDIR="/some/agg"
+            DETECT_MATRIX="raw"
+            MATRIX="${AGG_OUTDIR}/taxa_matrix_${DETECT_MATRIX}.tsv"
+            echo "MATRIX=$MATRIX"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "taxa_matrix_raw.tsv" in result.stdout
+
+    def test_detect_matrix_invalid_value_rejected(self, tmp_path):
+        """DETECT_MATRIX must be 'cpm' or 'raw'; invalid values should fail validation."""
+        inline = textwrap.dedent("""\
+            DETECT_MATRIX="bad"
+            if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
+                echo "ERROR: DETECT_MATRIX must be 'cpm' or 'raw'." >&2
+                exit 1
+            fi
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr
+
+    def test_skip_detect_bypasses_detect_step(self, tmp_path):
+        """SKIP_DETECT=1 must cause the script to exit before running csc-detect."""
+        inline = textwrap.dedent("""\
+            SKIP_DETECT=1
+            if [[ "${SKIP_DETECT}" == "1" ]]; then
+                echo "Skipping outlier detection (SKIP_DETECT=1)."
+                exit 0
+            fi
+            echo "RUNNING_DETECT"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "Skipping" in result.stdout
+        assert "RUNNING_DETECT" not in result.stdout
