@@ -854,13 +854,23 @@ class TestCladeReadsForHigherRanks:
 
     def test_collect_sample_clade_counts_with_min_reads(self) -> None:
         records: list[TaxonRecord] = [
-            TaxonRecord(tax_id=1, name="root", rank="R", clade_reads=100, direct_reads=5, percentage=10.0),
+            TaxonRecord(tax_id=1, name="root", rank="R", clade_reads=8, direct_reads=5, percentage=10.0),
             TaxonRecord(tax_id=2, name="Bacteria", rank="D", clade_reads=90, direct_reads=50, percentage=9.0),
         ]
         counts = _collect_sample_clade_counts(records, min_reads=10)
-        # Taxon 1 is excluded because direct_reads < 10
+        # Taxon 1 is excluded because clade_reads (8) < 10
         assert 1 not in counts
         assert counts[2] == 90
+
+    def test_clade_counts_retains_high_clade_low_direct(self) -> None:
+        """A genus with low direct_reads but high clade_reads is retained."""
+        records: list[TaxonRecord] = [
+            TaxonRecord(tax_id=1279, name="Staphylococcus", rank="G",
+                        clade_reads=10000, direct_reads=2, percentage=50.0),
+        ]
+        counts = _collect_sample_clade_counts(records, min_reads=10)
+        # clade_reads=10000 >= 10, so taxon is kept despite direct_reads=2
+        assert counts[1279] == 10000
 
 
 class TestDuplicateSampleIds:
@@ -966,29 +976,29 @@ class TestConfidenceValidation:
         ])
         assert rc == 1
 
-    def test_cli_confidence_valid_boundary(self, tmp_path: Path) -> None:
+    def test_cli_confidence_valid_boundary(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Valid boundary confidence values should pass validation."""
         from csc.classify.cli import main
 
         dummy = tmp_path / "reads.fastq.gz"
         dummy.touch()
-        # Valid values should not return 1 from confidence check.
-        # They will fail later (no kraken2) but the error message
-        # should NOT mention confidence.
-        import io
-        import contextlib
 
         for val in ("0.0", "1.0", "0.5"):
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                rc = main([
+            caplog.clear()
+            with caplog.at_level(logging.ERROR):
+                main([
                     str(dummy),
                     "--db", str(tmp_path),
                     "-o", str(tmp_path / f"out_{val}"),
                     "--confidence", val,
                 ])
-            # Even if rc == 1, it shouldn't be from confidence validation
-            # (the error will be about missing db files or kraken2)
+            # The call may fail (no kraken2 installed) but the error
+            # must NOT be about confidence validation.
+            assert not any(
+                "Invalid --confidence" in msg for msg in caplog.messages
+            ), f"confidence={val} incorrectly rejected"
 
     def test_api_confidence_validation(self, tmp_path: Path) -> None:
         from csc.classify.classify import classify_reads

@@ -201,11 +201,14 @@ def _collect_sample_clade_counts(
 
     Used for higher-rank (e.g. genus, family) matrices where
     ``clade_reads`` captures the abundance of descendant species.
+    The filter uses ``clade_reads`` (not ``direct_reads``) so that a
+    genus with many descendant-species reads is retained even when its
+    own ``direct_reads`` count is below the threshold.
     """
     return {
         r["tax_id"]: r["clade_reads"]
         for r in records
-        if r["direct_reads"] >= min_reads
+        if r["clade_reads"] >= min_reads
     }
 
 

@@ -46,9 +46,6 @@ TAXID_UNIVEC_CORE = 81077
 TAXID_HUMAN = 9606
 TAXID_ROOT = 1
 
-# Eukaryotic subtrees excluded from the "Protists" bucket.
-_EUKARYOTA_EXCLUSIONS = frozenset({TAXID_METAZOA, TAXID_FUNGI, TAXID_VIRIDIPLANTAE})
-
 # Domain label constants.
 DOMAIN_BACTERIA = "Bacteria"
 DOMAIN_ARCHAEA = "Archaea"
