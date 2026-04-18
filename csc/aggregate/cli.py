@@ -60,7 +60,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0,
         help=(
             "Minimum direct-read count for a taxon to be included per "
-            "sample (default: 0)."
+            "sample (default: 0).  Note: the default_config.yaml sets "
+            "min_reads: 10 which takes effect when using the Nextflow "
+            "pipeline; CLI invocations use 0 unless overridden."
         ),
     )
     parser.add_argument(

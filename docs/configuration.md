@@ -82,3 +82,18 @@ classify:
 logging:
   level: DEBUG
 ```
+
+### CLI vs Configuration File Precedence
+
+When using the CSC CLI tools directly (e.g. `csc-aggregate`, `csc-classify`),
+**CLI arguments take precedence** over configuration file values.  CLI defaults
+may differ from the config file defaults:
+
+| Parameter | CLI Default | Config Default | Notes |
+|-----------|-------------|----------------|-------|
+| `min_reads` | `0` | `10` | CLI default includes all taxa; config applies a filter |
+| `confidence` | `0.0` | `0.0` | Consistent between CLI and config |
+
+The Nextflow pipeline reads values from the configuration file.  When running
+CLI tools standalone, pass parameters explicitly to match config behavior
+(e.g. `--min-reads 10`).

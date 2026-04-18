@@ -127,6 +127,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger(__name__)
 
+    # --- Validate confidence range ---
+    if not (0.0 <= args.confidence <= 1.0):
+        log.error(
+            "Invalid --confidence value: %.4f.  Must be between 0.0 and 1.0.",
+            args.confidence,
+        )
+        return 1
+
     # --- Fail-early: validate all inputs exist and are readable ---
     missing = [p for p in args.input if not p.exists()]
     if missing:

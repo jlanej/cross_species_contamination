@@ -6,18 +6,20 @@ by traversing the tree up to the root.
 
 Canonical domain taxon IDs
 --------------------------
-==========  ======  =========================================
-Domain      TaxID   Rule
-==========  ======  =========================================
-Bacteria    2       taxid 2 and all descendants
-Archaea     2157    taxid 2157 and all descendants
-Fungi       4751    taxid 4751 and all descendants (under Eukaryota)
-Viruses     10239   taxid 10239 and all descendants
-UniVec_Core 81077   taxid 81077 and all descendants
-Human       9606    taxid 9606 and all descendants
-Protists    —       Eukaryota (2759) minus Metazoa (33208),
-                    Fungi (4751), and Viridiplantae (33090)
-==========  ======  =========================================
+==============  ======  =========================================
+Domain          TaxID   Rule
+==============  ======  =========================================
+Bacteria        2       taxid 2 and all descendants
+Archaea         2157    taxid 2157 and all descendants
+Fungi           4751    taxid 4751 and all descendants (under Eukaryota)
+Viruses         10239   taxid 10239 and all descendants
+UniVec_Core     81077   taxid 81077 and all descendants
+Human           9606    taxid 9606 and all descendants
+Metazoa_other   33208   Metazoa (33208) minus Human (9606)
+Viridiplantae   33090   taxid 33090 and all descendants
+Protists        —       Eukaryota (2759) minus Metazoa (33208),
+                        Fungi (4751), and Viridiplantae (33090)
+==============  ======  =========================================
 
 AI assistance acknowledgment: This module was developed with AI assistance.
 Best practices in the bioinformatics field should always take precedence over
@@ -55,6 +57,8 @@ DOMAIN_VIRUSES = "Viruses"
 DOMAIN_UNIVEC_CORE = "UniVec_Core"
 DOMAIN_HUMAN = "Human"
 DOMAIN_PROTISTS = "Protists"
+DOMAIN_METAZOA_OTHER = "Metazoa_other"
+DOMAIN_VIRIDIPLANTAE = "Viridiplantae"
 DOMAIN_UNCLASSIFIED = "Unclassified"
 
 
@@ -150,17 +154,20 @@ def _assign_single_domain(taxid: int, tree: dict[int, int]) -> str:
     if TAXID_UNIVEC_CORE in lineage_set:
         return DOMAIN_UNIVEC_CORE
 
-    # Eukaryotic sub-domains: Human > Fungi > Protists (residual).
+    # Eukaryotic sub-domains: Human > Fungi > Metazoa_other > Viridiplantae > Protists (residual).
     if TAXID_EUKARYOTA in lineage_set:
         # Human is under Metazoa; check specifically for 9606 lineage.
         if TAXID_HUMAN in lineage_set:
             return DOMAIN_HUMAN
         if TAXID_FUNGI in lineage_set:
             return DOMAIN_FUNGI
-        # Metazoa (non-human) and Viridiplantae are excluded from Protists
-        # but don't have their own domain bucket in the CSC scheme.
-        if lineage_set & _EUKARYOTA_EXCLUSIONS:
-            return DOMAIN_UNCLASSIFIED
+        # Issue 8: Metazoa (non-human) gets its own domain label so that
+        # mouse and other animal contamination is identifiable.
+        if TAXID_METAZOA in lineage_set:
+            return DOMAIN_METAZOA_OTHER
+        # Issue 8: Viridiplantae gets its own domain label.
+        if TAXID_VIRIDIPLANTAE in lineage_set:
+            return DOMAIN_VIRIDIPLANTAE
         return DOMAIN_PROTISTS
 
     return DOMAIN_UNCLASSIFIED

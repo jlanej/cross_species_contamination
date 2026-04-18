@@ -113,11 +113,35 @@ with `0`.
 `taxa_matrix_cpm.tsv` stores CPM values where each sample column sums to
 approximately 1,000,000.
 
+> **CPM denominator**: The CPM denominator uses the sum of all classified
+> direct reads *before* any `min_reads` filtering.  This ensures CPM
+> values are comparable across samples even when different `min_reads`
+> thresholds are used, avoiding compositional bias.
+
+> **CPM limitations**: CPM normalisation accounts for sequencing depth
+> but **not** genome size or gene length.  Species with larger genomes
+> will have higher CPM at equal true abundance.  For applications where
+> genome size matters, consider additional RPKM or TPM normalisation
+> outside this pipeline.  CPM values should be interpreted as relative
+> read-count proportions, not true relative abundances.
+
+> **Confidence intervals**: The current output does not include
+> confidence intervals or error bars for count/CPM values.  For
+> low-read-count taxa, statistical uncertainty may be substantial.
+> Users requiring uncertainty quantification should consider Poisson
+> confidence intervals (e.g. ±1.96 × √N) as a post-processing step.
+
 ### `taxa_matrix_raw_S.tsv`, `taxa_matrix_cpm_S.tsv`, etc.
 
 Per-rank filtered matrices containing only taxa of the specified rank.
 Both a raw-count version and a CPM-normalised version are written for
 each rank code requested via `--rank-filter` (e.g. `S`, `G`, `F`).
+
+For species-rank (`S`) matrices, values are `direct_reads` (reads
+assigned directly to that species).  For higher-rank matrices (`G`, `F`,
+etc.), values are `clade_reads` (reads rooted at that taxon, including
+all descendant species).  This ensures genus/family matrices capture
+total abundance rather than being misleadingly sparse.
 
 ### `rank_filter_metadata.json`
 
@@ -169,3 +193,31 @@ aggregate:
 
 These can be overridden via a user config file or the CLI `--min-reads`
 flag.
+
+### Configuration vs CLI Precedence
+
+When using the Python CLI (`csc-aggregate`), the `--min-reads` default
+is **0** (include all taxa).  The `default_config.yaml` sets
+`min_reads: 10`, which is used by the Nextflow pipeline and when
+loading config programmatically via `load_config()`.
+
+**Precedence order** (highest to lowest):
+1. Explicit CLI argument (e.g. `--min-reads 50`)
+2. CLI default value (`0`)
+
+To use the config file value of `10`, pass it explicitly:
+`--min-reads 10`.
+
+### Duplicate Sample IDs
+
+If two report files produce the same sample ID (e.g. same filename in
+different directories), a warning is logged and the later report
+overwrites the earlier one.  Rename report files to ensure unique
+sample IDs.
+
+### Taxonomy Consistency
+
+If a `tax_id` is seen with different names or rank codes across input
+reports (e.g. due to different Kraken2 database versions), a warning
+is logged.  The last-seen name/rank is used.  Users should ensure all
+input reports were generated with the same Kraken2 database.

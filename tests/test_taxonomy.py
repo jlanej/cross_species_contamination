@@ -19,9 +19,11 @@ from csc.aggregate.taxonomy import (
     DOMAIN_BACTERIA,
     DOMAIN_FUNGI,
     DOMAIN_HUMAN,
+    DOMAIN_METAZOA_OTHER,
     DOMAIN_PROTISTS,
     DOMAIN_UNCLASSIFIED,
     DOMAIN_UNIVEC_CORE,
+    DOMAIN_VIRIDIPLANTAE,
     DOMAIN_VIRUSES,
     TAXID_ARCHAEA,
     TAXID_BACTERIA,
@@ -70,7 +72,8 @@ def _write_nodes_dmp(path: Path, entries: list[tuple[int, int]]) -> Path:
 #   │   ├── 4751 (Fungi)
 #   │   │   └── 4890 (Ascomycota)
 #   │   ├── 33208 (Metazoa)
-#   │   │   └── 9606 (Homo sapiens)
+#   │   │   ├── 9606 (Homo sapiens)
+#   │   │   └── 10090 (Mus musculus)
 #   │   ├── 33090 (Viridiplantae)
 #   │   │   └── 3700 (Brassicales)
 #   │   └── 5794 (Apicomplexa – a protist)
@@ -91,6 +94,7 @@ _MINI_TREE = [
     (4890, 4751),
     (33208, 2759),
     (9606, 33208),
+    (10090, 33208),  # Mus musculus under Metazoa
     (33090, 2759),
     (3700, 33090),
     (5794, 2759),
@@ -187,12 +191,16 @@ class TestAssignSingleDomain:
         # Apicomplexa – eukaryote not in Metazoa/Fungi/Viridiplantae
         assert _assign_single_domain(5794, self.tree) == DOMAIN_PROTISTS
 
-    def test_eukaryota_exclusion_metazoa(self) -> None:
-        # Metazoa (non-human) → Unclassified (no "Metazoa" bucket)
-        assert _assign_single_domain(33208, self.tree) == DOMAIN_UNCLASSIFIED
+    def test_eukaryota_metazoa_other(self) -> None:
+        # Metazoa (non-human) → Metazoa_other
+        assert _assign_single_domain(33208, self.tree) == DOMAIN_METAZOA_OTHER
 
-    def test_eukaryota_exclusion_plants(self) -> None:
-        assert _assign_single_domain(3700, self.tree) == DOMAIN_UNCLASSIFIED
+    def test_mouse_metazoa_other(self) -> None:
+        # Mouse (taxid 10090) → Metazoa_other
+        assert _assign_single_domain(10090, self.tree) == DOMAIN_METAZOA_OTHER
+
+    def test_eukaryota_viridiplantae(self) -> None:
+        assert _assign_single_domain(3700, self.tree) == DOMAIN_VIRIDIPLANTAE
 
     def test_unclassified_taxid_zero(self) -> None:
         assert _assign_single_domain(0, self.tree) == DOMAIN_UNCLASSIFIED
@@ -212,7 +220,7 @@ class TestAssignSingleDomain:
 class TestAssignDomains:
     def test_batch_assignment(self, mini_db: Path) -> None:
         tree = load_taxonomy_tree(mini_db)
-        taxids = {2, 562, 2157, 4890, 9606, 5794, 11118, 81078, 0}
+        taxids = {2, 562, 2157, 4890, 9606, 5794, 11118, 81078, 0, 10090, 3700}
         result = assign_domains(taxids, tree)
         assert result[2] == DOMAIN_BACTERIA
         assert result[562] == DOMAIN_BACTERIA
@@ -223,6 +231,8 @@ class TestAssignDomains:
         assert result[11118] == DOMAIN_VIRUSES
         assert result[81078] == DOMAIN_UNIVEC_CORE
         assert result[0] == DOMAIN_UNCLASSIFIED
+        assert result[10090] == DOMAIN_METAZOA_OTHER
+        assert result[3700] == DOMAIN_VIRIDIPLANTAE
 
 
 # ---------------------------------------------------------------------------
