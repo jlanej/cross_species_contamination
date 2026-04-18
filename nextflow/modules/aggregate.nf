@@ -28,11 +28,13 @@ process AGGREGATE_REPORTS {
     script:
     def min_reads_arg = params.min_reads ? "--min-reads ${params.min_reads}" : ''
     def rank_arg      = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
+    def db_path_arg   = params.db_path    ? "--db-path ${params.db_path}"         : ''
     """
     csc-aggregate \\
         ${reports} \\
         -o . \\
         ${min_reads_arg} \\
-        ${rank_arg}
+        ${rank_arg} \\
+        ${db_path_arg}
     """
 }
