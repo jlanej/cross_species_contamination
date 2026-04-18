@@ -2,10 +2,11 @@
 
 This module provides functions to parse Kraken2 report files, build
 sample-by-taxon count matrices, and normalize counts (e.g. CPM).
-It is designed to handle large cohorts (100K+ samples) efficiently
-by processing reports in configurable chunks and using a streaming
-dictionary-of-counters approach that avoids loading all data into
-a single in-memory structure at once.
+
+All sample data is held in memory as a dictionary-of-counters structure.
+The ``chunk_size`` parameter controls only the frequency of progress
+logging, not memory usage.  For very large cohorts consider streaming
+approaches outside this module.
 
 AI assistance acknowledgment: This module was developed with AI assistance.
 Best practices in the bioinformatics field should always take precedence over
@@ -192,6 +193,35 @@ def _collect_sample_counts(
     }
 
 
+def _collect_sample_clade_counts(
+    records: list[TaxonRecord],
+    min_reads: int = 0,
+) -> dict[int, int]:
+    """Return {tax_id: clade_reads} for records passing *min_reads*.
+
+    Used for higher-rank (e.g. genus, family) matrices where
+    ``clade_reads`` captures the abundance of descendant species.
+    The filter uses ``clade_reads`` (not ``direct_reads``) so that a
+    genus with many descendant-species reads is retained even when its
+    own ``direct_reads`` count is below the threshold.
+    """
+    return {
+        r["tax_id"]: r["clade_reads"]
+        for r in records
+        if r["clade_reads"] >= min_reads
+    }
+
+
+def _compute_pre_filter_total(records: list[TaxonRecord]) -> int:
+    """Sum all direct_reads across all records, ignoring any min_reads filter.
+
+    This gives the total classified reads for the sample *before*
+    filtering, which is used as the CPM denominator to avoid
+    compositional bias when ``min_reads > 0``.
+    """
+    return sum(r["direct_reads"] for r in records)
+
+
 def aggregate_reports(
     report_paths: list[str | Path],
     output_dir: str | Path,
@@ -208,9 +238,6 @@ def aggregate_reports(
     direct-read counts (``taxa_matrix_raw.tsv``) and one with
     counts-per-million normalised values (``taxa_matrix_cpm.tsv``).
 
-    Processing is chunked so that memory stays bounded even for very
-    large cohorts.
-
     In addition to the unfiltered matrices, per-rank filtered matrices are
     written for each rank code in *rank_filter* (e.g.
     ``taxa_matrix_raw_S.tsv`` / ``taxa_matrix_cpm_S.tsv`` for species).
@@ -220,7 +247,7 @@ def aggregate_reports(
     When *db_path* is provided, the taxonomy tree (``taxonomy/nodes.dmp``)
     is loaded and every taxon row is annotated with a lineage-aware
     ``domain`` column (e.g. Bacteria, Archaea, Fungi, Protists, Viruses,
-    UniVec_Core, Human, or Unclassified).
+    UniVec_Core, Human, Metazoa_other, Viridiplantae, or Unclassified).
 
     Parameters
     ----------
@@ -231,8 +258,9 @@ def aggregate_reports(
     min_reads:
         Minimum direct-read count for a taxon to be included per sample.
     chunk_size:
-        Number of reports to process before flushing intermediate state.
-        Helps keep memory bounded for very large cohorts.
+        Number of reports between progress-log messages.  All sample data
+        is kept resident in memory; this parameter only controls logging
+        frequency.
     rank_filter:
         Taxonomy rank codes for which per-rank matrices are produced.
         Defaults to ``("S", "G", "F")`` (species, genus, family).
@@ -268,10 +296,14 @@ def aggregate_reports(
 
     # Accumulate per-sample data: {sample_id: {tax_id: count}}
     sample_data: dict[str, dict[int, int]] = {}
+    # Per-sample clade-read counts for higher-rank matrices
+    sample_clade_data: dict[str, dict[int, int]] = {}
     # Map tax_id -> scientific name (last one wins; should be consistent)
     tax_names: dict[int, str] = {}
     # Map tax_id -> rank code (last one wins; should be consistent)
     tax_ranks: dict[int, str] = {}
+    # Per-sample totals *before* min_reads filtering (for CPM denominator)
+    sample_totals: dict[str, int] = {}
     # Track errors
     errors: list[dict[str, str]] = []
 
@@ -279,6 +311,16 @@ def aggregate_reports(
 
     for i, rpath in enumerate(resolved):
         sid = sample_id_from_report(rpath)
+
+        # Issue 6: Detect duplicate sample IDs
+        if sid in sample_data:
+            logger.warning(
+                "Duplicate sample ID '%s' from %s – overwriting previous "
+                "entry.  Consider renaming report files to avoid collisions.",
+                sid,
+                rpath,
+            )
+
         try:
             records = parse_kraken2_report(rpath)
         except (FileNotFoundError, ValueError) as exc:
@@ -287,12 +329,38 @@ def aggregate_reports(
             continue
 
         counts = _collect_sample_counts(records, min_reads=min_reads)
+        clade_counts = _collect_sample_clade_counts(records, min_reads=min_reads)
         sample_data[sid] = counts
+        sample_clade_data[sid] = clade_counts
+
+        # Issue 1: CPM denominator uses pre-filter total to avoid
+        # compositional bias when min_reads > 0.
+        sample_totals[sid] = _compute_pre_filter_total(records)
 
         for rec in records:
             if rec["direct_reads"] >= min_reads:
-                tax_names[rec["tax_id"]] = rec["name"]
-                tax_ranks[rec["tax_id"]] = rec["rank"]
+                tid = rec["tax_id"]
+                # Issue 7: Warn on inconsistent tax_id → name/rank mappings
+                if tid in tax_names and tax_names[tid] != rec["name"]:
+                    logger.warning(
+                        "Inconsistent name for tax_id %d: '%s' vs '%s' "
+                        "(keeping latest from %s)",
+                        tid,
+                        tax_names[tid],
+                        rec["name"],
+                        rpath,
+                    )
+                if tid in tax_ranks and tax_ranks[tid] != rec["rank"]:
+                    logger.warning(
+                        "Inconsistent rank for tax_id %d: '%s' vs '%s' "
+                        "(keeping latest from %s)",
+                        tid,
+                        tax_ranks[tid],
+                        rec["rank"],
+                        rpath,
+                    )
+                tax_names[tid] = rec["name"]
+                tax_ranks[tid] = rec["rank"]
 
         if (i + 1) % chunk_size == 0:
             logger.info("Processed %d / %d reports", i + 1, len(resolved))
@@ -306,11 +374,6 @@ def aggregate_reports(
     # Build the sorted union of all taxa across samples
     all_taxa = sorted(tax_names.keys())
     sample_ids = sorted(sample_data.keys())
-
-    # Compute per-sample totals (for CPM normalisation)
-    sample_totals: dict[str, int] = {}
-    for sid in sample_ids:
-        sample_totals[sid] = sum(sample_data[sid].values())
 
     # Lineage-aware domain assignment (optional)
     tax_domains: dict[int, str] | None = None
@@ -346,6 +409,9 @@ def aggregate_reports(
     )
 
     # Write per-rank filtered matrices (always raw + CPM)
+    # For species (S) rank, direct_reads is used; for higher ranks (G, F, etc.)
+    # clade_reads is used so that genus/family matrices capture descendant
+    # species abundance rather than being misleadingly sparse.
     rank_matrices_raw: dict[str, Path] = {}
     rank_matrices_cpm: dict[str, Path] = {}
     rank_sidecar: dict[str, Any] = {}
@@ -355,13 +421,17 @@ def aggregate_reports(
             logger.info("Rank '%s': no taxa found, skipping matrix", rank)
             continue
 
+        # Issue 2: Use clade_reads for non-species ranks (G, F, etc.)
+        use_clade = rank != "S"
+        data_for_rank = sample_clade_data if use_clade else sample_data
+
         rank_raw_path = output_dir / typed_rank_matrix_filename(rank, "raw")
         _write_matrix(
             rank_raw_path,
             sample_ids=sample_ids,
             all_taxa=rank_taxa,
             tax_names=tax_names,
-            sample_data=sample_data,
+            sample_data=data_for_rank,
             sample_totals=sample_totals,
             normalize=False,
             tax_domains=tax_domains,
@@ -374,7 +444,7 @@ def aggregate_reports(
             sample_ids=sample_ids,
             all_taxa=rank_taxa,
             tax_names=tax_names,
-            sample_data=sample_data,
+            sample_data=data_for_rank,
             sample_totals=sample_totals,
             normalize=True,
             tax_domains=tax_domains,

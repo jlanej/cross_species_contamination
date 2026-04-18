@@ -203,6 +203,12 @@ def classify_reads(
     RuntimeError
         If the kraken2 command exits with a non-zero status.
     """
+    # Validate confidence range (before any I/O)
+    if not (0.0 <= confidence <= 1.0):
+        raise ValueError(
+            f"confidence must be between 0.0 and 1.0, got {confidence}"
+        )
+
     # Resolve paths
     resolved_inputs = [Path(f).resolve() for f in input_files]
     output_dir = Path(output_dir).resolve()

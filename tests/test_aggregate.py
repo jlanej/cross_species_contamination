@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import math
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,8 @@ from csc.aggregate.aggregate import (
     parse_kraken2_report,
     sample_id_from_report,
     _collect_sample_counts,
+    _collect_sample_clade_counts,
+    _compute_pre_filter_total,
 )
 
 
@@ -712,7 +715,11 @@ class TestRankFilter:
     def test_rank_matrix_values_match_full_matrix(
         self, report_dir: Path, tmp_path: Path
     ) -> None:
-        """Values in rank-filtered matrices should match the unfiltered matrix."""
+        """Values in species rank-filtered matrix should match the unfiltered matrix.
+
+        For higher-rank matrices (G, F), clade_reads are used instead of
+        direct_reads, so they are expected to differ from the unfiltered matrix.
+        """
         reports = sorted(report_dir.glob("*.kraken2.report.txt"))
         out = tmp_path / "out"
         result = aggregate_reports(reports, out)
@@ -720,8 +727,9 @@ class TestRankFilter:
         full_rows = _read_matrix(result["matrix_raw_path"])
         full_by_tid = {r["tax_id"]: r for r in full_rows}
 
-        for rank, rank_path in result["rank_matrices_raw"].items():
-            rank_rows = _read_matrix(rank_path)
+        # Only species-rank matrices should exactly match the full matrix
+        if "S" in result["rank_matrices_raw"]:
+            rank_rows = _read_matrix(result["rank_matrices_raw"]["S"])
             for rrow in rank_rows:
                 tid = rrow["tax_id"]
                 assert tid in full_by_tid
@@ -757,6 +765,253 @@ class TestRankFilter:
         assert (tmp_path / "cli_out" / "taxa_matrix_cpm_S.tsv").exists()
         assert (tmp_path / "cli_out" / "taxa_matrix_raw_G.tsv").exists()
         assert (tmp_path / "cli_out" / "taxa_matrix_cpm_G.tsv").exists()
+
+
+# ---------------------------------------------------------------------------
+# Issue-specific tests
+# ---------------------------------------------------------------------------
+
+class TestCPMDenominator:
+    """Issue 1: CPM denominator should use pre-filter totals."""
+
+    def test_cpm_uses_pre_filter_denominator(self, tmp_path: Path) -> None:
+        """CPM values should be comparable across different min_reads settings.
+
+        Two runs with identical raw data but different min_reads should
+        produce CPM values for shared taxa that are proportional to the
+        same denominator (all classified reads).
+        """
+        report = _write_report(
+            tmp_path / "sample.kraken2.report.txt",
+            "50.00\t50\t30\tS\t562\tEscherichia coli\n"
+            "30.00\t30\t20\tS\t1280\tStaphylococcus aureus\n"
+            "20.00\t20\t5\tS\t9606\tHomo sapiens\n",
+        )
+
+        # Run with min_reads=0 (all taxa pass)
+        out_all = tmp_path / "out_all"
+        aggregate_reports([report], out_all, min_reads=0)
+        rows_all = _read_matrix(out_all / "taxa_matrix_cpm.tsv")
+        cpm_ecoli_all = float(
+            next(r for r in rows_all if r["tax_id"] == "562")["values"][0]
+        )
+
+        # Run with min_reads=10 (only E. coli and S. aureus pass)
+        out_filt = tmp_path / "out_filt"
+        aggregate_reports([report], out_filt, min_reads=10)
+        rows_filt = _read_matrix(out_filt / "taxa_matrix_cpm.tsv")
+        cpm_ecoli_filt = float(
+            next(r for r in rows_filt if r["tax_id"] == "562")["values"][0]
+        )
+
+        # The CPM for E. coli should be the same regardless of min_reads
+        # because the denominator uses *all* direct reads (30+20+5=55)
+        assert cpm_ecoli_all == pytest.approx(cpm_ecoli_filt, rel=1e-4)
+
+    def test_pre_filter_total_computation(self) -> None:
+        records: list[TaxonRecord] = [
+            TaxonRecord(tax_id=1, name="a", rank="S", clade_reads=100, direct_reads=50, percentage=50.0),
+            TaxonRecord(tax_id=2, name="b", rank="S", clade_reads=60, direct_reads=30, percentage=30.0),
+            TaxonRecord(tax_id=3, name="c", rank="S", clade_reads=20, direct_reads=5, percentage=5.0),
+        ]
+        assert _compute_pre_filter_total(records) == 85  # 50+30+5
+
+
+class TestCladeReadsForHigherRanks:
+    """Issue 2: Genus/family matrices should use clade_reads."""
+
+    def test_genus_matrix_uses_clade_reads(self, tmp_path: Path) -> None:
+        """A genus with many species should show clade_reads in the G matrix."""
+        report = _write_report(
+            tmp_path / "sample.kraken2.report.txt",
+            # Genus Staphylococcus: clade=100, direct=5
+            # Species S. aureus: clade=50, direct=50
+            # Species S. epidermidis: clade=45, direct=45
+            "50.00\t100\t5\tG\t1279\tStaphylococcus\n"
+            "25.00\t50\t50\tS\t1280\tStaphylococcus aureus\n"
+            "22.50\t45\t45\tS\t1282\tStaphylococcus epidermidis\n",
+        )
+        out = tmp_path / "out"
+        result = aggregate_reports([report], out, rank_filter=("G", "S"))
+
+        # Genus matrix should have clade_reads (100), not direct_reads (5)
+        g_rows = _read_matrix(result["rank_matrices_raw"]["G"])
+        staph = next(r for r in g_rows if r["tax_id"] == "1279")
+        assert staph["values"][0] == "100"
+
+        # Species matrix should still use direct_reads
+        s_rows = _read_matrix(result["rank_matrices_raw"]["S"])
+        aureus = next(r for r in s_rows if r["tax_id"] == "1280")
+        assert aureus["values"][0] == "50"
+
+    def test_collect_sample_clade_counts(self) -> None:
+        records: list[TaxonRecord] = [
+            TaxonRecord(tax_id=1, name="root", rank="R", clade_reads=100, direct_reads=10, percentage=10.0),
+            TaxonRecord(tax_id=2, name="Bacteria", rank="D", clade_reads=90, direct_reads=50, percentage=9.0),
+        ]
+        counts = _collect_sample_clade_counts(records)
+        assert counts == {1: 100, 2: 90}
+
+    def test_collect_sample_clade_counts_with_min_reads(self) -> None:
+        records: list[TaxonRecord] = [
+            TaxonRecord(tax_id=1, name="root", rank="R", clade_reads=8, direct_reads=5, percentage=10.0),
+            TaxonRecord(tax_id=2, name="Bacteria", rank="D", clade_reads=90, direct_reads=50, percentage=9.0),
+        ]
+        counts = _collect_sample_clade_counts(records, min_reads=10)
+        # Taxon 1 is excluded because clade_reads (8) < 10
+        assert 1 not in counts
+        assert counts[2] == 90
+
+    def test_clade_counts_retains_high_clade_low_direct(self) -> None:
+        """A genus with low direct_reads but high clade_reads is retained."""
+        records: list[TaxonRecord] = [
+            TaxonRecord(tax_id=1279, name="Staphylococcus", rank="G",
+                        clade_reads=10000, direct_reads=2, percentage=50.0),
+        ]
+        counts = _collect_sample_clade_counts(records, min_reads=10)
+        # clade_reads=10000 >= 10, so taxon is kept despite direct_reads=2
+        assert counts[1279] == 10000
+
+
+class TestDuplicateSampleIds:
+    """Issue 6: Duplicate sample IDs should produce a warning."""
+
+    def test_duplicate_sample_ids_warn(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Two reports yielding the same sample ID should log a warning."""
+        d = tmp_path / "reports"
+        d.mkdir()
+        sub1 = d / "dir1"
+        sub1.mkdir()
+        sub2 = d / "dir2"
+        sub2.mkdir()
+
+        _write_report(
+            sub1 / "sample.kraken2.report.txt",
+            "100.00\t100\t100\tS\t562\tEscherichia coli\n",
+        )
+        _write_report(
+            sub2 / "sample.kraken2.report.txt",
+            "100.00\t100\t50\tS\t562\tEscherichia coli\n",
+        )
+
+        out = tmp_path / "out"
+        with caplog.at_level(logging.WARNING, logger="csc.aggregate.aggregate"):
+            aggregate_reports(
+                [sub1 / "sample.kraken2.report.txt",
+                 sub2 / "sample.kraken2.report.txt"],
+                out,
+            )
+
+        assert any("Duplicate sample ID" in msg for msg in caplog.messages)
+
+
+class TestTaxNameRankInconsistency:
+    """Issue 7: Inconsistent tax_id → name/rank across samples."""
+
+    def test_inconsistent_name_logs_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        d = tmp_path / "reports"
+        d.mkdir()
+
+        _write_report(
+            d / "s1.kraken2.report.txt",
+            "100.00\t100\t100\tS\t562\tEscherichia coli\n",
+        )
+        _write_report(
+            d / "s2.kraken2.report.txt",
+            "100.00\t100\t100\tS\t562\tE. coli (renamed)\n",
+        )
+
+        out = tmp_path / "out"
+        with caplog.at_level(logging.WARNING, logger="csc.aggregate.aggregate"):
+            aggregate_reports(sorted(d.glob("*.kraken2.report.txt")), out)
+
+        assert any("Inconsistent name for tax_id 562" in msg for msg in caplog.messages)
+
+    def test_inconsistent_rank_logs_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        d = tmp_path / "reports"
+        d.mkdir()
+
+        _write_report(
+            d / "s1.kraken2.report.txt",
+            "100.00\t100\t100\tS\t562\tEscherichia coli\n",
+        )
+        _write_report(
+            d / "s2.kraken2.report.txt",
+            "100.00\t100\t100\tG\t562\tEscherichia coli\n",
+        )
+
+        out = tmp_path / "out"
+        with caplog.at_level(logging.WARNING, logger="csc.aggregate.aggregate"):
+            aggregate_reports(sorted(d.glob("*.kraken2.report.txt")), out)
+
+        assert any("Inconsistent rank for tax_id 562" in msg for msg in caplog.messages)
+
+
+class TestConfidenceValidation:
+    """Issue 10: Bounds-checking on --confidence argument."""
+
+    def test_cli_confidence_too_high(self, tmp_path: Path) -> None:
+        from csc.classify.cli import main
+
+        dummy = tmp_path / "reads.fastq.gz"
+        dummy.touch()
+        rc = main([
+            str(dummy),
+            "--db", str(tmp_path),
+            "-o", str(tmp_path / "out"),
+            "--confidence", "1.5",
+        ])
+        assert rc == 1
+
+    def test_cli_confidence_negative(self, tmp_path: Path) -> None:
+        from csc.classify.cli import main
+
+        dummy = tmp_path / "reads.fastq.gz"
+        dummy.touch()
+        rc = main([
+            str(dummy),
+            "--db", str(tmp_path),
+            "-o", str(tmp_path / "out"),
+            "--confidence", "-0.1",
+        ])
+        assert rc == 1
+
+    def test_cli_confidence_valid_boundary(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Valid boundary confidence values should pass validation."""
+        from csc.classify.cli import main
+
+        dummy = tmp_path / "reads.fastq.gz"
+        dummy.touch()
+
+        for val in ("0.0", "1.0", "0.5"):
+            caplog.clear()
+            with caplog.at_level(logging.ERROR):
+                main([
+                    str(dummy),
+                    "--db", str(tmp_path),
+                    "-o", str(tmp_path / f"out_{val}"),
+                    "--confidence", val,
+                ])
+            # The call may fail (no kraken2 installed) but the error
+            # must NOT be about confidence validation.
+            assert not any(
+                "Invalid --confidence" in msg for msg in caplog.messages
+            ), f"confidence={val} incorrectly rejected"
+
+    def test_api_confidence_validation(self, tmp_path: Path) -> None:
+        from csc.classify.classify import classify_reads
+
+        dummy = tmp_path / "reads.fastq.gz"
+        dummy.touch()
+        with pytest.raises(ValueError, match="confidence must be between"):
+            classify_reads(
+                [dummy],
+                tmp_path / "out",
+                db=tmp_path,
+                confidence=2.0,
+            )
 
 
 # ---------------------------------------------------------------------------
