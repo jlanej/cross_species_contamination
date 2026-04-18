@@ -1,4 +1,5 @@
 {
+  "schema_version": "1.1",
   "sample_count": 2,
   "taxon_count": 6,
   "min_reads": 0,
@@ -12,9 +13,27 @@
     "F"
   ],
   "domain_annotated": false,
+  "absolute_burden_enabled": false,
   "samples": [
     "sampleA",
     "sampleB"
   ],
+  "samples_without_idxstats": [],
+  "sample_provenance": {
+    "sampleA": {
+      "total_reads": null,
+      "total_mapped": null,
+      "total_unmapped": null,
+      "source_input": null,
+      "extraction_time": null
+    },
+    "sampleB": {
+      "total_reads": null,
+      "total_mapped": null,
+      "total_unmapped": null,
+      "source_input": null,
+      "extraction_time": null
+    }
+  },
   "errors": []
 }

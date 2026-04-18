@@ -96,6 +96,20 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--idxstats",
+        nargs="+",
+        type=Path,
+        default=None,
+        metavar="JSON",
+        help=(
+            "Paths to per-sample 'reads_summary.json' sidecars produced "
+            "by csc-extract.  When supplied, an absolute-burden matrix "
+            "(taxa_matrix_abs.tsv) is written using total_reads as the "
+            "denominator.  Samples without a matching sidecar are "
+            "written as NA in the absolute matrix."
+        ),
+    )
+    parser.add_argument(
         "--json-log",
         action="store_true",
         help="Emit structured JSON log lines instead of human-readable text.",
@@ -146,9 +160,12 @@ def main(argv: list[str] | None = None) -> int:
             chunk_size=args.chunk_size,
             rank_filter=tuple(args.rank_filter),
             db_path=args.db_path,
+            idxstats_paths=args.idxstats,
         )
         print(f"  matrix (raw): {result['matrix_raw_path']}")
         print(f"  matrix (cpm): {result['matrix_cpm_path']}")
+        if result.get("matrix_abs_path"):
+            print(f"  matrix (abs): {result['matrix_abs_path']}")
         print(f"  metadata: {result['metadata_path']}")
         print(
             f"  samples: {result['sample_count']}, "
@@ -160,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
         if result["rank_matrices_cpm"]:
             for rank, rpath in sorted(result["rank_matrices_cpm"].items()):
                 print(f"  rank {rank} matrix (cpm): {rpath}")
+        for rank, rpath in sorted((result.get("rank_matrices_abs") or {}).items()):
+            print(f"  rank {rank} matrix (abs): {rpath}")
         return 0
     except Exception as exc:
         log.error("Aggregation failed: %s", exc)

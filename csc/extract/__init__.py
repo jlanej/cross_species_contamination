@@ -4,8 +4,23 @@ Public API
 ----------
 .. autofunction:: extract_reads
 .. autofunction:: build_extract_command
+.. autofunction:: run_idxstats
 """
 
-from csc.extract.extract import ExtractionResult, build_extract_command, extract_reads
+from csc.extract.extract import (
+    READS_SUMMARY_SCHEMA_VERSION,
+    ExtractionResult,
+    ReadsSummary,
+    build_extract_command,
+    extract_reads,
+    run_idxstats,
+)
 
-__all__ = ["ExtractionResult", "build_extract_command", "extract_reads"]
+__all__ = [
+    "ExtractionResult",
+    "ReadsSummary",
+    "READS_SUMMARY_SCHEMA_VERSION",
+    "build_extract_command",
+    "extract_reads",
+    "run_idxstats",
+]

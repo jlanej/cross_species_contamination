@@ -1040,3 +1040,229 @@ def _read_matrix(path: Path) -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Absolute-burden matrix (idxstats ingestion)
+# ---------------------------------------------------------------------------
+
+
+def _write_reads_summary(
+    path: Path, sample_id: str, total_mapped: int, total_unmapped: int
+) -> Path:
+    """Write a minimal reads_summary.json sidecar."""
+    doc = {
+        "schema_version": "1.0",
+        "sample_id": sample_id,
+        "input": f"/fake/{sample_id}.bam",
+        "extraction_time": "2024-01-01T00:00:00+00:00",
+        "total_mapped": total_mapped,
+        "total_unmapped": total_unmapped,
+        "total_reads": total_mapped + total_unmapped,
+        "per_chromosome": [
+            {"chrom": "chr1", "length": 1000, "mapped": total_mapped,
+             "unmapped": 0},
+            {"chrom": "*", "length": 0, "mapped": 0,
+             "unmapped": total_unmapped},
+        ],
+    }
+    path.write_text(json.dumps(doc))
+    return path
+
+
+class TestAbsoluteBurden:
+    """Tests for the absolute-burden matrix produced from idxstats sidecars."""
+
+    def test_idxstats_loader(self, tmp_path: Path) -> None:
+        from csc.aggregate.aggregate import load_idxstats_map, load_reads_summary
+
+        s1 = _write_reads_summary(tmp_path / "s1.reads_summary.json", "s1", 90, 10)
+        s2 = _write_reads_summary(tmp_path / "s2.reads_summary.json", "s2", 1000, 0)
+        m = load_idxstats_map([s1, s2])
+        assert set(m.keys()) == {"s1", "s2"}
+        assert m["s1"]["total_reads"] == 100
+
+        # Individual loader
+        doc = load_reads_summary(s1)
+        assert doc["total_mapped"] == 90
+
+    def test_load_reads_summary_missing(self, tmp_path: Path) -> None:
+        from csc.aggregate.aggregate import load_reads_summary
+        with pytest.raises(FileNotFoundError):
+            load_reads_summary(tmp_path / "nope.json")
+
+    def test_load_reads_summary_invalid(self, tmp_path: Path) -> None:
+        from csc.aggregate.aggregate import load_reads_summary
+        bad = tmp_path / "bad.json"
+        bad.write_text(json.dumps({"not": "valid"}))
+        with pytest.raises(ValueError, match="Invalid reads_summary"):
+            load_reads_summary(bad)
+
+    def test_load_idxstats_map_skips_invalid(self, tmp_path: Path) -> None:
+        from csc.aggregate.aggregate import load_idxstats_map
+        good = _write_reads_summary(tmp_path / "good.reads_summary.json", "good", 1, 1)
+        bad = tmp_path / "bad.reads_summary.json"
+        bad.write_text("{}")
+        missing = tmp_path / "missing.reads_summary.json"
+        m = load_idxstats_map([good, bad, missing])
+        assert list(m.keys()) == ["good"]
+
+    def test_abs_matrix_written_when_idxstats_supplied(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        sidecars = [
+            _write_reads_summary(
+                tmp_path / f"{sid}.reads_summary.json", sid, mapped, unmapped
+            )
+            for sid, mapped, unmapped in [
+                ("sampleA", 900, 100),
+                ("sampleB", 500_000, 500_000),
+                ("sampleC", 50, 50),
+            ]
+        ]
+
+        result = aggregate_reports(
+            reports, tmp_path / "out", idxstats_paths=sidecars,
+        )
+        assert "matrix_abs_path" in result
+        assert result["matrix_abs_path"].exists()
+        assert "S" in result["rank_matrices_abs"]
+
+        # Metadata exposes schema version, provenance, and the abs matrix path
+        with open(result["metadata_path"]) as fh:
+            meta = json.load(fh)
+        assert meta["absolute_burden_enabled"] is True
+        assert "abs" in meta["matrix_paths"]
+        assert meta["schema_version"]
+        assert meta["sample_provenance"]["sampleA"]["total_reads"] == 1000
+        assert meta["samples_without_idxstats"] == []
+
+        # Verify absolute-burden math: sampleA has direct_reads=50 for
+        # Staphylococcus aureus (tax_id 1280) and total_reads=1000
+        # → 50 / 1000 * 1e6 = 50000 CPM-of-total.
+        with open(result["matrix_abs_path"]) as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            rows = {int(r["tax_id"]): r for r in reader}
+        assert rows[1280]["sampleA"] == f"{50_000.0:.4f}"
+
+    def test_abs_matrix_na_for_missing_sidecar(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """Samples lacking a sidecar must appear as NA in the abs matrix."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        # Only provide a sidecar for sampleA
+        sidecars = [
+            _write_reads_summary(
+                tmp_path / "sampleA.reads_summary.json", "sampleA", 900, 100
+            ),
+        ]
+        result = aggregate_reports(
+            reports, tmp_path / "out", idxstats_paths=sidecars,
+        )
+        with open(result["matrix_abs_path"]) as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            rows = list(reader)
+        # Non-sampleA columns should be NA
+        for r in rows:
+            assert r["sampleB"] == "NA"
+            assert r["sampleC"] == "NA"
+            # sampleA has a numeric value (may be '0.0000')
+            float(r["sampleA"])  # must parse
+        with open(result["metadata_path"]) as fh:
+            meta = json.load(fh)
+        assert set(meta["samples_without_idxstats"]) == {"sampleB", "sampleC"}
+
+    def test_abs_matrix_all_mapped(self, tmp_path: Path) -> None:
+        """Edge case: sample is entirely mapped (no unmapped reads)."""
+        report = _write_report(
+            tmp_path / "allmapped.kraken2.report.txt",
+            "100.00\t1000\t1000\tU\t0\tunclassified\n"
+            "0.00\t0\t0\tR\t1\troot\n",
+        )
+        sc = _write_reads_summary(
+            tmp_path / "allmapped.reads_summary.json", "allmapped", 1000, 0
+        )
+        result = aggregate_reports(
+            [report], tmp_path / "out", idxstats_paths=[sc]
+        )
+        assert result["matrix_abs_path"].exists()
+
+    def test_abs_matrix_all_unmapped(self, tmp_path: Path) -> None:
+        """Edge case: >99% unmapped (common for heavy contamination)."""
+        report = _write_report(
+            tmp_path / "heavy.kraken2.report.txt",
+            "10.00\t10\t10\tU\t0\tunclassified\n"
+            "90.00\t990\t990\tS\t562\tEscherichia coli\n",
+        )
+        sc = _write_reads_summary(
+            tmp_path / "heavy.reads_summary.json", "heavy", 5, 995
+        )
+        result = aggregate_reports(
+            [report], tmp_path / "out", idxstats_paths=[sc]
+        )
+        with open(result["matrix_abs_path"]) as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            rows = {int(r["tax_id"]): r for r in reader}
+        # 990 E. coli reads / 1000 total sequenced * 1e6 = 990_000
+        assert rows[562]["heavy"] == f"{990_000.0:.4f}"
+
+    def test_abs_matrix_zero_total_reads(self, basic_report: Path, tmp_path: Path) -> None:
+        """Zero total_reads should not divide-by-zero; produces NA."""
+        sc = _write_reads_summary(
+            tmp_path / "sample_A.reads_summary.json", "sample_A", 0, 0
+        )
+        result = aggregate_reports(
+            [basic_report], tmp_path / "out", idxstats_paths=[sc]
+        )
+        with open(result["matrix_abs_path"]) as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            for r in reader:
+                assert r["sample_A"] == "NA"
+
+    def test_abs_matrix_not_written_without_idxstats(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """No ``matrix_abs_path`` when no sidecars are supplied."""
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        result = aggregate_reports(reports, tmp_path / "out")
+        assert "matrix_abs_path" not in result
+        assert not (tmp_path / "out" / "taxa_matrix_abs.tsv").exists()
+        with open(result["metadata_path"]) as fh:
+            meta = json.load(fh)
+        assert meta["absolute_burden_enabled"] is False
+
+    def test_cli_idxstats_flag(
+        self, report_dir: Path, tmp_path: Path
+    ) -> None:
+        """``--idxstats`` CLI flag must trigger abs-matrix emission."""
+        from csc.aggregate.cli import main
+
+        reports = sorted(report_dir.glob("*.kraken2.report.txt"))
+        sc = _write_reads_summary(
+            tmp_path / "sampleA.reads_summary.json", "sampleA", 900, 100
+        )
+        out = tmp_path / "cli_abs"
+        rc = main(
+            [str(reports[0]), str(reports[1]), str(reports[2]),
+             "-o", str(out), "--idxstats", str(sc)]
+        )
+        assert rc == 0
+        assert (out / "taxa_matrix_abs.tsv").exists()
+
+
+class TestTypedFilenames:
+    """Smoke tests for the typed filename helpers supporting 'abs'."""
+
+    def test_abs_unfiltered_name(self) -> None:
+        from csc.aggregate.aggregate import typed_matrix_filename
+        assert typed_matrix_filename("abs") == "taxa_matrix_abs.tsv"
+
+    def test_abs_rank_name(self) -> None:
+        from csc.aggregate.aggregate import typed_rank_matrix_filename
+        assert typed_rank_matrix_filename("S", "abs") == "taxa_matrix_abs_S.tsv"
+
+    def test_invalid_matrix_type(self) -> None:
+        from csc.aggregate.aggregate import typed_matrix_filename
+        with pytest.raises(ValueError):
+            typed_matrix_filename("bogus")

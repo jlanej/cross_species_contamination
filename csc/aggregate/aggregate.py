@@ -52,7 +52,7 @@ class TaxonRecord(TypedDict):
     percentage: float
 
 
-class AggregationResult(TypedDict):
+class AggregationResult(TypedDict, total=False):
     """Return type for :func:`aggregate_reports`."""
 
     matrix_raw_path: Path
@@ -63,6 +63,10 @@ class AggregationResult(TypedDict):
     rank_matrices_raw: dict[str, Path]
     rank_matrices_cpm: dict[str, Path]
     rank_metadata_path: Path
+    # Absolute-burden outputs (present when reads_summary.json sidecars
+    # are supplied via the ``idxstats_paths`` parameter).
+    matrix_abs_path: Path
+    rank_matrices_abs: dict[str, Path]
 
 
 # Valid Kraken2 rank codes.
@@ -71,6 +75,11 @@ VALID_RANK_CODES = ("U", "R", "D", "P", "C", "O", "F", "G", "S")
 # Default ranks for which per-rank filtered matrices are produced.
 DEFAULT_RANK_FILTER: tuple[str, ...] = ("S", "G", "F")
 
+# Schema version for aggregation outputs.  Bump on breaking changes to
+# the matrix format / metadata JSON so downstream consumers (detect,
+# reporting, the PR #55 summary report) can detect and adapt.
+AGGREGATION_SCHEMA_VERSION = "1.1"
+
 
 def typed_matrix_filename(matrix_type: str) -> str:
     """Return canonical filename for a typed unfiltered matrix.
@@ -78,10 +87,12 @@ def typed_matrix_filename(matrix_type: str) -> str:
     Parameters
     ----------
     matrix_type:
-        Matrix type code, typically ``"raw"`` or ``"cpm"``.
+        Matrix type code: ``"raw"`` (integer counts), ``"cpm"``
+        (relative, per-million of classified reads) or ``"abs"``
+        (absolute burden, per-million of *total sequenced reads*).
     """
-    if matrix_type not in ("raw", "cpm"):
-        raise ValueError("matrix_type must be 'raw' or 'cpm'")
+    if matrix_type not in ("raw", "cpm", "abs"):
+        raise ValueError("matrix_type must be 'raw', 'cpm', or 'abs'")
     return f"taxa_matrix_{matrix_type}.tsv"
 
 
@@ -93,13 +104,70 @@ def typed_rank_matrix_filename(rank: str, matrix_type: str) -> str:
     rank:
         Kraken2 rank code (for example ``"S"``, ``"G"``, ``"F"``).
     matrix_type:
-        Matrix type code, typically ``"raw"`` or ``"cpm"``.
+        Matrix type code: ``"raw"``, ``"cpm"``, or ``"abs"``.
     """
     if rank not in VALID_RANK_CODES:
         raise ValueError(f"rank must be one of: {VALID_RANK_CODES}")
-    if matrix_type not in ("raw", "cpm"):
-        raise ValueError("matrix_type must be 'raw' or 'cpm'")
+    if matrix_type not in ("raw", "cpm", "abs"):
+        raise ValueError("matrix_type must be 'raw', 'cpm', or 'abs'")
     return f"taxa_matrix_{matrix_type}_{rank}.tsv"
+
+
+# ---- idxstats sidecar ingestion ---------------------------------------------
+
+
+def load_reads_summary(path: str | Path) -> dict[str, Any]:
+    """Load a ``reads_summary.json`` sidecar produced by ``csc-extract``.
+
+    The file must contain at least ``sample_id`` and ``total_reads``
+    keys.  See :data:`csc.extract.extract.READS_SUMMARY_SCHEMA_VERSION`
+    for the output schema.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    ValueError
+        If the required fields are missing.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"reads_summary.json not found: {p}")
+    with open(p) as fh:
+        doc = json.load(fh)
+    if "sample_id" not in doc or "total_reads" not in doc:
+        raise ValueError(
+            f"Invalid reads_summary.json (missing sample_id/total_reads): {p}"
+        )
+    return doc
+
+
+def load_idxstats_map(
+    paths: list[str | Path] | None,
+) -> dict[str, dict[str, Any]]:
+    """Parse a list of ``reads_summary.json`` paths into a sample_id map.
+
+    Duplicate ``sample_id`` entries emit a warning and the latter wins.
+    Invalid files emit a warning and are skipped so that aggregation can
+    proceed for the remaining samples.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    if not paths:
+        return out
+    for p in paths:
+        try:
+            doc = load_reads_summary(p)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.warning("Skipping invalid idxstats sidecar %s: %s", p, exc)
+            continue
+        sid = str(doc["sample_id"])
+        if sid in out:
+            logger.warning(
+                "Duplicate sample_id '%s' in idxstats sidecars; overwriting "
+                "previous entry from %s", sid, p,
+            )
+        out[sid] = doc
+    return out
 
 
 # ---- Parsing -----------------------------------------------------------------
@@ -230,6 +298,7 @@ def aggregate_reports(
     chunk_size: int = 500,
     rank_filter: tuple[str, ...] | list[str] = DEFAULT_RANK_FILTER,
     db_path: str | Path | None = None,
+    idxstats_paths: list[str | Path] | None = None,
 ) -> AggregationResult:
     """Build a sample-by-taxon matrix from Kraken2 reports.
 
@@ -238,11 +307,23 @@ def aggregate_reports(
     direct-read counts (``taxa_matrix_raw.tsv``) and one with
     counts-per-million normalised values (``taxa_matrix_cpm.tsv``).
 
+    When *idxstats_paths* is provided (``reads_summary.json`` sidecars
+    emitted by ``csc-extract``), a third matrix ``taxa_matrix_abs.tsv``
+    is also written.  Its values are the **absolute contamination
+    burden** per taxon, expressed as reads per million *total sequenced
+    reads* (i.e. ``raw_count / total_reads * 1e6``).  Unlike CPM – which
+    is a composition among classified reads – absolute burden gives the
+    true magnitude of contaminant content per sample and is the metric
+    to use when judging downstream impact on variant calling or
+    assembly (see `Natarajan et al., Nat Biotechnol 2023
+    <https://www.nature.com/articles/s41587-023-01732-6>`_).
+
     In addition to the unfiltered matrices, per-rank filtered matrices are
     written for each rank code in *rank_filter* (e.g.
-    ``taxa_matrix_raw_S.tsv`` / ``taxa_matrix_cpm_S.tsv`` for species).
-    A sidecar ``rank_filter_metadata.json`` records which taxa were
-    retained in each rank.
+    ``taxa_matrix_raw_S.tsv`` / ``taxa_matrix_cpm_S.tsv`` /
+    ``taxa_matrix_abs_S.tsv`` for species).  A sidecar
+    ``rank_filter_metadata.json`` records which taxa were retained in
+    each rank.
 
     When *db_path* is provided, the taxonomy tree (``taxonomy/nodes.dmp``)
     is loaded and every taxon row is annotated with a lineage-aware
@@ -268,6 +349,14 @@ def aggregate_reports(
         Optional path to the Kraken2 database directory.  When provided,
         ``taxonomy/nodes.dmp`` is loaded and a ``domain`` column is added
         to every output matrix.
+    idxstats_paths:
+        Optional list of ``{sample_id}.reads_summary.json`` sidecars
+        (as produced by ``csc-extract``).  Used to populate
+        ``total_reads`` per sample and emit the absolute-burden matrix.
+        Samples missing a sidecar are still written to the raw/CPM
+        matrices and recorded in ``aggregation_metadata.json`` under
+        ``samples_without_idxstats``; they appear as ``NA`` rows in the
+        absolute matrix.
 
     Returns
     -------
@@ -293,6 +382,9 @@ def aggregate_reports(
             f"Invalid rank code(s): {invalid}. "
             f"Valid codes are: {VALID_RANK_CODES}"
         )
+
+    # Load optional idxstats sidecars for absolute-burden denominators.
+    idxstats_map = load_idxstats_map(idxstats_paths)
 
     # Accumulate per-sample data: {sample_id: {tax_id: count}}
     sample_data: dict[str, dict[int, int]] = {}
@@ -408,12 +500,48 @@ def aggregate_reports(
         tax_domains=tax_domains,
     )
 
-    # Write per-rank filtered matrices (always raw + CPM)
+    # Absolute-burden outputs (per-million total sequenced reads) –
+    # only produced when idxstats sidecars are provided.  Samples
+    # missing a sidecar are written as ``NA`` so readers can clearly
+    # distinguish "no denominator" from "zero reads".
+    matrix_abs_path: Path | None = None
+    sample_total_reads: dict[str, int] = {}
+    samples_without_idxstats: list[str] = []
+    if idxstats_map:
+        for sid in sample_ids:
+            doc = idxstats_map.get(sid)
+            if doc is None:
+                samples_without_idxstats.append(sid)
+            else:
+                sample_total_reads[sid] = int(doc.get("total_reads", 0))
+        if samples_without_idxstats:
+            logger.warning(
+                "No idxstats sidecar for %d sample(s); absolute-burden "
+                "values will be NA for: %s",
+                len(samples_without_idxstats),
+                ", ".join(samples_without_idxstats),
+            )
+        matrix_abs_path = output_dir / typed_matrix_filename("abs")
+        _write_matrix(
+            matrix_abs_path,
+            sample_ids=sample_ids,
+            all_taxa=all_taxa,
+            tax_names=tax_names,
+            sample_data=sample_data,
+            sample_totals=sample_totals,
+            normalize=False,
+            tax_domains=tax_domains,
+            absolute=True,
+            sample_total_reads=sample_total_reads,
+        )
+
+    # Write per-rank filtered matrices (raw + CPM, plus abs when idxstats supplied)
     # For species (S) rank, direct_reads is used; for higher ranks (G, F, etc.)
     # clade_reads is used so that genus/family matrices capture descendant
     # species abundance rather than being misleadingly sparse.
     rank_matrices_raw: dict[str, Path] = {}
     rank_matrices_cpm: dict[str, Path] = {}
+    rank_matrices_abs: dict[str, Path] = {}
     rank_sidecar: dict[str, Any] = {}
     for rank in rank_filter:
         rank_taxa = [t for t in all_taxa if tax_ranks.get(t) == rank]
@@ -451,7 +579,7 @@ def aggregate_reports(
         )
         rank_matrices_cpm[rank] = rank_cpm_path
 
-        rank_sidecar[rank] = {
+        rank_entry: dict[str, Any] = {
             "matrix_raw_path": str(rank_raw_path),
             "matrix_cpm_path": str(rank_cpm_path),
             "taxon_count": len(rank_taxa),
@@ -460,12 +588,32 @@ def aggregate_reports(
                 for t in rank_taxa
             ],
         }
+
+        if idxstats_map:
+            rank_abs_path = output_dir / typed_rank_matrix_filename(rank, "abs")
+            _write_matrix(
+                rank_abs_path,
+                sample_ids=sample_ids,
+                all_taxa=rank_taxa,
+                tax_names=tax_names,
+                sample_data=data_for_rank,
+                sample_totals=sample_totals,
+                normalize=False,
+                tax_domains=tax_domains,
+                absolute=True,
+                sample_total_reads=sample_total_reads,
+            )
+            rank_matrices_abs[rank] = rank_abs_path
+            rank_entry["matrix_abs_path"] = str(rank_abs_path)
+
+        rank_sidecar[rank] = rank_entry
         logger.info(
-            "Rank '%s': wrote %d taxa to %s / %s",
+            "Rank '%s': wrote %d taxa to %s / %s%s",
             rank,
             len(rank_taxa),
             rank_raw_path,
             rank_cpm_path,
+            f" / {rank_matrices_abs[rank]}" if rank in rank_matrices_abs else "",
         )
 
     # Write rank-filter metadata sidecar
@@ -478,33 +626,59 @@ def aggregate_reports(
         json.dump(rank_meta_doc, fh, indent=2)
 
     # Write metadata
+    matrix_paths_meta: dict[str, str] = {
+        "raw": matrix_raw_path.name,
+        "cpm": matrix_cpm_path.name,
+    }
+    if matrix_abs_path is not None:
+        matrix_paths_meta["abs"] = matrix_abs_path.name
+
+    # Per-sample provenance for absolute-burden denominator (used by
+    # downstream reporting – notably the PR #55 summary report – to
+    # document how each absolute-burden value was computed).
+    sample_provenance: dict[str, dict[str, Any]] = {}
+    for sid in sample_ids:
+        doc = idxstats_map.get(sid) if idxstats_map else None
+        sample_provenance[sid] = {
+            "total_reads": doc.get("total_reads") if doc else None,
+            "total_mapped": doc.get("total_mapped") if doc else None,
+            "total_unmapped": doc.get("total_unmapped") if doc else None,
+            "source_input": doc.get("input") if doc else None,
+            "extraction_time": doc.get("extraction_time") if doc else None,
+        }
+
     metadata_path = output_dir / "aggregation_metadata.json"
     meta: dict[str, Any] = {
+        "schema_version": AGGREGATION_SCHEMA_VERSION,
         "sample_count": len(sample_ids),
         "taxon_count": len(all_taxa),
         "min_reads": min_reads,
-        "matrix_paths": {
-            "raw": matrix_raw_path.name,
-            "cpm": matrix_cpm_path.name,
-        },
+        "matrix_paths": matrix_paths_meta,
         "rank_filter": list(rank_filter),
         "domain_annotated": db_path is not None,
+        "absolute_burden_enabled": bool(idxstats_map),
         "samples": sample_ids,
+        "samples_without_idxstats": samples_without_idxstats,
+        "sample_provenance": sample_provenance,
         "errors": errors,
     }
     with open(metadata_path, "w") as fh:
         json.dump(meta, fh, indent=2)
 
-    return AggregationResult(
-        matrix_raw_path=matrix_raw_path,
-        matrix_cpm_path=matrix_cpm_path,
-        metadata_path=metadata_path,
-        sample_count=len(sample_ids),
-        taxon_count=len(all_taxa),
-        rank_matrices_raw=rank_matrices_raw,
-        rank_matrices_cpm=rank_matrices_cpm,
-        rank_metadata_path=rank_metadata_path,
-    )
+    result: AggregationResult = {
+        "matrix_raw_path": matrix_raw_path,
+        "matrix_cpm_path": matrix_cpm_path,
+        "metadata_path": metadata_path,
+        "sample_count": len(sample_ids),
+        "taxon_count": len(all_taxa),
+        "rank_matrices_raw": rank_matrices_raw,
+        "rank_matrices_cpm": rank_matrices_cpm,
+        "rank_metadata_path": rank_metadata_path,
+    }
+    if matrix_abs_path is not None:
+        result["matrix_abs_path"] = matrix_abs_path
+        result["rank_matrices_abs"] = rank_matrices_abs
+    return result
 
 
 def _write_matrix(
@@ -517,14 +691,29 @@ def _write_matrix(
     sample_totals: dict[str, int],
     normalize: bool,
     tax_domains: dict[int, str] | None = None,
+    absolute: bool = False,
+    sample_total_reads: dict[str, int] | None = None,
 ) -> None:
     """Write the taxa-by-sample matrix as a TSV file.
 
     Rows are taxa; columns are samples.  First two columns are
     ``tax_id`` and ``name``.  When *tax_domains* is provided a
     ``domain`` column is inserted after ``name``.
+
+    Three value modes are supported:
+
+    * ``normalize=False, absolute=False`` – raw integer direct-reads.
+    * ``normalize=True,  absolute=False`` – CPM among classified reads
+      (denominator ``sample_totals[sid]``).
+    * ``absolute=True`` – absolute burden per million total sequenced
+      reads (denominator ``sample_total_reads[sid]``, from
+      ``reads_summary.json``).  Samples without an idxstats sidecar are
+      written as ``NA`` so the distinction from "zero reads" is
+      preserved downstream.
     """
     has_domain = tax_domains is not None
+    if absolute and sample_total_reads is None:
+        raise ValueError("absolute=True requires sample_total_reads")
     with open(path, "w", newline="") as fh:
         writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
         # Header
@@ -539,7 +728,13 @@ def _write_matrix(
                 row.append(tax_domains.get(tid, ""))  # type: ignore[union-attr]
             for sid in sample_ids:
                 raw = sample_data[sid].get(tid, 0)
-                if normalize:
+                if absolute:
+                    total_reads = (sample_total_reads or {}).get(sid)
+                    if total_reads is None or total_reads <= 0:
+                        row.append("NA")
+                    else:
+                        row.append(f"{raw / total_reads * 1_000_000:.4f}")
+                elif normalize:
                     total = sample_totals[sid]
                     value = (raw / total * 1_000_000) if total > 0 else 0.0
                     row.append(f"{value:.4f}")

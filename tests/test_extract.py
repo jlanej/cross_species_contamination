@@ -405,3 +405,113 @@ class TestCLISummary:
             rows = list(reader)
         assert len(rows) == 1
         assert rows[0]["status"] == "FAILED"
+
+
+# ---------------------------------------------------------------------------
+# idxstats sidecars – per-sample mapped/unmapped counts
+# ---------------------------------------------------------------------------
+
+
+class TestIdxstats:
+    """Verify ``samtools idxstats`` sidecars emitted at extract time."""
+
+    def test_idxstats_sidecars_produced(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        from csc.extract.extract import run_idxstats
+
+        summary = run_idxstats(test_bam, tmp_path / "idx", sample_id="s1")
+        idx_tsv = tmp_path / "idx" / "s1.idxstats.tsv"
+        idx_json = tmp_path / "idx" / "s1.reads_summary.json"
+        assert idx_tsv.exists()
+        assert idx_json.exists()
+
+        # Aggregate totals match the synthetic BAM composition:
+        # 20 mapped pairs + 5 low-MAPQ pairs = 50 mapped reads
+        # 10 unmapped pairs = 20 unmapped reads
+        assert summary["total_mapped"] == 50
+        assert summary["total_unmapped"] == 20
+        assert summary["total_reads"] == 70
+
+        # Round-trip through the JSON sidecar
+        with open(idx_json) as fh:
+            doc = json.load(fh)
+        assert doc["sample_id"] == "s1"
+        assert doc["total_reads"] == 70
+        assert doc["schema_version"]  # present and non-empty
+        assert doc["input"].endswith(".bam")
+        assert doc["extraction_time"]
+        # Per-chromosome breakdown: chr1, chr2, plus the '*' unmapped row
+        chroms = {row["chrom"] for row in doc["per_chromosome"]}
+        assert "chr1" in chroms and "chr2" in chroms and "*" in chroms
+
+    def test_idxstats_raw_tsv_matches_samtools(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """The raw TSV sidecar must match ``samtools idxstats`` verbatim."""
+        from csc.extract.extract import _find_samtools, run_idxstats
+
+        run_idxstats(test_bam, tmp_path / "idx", sample_id="s2")
+        ours = (tmp_path / "idx" / "s2.idxstats.tsv").read_text()
+        expected = subprocess.check_output(
+            [_find_samtools(), "idxstats", str(test_bam)]
+        ).decode()
+        assert ours == expected
+
+    def test_extract_reads_emits_idxstats(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """``extract_reads`` must always emit the idxstats sidecars."""
+        result = extract_reads(test_bam, tmp_path / "out", sample_id="extr")
+        assert result["total_mapped"] == 50
+        assert result["total_unmapped"] == 20
+        assert result["total_reads"] == 70
+        assert Path(result["idxstats_path"]).exists()
+        assert Path(result["reads_summary_path"]).exists()
+
+    def test_cram_idxstats(
+        self, test_cram: Path, test_reference: Path, tmp_path: Path
+    ) -> None:
+        """idxstats must work on indexed CRAM files."""
+        from csc.extract.extract import run_idxstats
+
+        summary = run_idxstats(
+            test_cram, tmp_path / "idx", sample_id="c1", reference=test_reference
+        )
+        assert summary["total_mapped"] == 50
+        assert summary["total_unmapped"] == 20
+
+    def test_idxstats_in_cli_summary(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """CLI --summary should include idxstats total columns."""
+        from csc.extract.cli import main
+
+        summary_path = tmp_path / "summary.tsv"
+        rc = main([
+            str(test_bam), "-o", str(tmp_path / "cli_idx_out"),
+            "--summary", str(summary_path),
+        ])
+        assert rc == 0
+        with open(summary_path) as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            rows = list(reader)
+        assert rows[0]["total_mapped"] == "50"
+        assert rows[0]["total_unmapped"] == "20"
+        assert rows[0]["total_reads"] == "70"
+
+    def test_run_idxstats_missing_index_is_nonfatal_for_extract(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """If extract_reads cannot compute idxstats, it should still succeed."""
+        import shutil as _shutil
+
+        # Copy the BAM without its .bai so idxstats fails
+        unindexed = tmp_path / "noidx.bam"
+        _shutil.copy(test_bam, unindexed)
+        # No corresponding .bai – extract_reads should skip the sidecar
+        result = extract_reads(unindexed, tmp_path / "out")
+        # Core extraction still worked
+        assert result["read_count"] == EXPECTED_UNMAPPED_READS * 2
+        # idxstats fields may be absent
+        assert "total_reads" not in result or result.get("total_reads") is not None

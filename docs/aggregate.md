@@ -90,6 +90,7 @@ csc-aggregate reports/*.kraken2.report.txt -o results/ -v --json-log
 | `--min-reads` | Minimum direct reads to include a taxon | `0` |
 | `--chunk-size` | Reports per processing chunk | `500` |
 | `--rank-filter` | Taxonomy rank codes for per-rank matrices | `S G F` |
+| `--idxstats` | Per-sample `reads_summary.json` paths (from `csc-extract`); enables `taxa_matrix_abs.tsv` | _none_ |
 | `--json-log` | Structured JSON logging | `False` |
 | `-v, --verbose` | DEBUG-level logging | `False` |
 
@@ -143,6 +144,37 @@ etc.), values are `clade_reads` (reads rooted at that taxon, including
 all descendant species).  This ensures genus/family matrices capture
 total abundance rather than being misleadingly sparse.
 
+### `taxa_matrix_abs.tsv` (absolute contaminant burden)
+
+Produced **only** when `--idxstats PATH [PATH ...]` supplies the
+per-sample `reads_summary.json` sidecars emitted by `csc-extract`
+(see [docs/extract.md](extract.md)).
+
+Each cell is the contaminant read count expressed as
+`raw_count / total_reads * 1_000_000` – i.e. **per-million total
+sequenced reads**, not per-million classified reads.  This is the
+absolute contamination burden metric recommended by
+[Natarajan et al., Nat Biotechnol 2023](https://www.nature.com/articles/s41587-023-01732-6)
+and is the correct denominator when judging downstream impact of
+contamination on variant calling, assembly, or expression quantitation.
+
+Samples whose `sample_id` does not match any supplied idxstats sidecar
+are written as `NA` in every row of the absolute matrix, and listed
+under `samples_without_idxstats` in `aggregation_metadata.json` so
+downstream reports can flag them clearly.
+
+> **Denominator cheat-sheet**
+>
+> | Matrix | Cell value | Denominator | Interpretation |
+> |---|---|---|---|
+> | `taxa_matrix_raw.tsv` | `direct_reads` (or `clade_reads` for G/F) | – | Integer counts |
+> | `taxa_matrix_cpm.tsv` | `raw / classified_total * 1e6` | Sum of classified direct reads (pre-filter) | Composition **among contaminants** |
+> | `taxa_matrix_abs.tsv` | `raw / total_reads * 1e6` | `total_mapped + total_unmapped` at extract | **Absolute burden** per million sequenced |
+
+Per-rank absolute matrices (`taxa_matrix_abs_S.tsv`,
+`taxa_matrix_abs_G.tsv`, …) are written alongside the raw/CPM rank
+matrices for the same rank codes requested via `--rank-filter`.
+
 ### `rank_filter_metadata.json`
 
 ```json
@@ -152,6 +184,7 @@ total abundance rather than being misleadingly sparse.
     "S": {
       "matrix_raw_path": "results/taxa_matrix_raw_S.tsv",
       "matrix_cpm_path": "results/taxa_matrix_cpm_S.tsv",
+      "matrix_abs_path": "results/taxa_matrix_abs_S.tsv",
       "taxon_count": 15,
       "taxa": [
         {"tax_id": 562, "name": "Escherichia coli"},
@@ -162,21 +195,61 @@ total abundance rather than being misleadingly sparse.
 }
 ```
 
+The `matrix_abs_path` entry is present only when idxstats sidecars were
+supplied.
+
 ### `aggregation_metadata.json`
 
 ```json
 {
+  "schema_version": "1.1",
   "sample_count": 3,
   "taxon_count": 25,
   "min_reads": 10,
   "matrix_paths": {
     "raw": "taxa_matrix_raw.tsv",
-    "cpm": "taxa_matrix_cpm.tsv"
+    "cpm": "taxa_matrix_cpm.tsv",
+    "abs": "taxa_matrix_abs.tsv"
   },
+  "absolute_burden_enabled": true,
   "samples": ["sampleA", "sampleB", "sampleC"],
+  "samples_without_idxstats": [],
+  "sample_provenance": {
+    "sampleA": {
+      "total_reads": 912469134,
+      "total_mapped": 900123456,
+      "total_unmapped": 12345678,
+      "source_input": "/abs/path/sampleA.bam",
+      "extraction_time": "2024-01-01T12:00:00+00:00"
+    }
+  },
   "errors": []
 }
 ```
+
+`sample_provenance` carries the exact denominator used for each
+sample's absolute-burden column, plus the source BAM path and
+extraction timestamp.  This is the canonical join key for reporting
+modules (e.g. the upcoming **PR #55 non-human contamination summary
+report**) – it lets figure captions cite "denominator = `total_reads`
+from extract, captured at `extraction_time`, for input `source_input`".
+
+## Downstream integration — breadcrumbs for PR #55
+
+The PR #55 summary-report agent should:
+
+1. Load `taxa_matrix_abs.tsv` alongside `taxa_matrix_cpm.tsv` so every
+   heatmap / scatterplot carries both a **relative** (composition among
+   contaminants) and an **absolute** (per-million sequenced) panel.
+2. Join sample columns against
+   `aggregation_metadata.json → sample_provenance[sample_id]` for
+   figure-caption provenance (input BAM, `total_reads`,
+   `extraction_time`).
+3. Honour `samples_without_idxstats` by rendering such samples greyed
+   out / "NA" in absolute-burden plots rather than silently omitting
+   them.
+4. Check `schema_version` in the metadata and refuse to render if the
+   schema is newer than what the report knows about.
 
 ## Configuration
 
