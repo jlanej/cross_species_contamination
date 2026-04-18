@@ -66,9 +66,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--method",
-        choices=["mad", "iqr"],
-        default="mad",
-        help="Outlier detection method (default: mad).",
+        choices=["all", "mad", "iqr", "gmm"],
+        default="all",
+        help=(
+            "Outlier detection method (default: all).  'all' runs MAD, "
+            "IQR, and GMM together — recommended because the methods "
+            "are complementary."
+        ),
     )
     parser.add_argument(
         "--mad-threshold",
@@ -86,6 +90,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Multiplier for the IQR fence in IQR-based detection "
             "(default: 1.5)."
+        ),
+    )
+    parser.add_argument(
+        "--gmm-threshold",
+        type=float,
+        default=0.5,
+        help=(
+            "Posterior-probability threshold for the contamination "
+            "component in GMM-based detection (default: 0.5)."
         ),
     )
     parser.add_argument(
@@ -182,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
             method=args.method,
             mad_threshold=args.mad_threshold,
             iqr_multiplier=args.iqr_multiplier,
+            gmm_threshold=args.gmm_threshold,
             kitome_taxa=args.kitome_taxa,
             subtract_background=not args.no_subtract_background,
         )
@@ -216,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
                 method=args.method,
                 mad_threshold=args.mad_threshold,
                 iqr_multiplier=args.iqr_multiplier,
+                gmm_threshold=args.gmm_threshold,
                 kitome_taxa=args.kitome_taxa,
                 subtract_background=not args.no_subtract_background,
             )
