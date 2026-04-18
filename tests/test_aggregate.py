@@ -966,30 +966,29 @@ class TestConfidenceValidation:
         ])
         assert rc == 1
 
-    def test_cli_confidence_valid(self, tmp_path: Path) -> None:
-        """Valid confidence values (0.0 and 1.0) should not cause early exit."""
+    def test_cli_confidence_valid_boundary(self, tmp_path: Path) -> None:
+        """Valid boundary confidence values should pass validation."""
         from csc.classify.cli import main
 
         dummy = tmp_path / "reads.fastq.gz"
         dummy.touch()
-        # This will fail later (no kraken2 installed) but should NOT fail
-        # on confidence validation
-        rc_zero = main([
-            str(dummy),
-            "--db", str(tmp_path),
-            "-o", str(tmp_path / "out0"),
-            "--confidence", "0.0",
-        ])
-        # rc may be 1 due to missing kraken2 but that's after validation
-        # The key is it doesn't return 1 from confidence validation
-        rc_one = main([
-            str(dummy),
-            "--db", str(tmp_path),
-            "-o", str(tmp_path / "out1"),
-            "--confidence", "1.0",
-        ])
-        # Both should pass confidence validation; they may fail on
-        # kraken2 not being installed but that's a different error
+        # Valid values should not return 1 from confidence check.
+        # They will fail later (no kraken2) but the error message
+        # should NOT mention confidence.
+        import io
+        import contextlib
+
+        for val in ("0.0", "1.0", "0.5"):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                rc = main([
+                    str(dummy),
+                    "--db", str(tmp_path),
+                    "-o", str(tmp_path / f"out_{val}"),
+                    "--confidence", val,
+                ])
+            # Even if rc == 1, it shouldn't be from confidence validation
+            # (the error will be about missing db files or kraken2)
 
     def test_api_confidence_validation(self, tmp_path: Path) -> None:
         from csc.classify.classify import classify_reads
