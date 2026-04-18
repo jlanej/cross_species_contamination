@@ -18,6 +18,7 @@ csc-classify = "csc.classify.cli:main"
 csc-db = "csc.classify.db_cli:main"
 csc-aggregate = "csc.aggregate.cli:main"
 csc-detect = "csc.detect.cli:main"
+csc-report = "csc.report.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
