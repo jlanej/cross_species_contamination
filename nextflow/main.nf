@@ -62,9 +62,10 @@ params.aggregate_memory = '4 GB'
 params.aggregate_time   = '1h'
 
 // Detect
-params.detect_method          = 'mad'
+params.detect_method          = 'all'
 params.mad_threshold          = 3.5
 params.iqr_multiplier         = 1.5
+params.gmm_threshold          = 0.5
 params.kitome_taxa            = null
 params.no_subtract_background = false
 params.detect_cpus   = 2

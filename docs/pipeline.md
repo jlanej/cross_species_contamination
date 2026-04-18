@@ -68,16 +68,17 @@ SAMPLE_B,/data/crams/sample_b.cram,/data/refs/GRCh38.fa
 
 ### Detect Stage
 
-| Parameter                   | Default | Description                     |
-|-----------------------------|---------|---------------------------------|
-| `--detect_method`           | `mad`   | Outlier method (`mad` or `iqr`) |
-| `--mad_threshold`           | `3.5`   | MAD threshold                   |
-| `--iqr_multiplier`          | `1.5`   | IQR fence multiplier            |
-| `--kitome_taxa`             | `null`  | Space-separated NCBI tax IDs    |
-| `--no_subtract_background`  | `false` | Skip background subtraction     |
-| `--detect_cpus`             | `2`     | CPUs for detection              |
-| `--detect_memory`           | `4 GB`  | Memory for detection            |
-| `--detect_time`             | `1h`    | Wall-time limit for detection   |
+| Parameter                   | Default | Description                                |
+|-----------------------------|---------|--------------------------------------------|
+| `--detect_method`           | `all`   | Outlier method (`all`, `mad`, `iqr`, or `gmm`). `all` runs MAD + IQR + GMM together (recommended). |
+| `--mad_threshold`           | `3.5`   | MAD threshold (modified Z-score)           |
+| `--iqr_multiplier`          | `1.5`   | IQR fence multiplier                       |
+| `--gmm_threshold`           | `0.5`   | GMM posterior probability threshold        |
+| `--kitome_taxa`             | `null`  | Space-separated NCBI tax IDs               |
+| `--no_subtract_background`  | `false` | Skip background subtraction                |
+| `--detect_cpus`             | `2`     | CPUs for detection                         |
+| `--detect_memory`           | `4 GB`  | Memory for detection                       |
+| `--detect_time`             | `1h`    | Wall-time limit for detection              |
 
 ## Execution Profiles
 

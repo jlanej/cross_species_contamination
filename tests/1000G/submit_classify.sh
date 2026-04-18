@@ -109,9 +109,10 @@ MEMORY_MAPPING=0
 MIN_READS=0
 RANK_FILTER="S G F"
 DETECT_MATRIX="cpm"
-DETECT_METHOD="mad"
+DETECT_METHOD="all"
 MAD_THRESHOLD=3.5
 IQR_MULTIPLIER=1.5
+GMM_THRESHOLD=0.5
 SKIP_AGGREGATE=0
 SKIP_DETECT=0
 AGG_CPUS=4
@@ -181,8 +182,8 @@ if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
     exit 1
 fi
 
-if [[ "${DETECT_METHOD}" != "mad" && "${DETECT_METHOD}" != "iqr" ]]; then
-    echo "ERROR: --detect-method must be 'mad' or 'iqr'." >&2
+if [[ "${DETECT_METHOD}" != "all" && "${DETECT_METHOD}" != "mad" && "${DETECT_METHOD}" != "iqr" && "${DETECT_METHOD}" != "gmm" ]]; then
+    echo "ERROR: --detect-method must be 'all', 'mad', 'iqr', or 'gmm'." >&2
     exit 1
 fi
 if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
@@ -507,6 +508,7 @@ AGG_EXPORTS=(
     "DETECT_METHOD=${DETECT_METHOD}"
     "MAD_THRESHOLD=${MAD_THRESHOLD}"
     "IQR_MULTIPLIER=${IQR_MULTIPLIER}"
+    "GMM_THRESHOLD=${GMM_THRESHOLD}"
     "SKIP_DETECT=${SKIP_DETECT}"
     "DB_PATH=${DB_PATH}"
     "CONTAINER_SIF=${CONTAINER_SIF}"
