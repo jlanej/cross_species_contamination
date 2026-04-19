@@ -12,9 +12,9 @@ whole-genome sequencing BAM/CRAM files.
 The pipeline is organised into four modules that run sequentially:
 
 ```
-BAM/CRAM ──► extract ──► classify ──► aggregate ──► detect
-                │            │            │            │
-            FASTQ files   taxa labels   summary     report
+BAM/CRAM ──► extract ──► classify ──► aggregate ──► detect ──► report
+                │            │            │            │           │
+            FASTQ files   taxa labels   matrices     flags     HTML summary
 ```
 
 | Module | Package | Status |
@@ -23,6 +23,7 @@ BAM/CRAM ──► extract ──► classify ──► aggregate ──► dete
 | **Classify** | `csc.classify` | ✅ Implemented |
 | **Aggregate** | `csc.aggregate` | ✅ Implemented |
 | **Detect** | `csc.detect` | ✅ Implemented |
+| **Report** | `csc.report` | ✅ Implemented |
 
 Shared helpers live in `csc.utils` and pipeline-wide settings are managed by
 `csc.config` (see [docs/configuration.md](docs/configuration.md)).
@@ -388,6 +389,7 @@ See the [docs/](docs/) directory for per-module documentation:
 - [Classify](docs/classify.md) — Kraken2 taxonomic classification
 - [Aggregate](docs/aggregate.md) — sample-by-taxon matrix building
 - [Detect](docs/detect.md) — statistical outlier detection
+- [Report](docs/report.md) — static HTML contamination summary report
 - [Configuration](docs/configuration.md) — YAML config reference
 
 ## License

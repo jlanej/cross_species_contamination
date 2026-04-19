@@ -13,6 +13,8 @@ aggregate
     Aggregation of classification results across samples (stub).
 detect
     Statistical detection of cross-species contamination.
+report
+    Static HTML contamination summary report for WGS cohorts.
 """
 
 __version__ = "0.2.0"
