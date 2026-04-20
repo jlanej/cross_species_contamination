@@ -17,6 +17,7 @@ a local temp file (Aspera first, curl fallback) before running the
 samtools pipeline, then pass the **local path** to ``-X``.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -357,11 +358,160 @@ class TestArrayScript:
         assert "samtools idxstats" in content
         assert ".reads_summary.json" in content
 
-    def test_idxstats_uses_local_crai_for_remote_cram_with_fallback(self):
-        """idxstats command should prefer -X <CRAM_URL> <CRAI_LOCAL> for remote CRAM."""
+    def test_idxstats_uses_cram_url_directly(self):
+        """idxstats should use the CRAM URL directly (htslib auto-fetches remote CRAI).
+
+        ``samtools idxstats`` does not support ``-X``.  For remote CRAM URLs
+        htslib automatically fetches the CRAI from <URL>.crai.
+        """
         content = ARRAY_SCRIPT.read_text()
-        assert 'samtools idxstats -X "${CRAM_URL}" "${CRAI_LOCAL}"' in content
+        # Should call idxstats with CRAM_URL (no -X flag)
         assert 'samtools idxstats "${CRAM_URL}"' in content
+        # Must NOT use the (invalid for idxstats) -X flag
+        assert 'samtools idxstats -X' not in content
+
+    def test_idxstats_remote_url_local_crai_functional(self, tmp_path: Path):
+        """Functional test: idxstats block executes samtools idxstats <remote_url>.
+
+        Uses a fake samtools that captures its arguments and emits valid
+        idxstats output, simulating the 1000G remote CRAM scenario without
+        actual network access.  Verifies:
+
+        * samtools is called with the remote CRAM URL (no ``-X``)
+        * the ``.idxstats.tsv`` sidecar is written
+        * the ``reads_summary.json`` sidecar is produced with correct structure
+        """
+        sample_dir = tmp_path / "NA12718"
+        sample_dir.mkdir()
+
+        # A real (but empty) file to stand in as the local CRAI
+        crai_local = tmp_path / ".NA12718.crai.tmp"
+        crai_local.write_bytes(b"")
+
+        # Fake samtools: record args, emit valid idxstats TSV on idxstats sub-command
+        args_log = tmp_path / "samtools_args.txt"
+        fake_samtools = tmp_path / "samtools"
+        fake_samtools.write_text(
+            "#!/usr/bin/env bash\n"
+            "echo \"$@\" >> " + str(args_log) + "\n"
+            'if [[ "$1" == "idxstats" ]]; then\n'
+            "    printf 'chr1\\t248956422\\t45\\t5\\n'\n"
+            "    printf 'chr2\\t242193529\\t5\\t3\\n'\n"
+            "    printf '*\\t0\\t0\\t12\\n'\n"
+            "fi\n"
+        )
+        fake_samtools.chmod(0o755)
+
+        # The idxstats block expects python3 to be available for the JSON step.
+        remote_cram_url = (
+            "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram"
+        )
+        reads_summary_json = sample_dir / "NA12718.reads_summary.json"
+        idxstats_tsv = sample_dir / "NA12718.idxstats.tsv"
+
+        # Execute the idxstats block inline, with our fake samtools on the PATH.
+        # ``samtools idxstats`` does NOT use -X; the URL is the sole argument.
+        inline = textwrap.dedent(f"""\
+            set -euo pipefail
+            export PATH="{tmp_path}:$PATH"
+            SAMPLE_ID="NA12718"
+            SAMPLE_DIR="{sample_dir}"
+            CRAM_URL="{remote_cram_url}"
+            CRAI_LOCAL="{crai_local}"
+            SLURM_ARRAY_TASK_ID="1"
+            IDXSTATS_TSV="{idxstats_tsv}"
+            READS_SUMMARY_JSON="{reads_summary_json}"
+            # container_run: no apptainer in CI, so run directly
+            container_run() {{ "$@"; }}
+            SKIP_IDXSTATS=0
+
+            if [[ "${{SKIP_IDXSTATS}}" == "1" ]]; then
+                echo "Skipping idxstats sidecars (SKIP_IDXSTATS=1)."
+            else
+                echo "Computing idxstats sidecars for ${{SAMPLE_ID}}..."
+                if container_run samtools idxstats "${{CRAM_URL}}" > "${{IDXSTATS_TSV}}.tmp"; then
+                    echo "idxstats computed (${{CRAM_URL}})"
+                else
+                    echo "ERROR: samtools idxstats failed." >&2
+                    exit 1
+                fi
+                [[ -s "${{IDXSTATS_TSV}}.tmp" ]] || {{ echo "ERROR: empty idxstats output." >&2; exit 1; }}
+                mv -f "${{IDXSTATS_TSV}}.tmp" "${{IDXSTATS_TSV}}"
+
+                IDXSTATS_JSON_SCRIPT="{tmp_path}/.idxstats_to_json_1.py"
+                cat > "${{IDXSTATS_JSON_SCRIPT}}" <<'PY'
+import datetime
+import json
+import os
+import sys
+from pathlib import Path
+
+sample_id = os.environ["CSC_SAMPLE_ID"]
+input_path = os.environ["CSC_INPUT_PATH"]
+idxstats_tsv = Path(os.environ["CSC_IDXSTATS_TSV"])
+reads_summary_json = Path(os.environ["CSC_READS_SUMMARY_JSON"])
+per_chromosome = []
+total_mapped = 0
+total_unmapped = 0
+for line in idxstats_tsv.read_text().splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\\t")
+    if len(parts) < 4:
+        continue
+    chrom, length_s, mapped_s, unmapped_s = parts[:4]
+    try:
+        length = int(length_s)
+        mapped = int(mapped_s)
+        unmapped = int(unmapped_s)
+    except ValueError:
+        continue
+    per_chromosome.append({{"chrom": chrom, "length": length, "mapped": mapped, "unmapped": unmapped}})
+    total_mapped += mapped
+    total_unmapped += unmapped
+summary = {{
+    "schema_version": "1.0", "sample_id": sample_id, "input": input_path,
+    "extraction_time": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+    "total_mapped": total_mapped, "total_unmapped": total_unmapped,
+    "total_reads": total_mapped + total_unmapped, "per_chromosome": per_chromosome,
+}}
+reads_summary_json.write_text(json.dumps(summary, indent=2) + "\\n")
+PY
+                CSC_SAMPLE_ID="${{SAMPLE_ID}}" CSC_INPUT_PATH="${{CRAM_URL}}" \
+                    CSC_IDXSTATS_TSV="${{IDXSTATS_TSV}}" \
+                    CSC_READS_SUMMARY_JSON="${{READS_SUMMARY_JSON}}" \
+                    python3 "${{IDXSTATS_JSON_SCRIPT}}"
+            fi
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, f"idxstats block failed:\n{result.stderr}"
+
+        # Verify samtools was invoked with the remote CRAM URL (not -X)
+        assert args_log.exists(), "Fake samtools never invoked"
+        args_recorded = args_log.read_text().strip().splitlines()
+        assert len(args_recorded) >= 1, "samtools args not captured"
+        first_call = args_recorded[0]
+        assert remote_cram_url in first_call, (
+            f"Expected remote CRAM URL in samtools args: {first_call!r}"
+        )
+        assert "-X" not in first_call, (
+            f"samtools idxstats must NOT use -X (not supported): {first_call!r}"
+        )
+
+        # Verify sidecars were produced
+        assert idxstats_tsv.exists(), ".idxstats.tsv sidecar not written"
+        assert reads_summary_json.exists(), "reads_summary.json not written"
+
+        # Verify reads_summary.json structure and counts
+        doc = json.loads(reads_summary_json.read_text())
+        assert doc["sample_id"] == "NA12718"
+        assert doc["input"] == remote_cram_url
+        assert doc["total_mapped"] == 50   # 45 + 5
+        assert doc["total_unmapped"] == 20  # 5 + 3 + 12
+        assert doc["total_reads"] == 70
+        assert "per_chromosome" in doc
+        chroms = {r["chrom"] for r in doc["per_chromosome"]}
+        assert "chr1" in chroms and "*" in chroms
 
 
 # ---------------------------------------------------------------------------

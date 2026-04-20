@@ -304,12 +304,13 @@ if [[ "${SKIP_IDXSTATS}" == "1" ]]; then
     echo "Skipping idxstats sidecars (SKIP_IDXSTATS=1)."
 else
     echo "Computing idxstats sidecars for ${SAMPLE_ID}..."
-    # Prefer explicit local CRAI wiring for remote CRAM URLs. Some samtools/htslib
-    # builds can still auto-resolve remote indexes, so keep that as a fallback.
-    if container_run samtools idxstats -X "${CRAM_URL}" "${CRAI_LOCAL}" > "${IDXSTATS_TSV}.tmp"; then
-        echo "idxstats computed with explicit local CRAI (-X <CRAM_URL> <CRAI_LOCAL>)"
-    elif container_run samtools idxstats "${CRAM_URL}" > "${IDXSTATS_TSV}.tmp"; then
-        echo "WARNING: idxstats fallback path used (without explicit -X)." >&2
+    # ``samtools idxstats`` does not support an explicit ``-X`` flag (unlike
+    # ``samtools view``).  For remote CRAM URLs, htslib automatically fetches
+    # the CRAI from <URL>.crai, which is the standard 1000G naming convention.
+    # The CRAI downloaded for ``samtools view -X`` is reused for view only;
+    # for idxstats we rely on htslib's built-in remote index resolution.
+    if container_run samtools idxstats "${CRAM_URL}" > "${IDXSTATS_TSV}.tmp"; then
+        echo "idxstats computed (${CRAM_URL})"
     else
         echo "ERROR: samtools idxstats failed for ${SAMPLE_ID} (${CRAM_URL})." >&2
         echo "       Tried both explicit local CRAI and default index resolution." >&2

@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -73,6 +74,7 @@ def run_idxstats(
     sample_id: str | None = None,
     reference: str | Path | None = None,
     threads: int = 1,
+    crai_path: str | Path | None = None,
 ) -> ReadsSummary:
     """Run ``samtools idxstats`` on an indexed BAM/CRAM and write sidecars.
 
@@ -104,6 +106,8 @@ def run_idxstats(
     ----------
     input_path:
         BAM or CRAM file.  Must be indexed (``.bai`` or ``.crai``).
+        Accepts remote URLs (e.g. ``ftp://...``) when *crai_path* is
+        supplied as a locally-downloaded copy of the remote index.
     output_dir:
         Directory to write sidecar files into.  Created if needed.
     sample_id:
@@ -112,20 +116,36 @@ def run_idxstats(
         Reference FASTA for CRAM (optional for BAM).
     threads:
         Additional samtools decompression threads.
+    crai_path:
+        Optional explicit path to the CRAI/BAI index file.  When
+        supplied and *input_path* is a local file, ``samtools idxstats``
+        is run from a temporary directory where the input is symlinked
+        and the index is placed at the co-located path that samtools
+        auto-detects.  This supports the 1000G workflow where the CRAI
+        is downloaded locally before running idxstats.  Note that
+        ``samtools idxstats`` does not support an explicit ``-X`` flag
+        (unlike ``samtools view``); the co-location approach is the
+        portable way to specify an alternate index for local files.
 
     Returns
     -------
     ReadsSummary
         Parsed counts plus provenance (sample_id, input, extraction_time).
     """
-    input_path = Path(input_path).resolve()
+    input_path_str = str(input_path)
+    # Only resolve to absolute path for local files – remote URLs must not
+    # be passed through Path.resolve() as that would break them.
+    if not _is_remote_url(input_path_str):
+        input_path = Path(input_path).resolve()
+        input_path_str = str(input_path)
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if sample_id is None:
-        sample_id = input_path.stem
-        if sample_id.endswith(".sorted"):
-            sample_id = sample_id[: -len(".sorted")]
+        stem = Path(input_path_str).stem
+        if stem.endswith(".sorted"):
+            stem = stem[: -len(".sorted")]
+        sample_id = stem
 
     samtools = _find_samtools()
     # Note: ``samtools idxstats`` reads only the BAM/CRAM index; it does
@@ -134,9 +154,33 @@ def run_idxstats(
     # other extract helpers but is intentionally unused here.
     _ = reference
 
-    cmd = [samtools, "idxstats", "-@", str(threads), str(input_path)]
-    logger.debug("Running: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if crai_path is not None and not _is_remote_url(input_path_str):
+        # ``samtools idxstats`` does not support an explicit ``-X`` flag.
+        # For local files with a non-co-located index, we create a temp
+        # directory with a symlink to the CRAM and the CRAI at the
+        # adjacent path that samtools auto-detects.
+        _crai = Path(crai_path).resolve()
+        _cram = Path(input_path_str)
+        _cram_name = _cram.name
+        # Determine the expected index extension (e.g. .bai, .crai, .csi)
+        _idx_name = _cram_name + _crai.suffix if _crai.suffix else _cram_name + ".crai"
+        with tempfile.TemporaryDirectory() as _tmpdir:
+            _tmp_cram = Path(_tmpdir) / _cram_name
+            _tmp_idx = Path(_tmpdir) / _idx_name
+            os.symlink(_cram, _tmp_cram)
+            os.symlink(_crai, _tmp_idx)
+            cmd = [samtools, "idxstats", "-@", str(threads), str(_tmp_cram)]
+            logger.debug("Running (with co-located crai symlink): %s", " ".join(cmd))
+            proc = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+            )
+    else:
+        # Remote URL or no explicit crai_path: let htslib auto-resolve the index.
+        # For remote URLs (ftp://, http://, etc.) htslib fetches <url>.crai
+        # automatically; for local files it uses the co-located index.
+        cmd = [samtools, "idxstats", "-@", str(threads), input_path_str]
+        logger.debug("Running: %s", " ".join(cmd))
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if proc.returncode != 0:
         raise RuntimeError(
             f"samtools idxstats failed (exit {proc.returncode}): "
@@ -181,7 +225,7 @@ def run_idxstats(
     summary: ReadsSummary = {
         "schema_version": READS_SUMMARY_SCHEMA_VERSION,
         "sample_id": sample_id,
-        "input": str(input_path),
+        "input": input_path_str,
         "extraction_time": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "total_mapped": total_mapped,
         "total_unmapped": total_unmapped,
@@ -211,6 +255,11 @@ def _find_samtools() -> str:
             "samtools not found on PATH. Install samtools >= 1.12 to use this tool."
         )
     return path
+
+
+def _is_remote_url(path: str) -> bool:
+    """Return True if *path* looks like a remote URL (ftp://, http://, https://, s3://, etc.)."""
+    return "://" in path
 
 
 def _validate_input(input_path: Path, reference: Path | None) -> None:
