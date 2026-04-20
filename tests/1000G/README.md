@@ -7,7 +7,8 @@ Only the unmapped section of each remote CRAM is fetched (using the CRAI index
 as a seek pointer), so the full ~30 GB file is never downloaded.
 
 The CRAI index is downloaded to a local temporary file before calling
-`samtools view -X` (Aspera first when available, `curl` fallback). This avoids
+`samtools view -X` and before idxstats collection (Aspera first when available,
+`curl` fallback). This avoids
 `htslib`/`samtools` failures seen when passing FTP URLs directly as the `-X`
 index argument ("Exec format error"). The data CRAM stream is still read
 directly from EBI.

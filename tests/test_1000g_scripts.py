@@ -357,6 +357,12 @@ class TestArrayScript:
         assert "samtools idxstats" in content
         assert ".reads_summary.json" in content
 
+    def test_idxstats_uses_local_crai_for_remote_cram_with_fallback(self):
+        """idxstats command should prefer -X <CRAM_URL> <CRAI_LOCAL> for remote CRAM."""
+        content = ARRAY_SCRIPT.read_text()
+        assert 'samtools idxstats -X "${CRAM_URL}" "${CRAI_LOCAL}"' in content
+        assert 'samtools idxstats "${CRAM_URL}"' in content
+
 
 # ---------------------------------------------------------------------------
 # CRAI download workaround tests
