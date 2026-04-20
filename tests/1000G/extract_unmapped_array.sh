@@ -363,7 +363,7 @@ summary = {
     "schema_version": "1.0",
     "sample_id": sample_id,
     "input": input_path,
-    "extraction_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "extraction_time": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
     "total_mapped": total_mapped,
     "total_unmapped": total_unmapped,
     "total_reads": total_mapped + total_unmapped,

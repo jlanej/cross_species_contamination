@@ -266,7 +266,7 @@ if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
         reads_summary="${EXTRACT_OUTDIR}/${sid}/${sid}.reads_summary.json"
         if [[ ! -s "${reads_summary}" ]]; then
             echo "ERROR: Missing required idxstats sidecar for sample ${sid}: ${reads_summary}" >&2
-            echo "       Ensure extract_unmapped_array.sh ran with SKIP_IDXSTATS=0." >&2
+            echo "       Ensure extraction ran with submit_extract.sh (without --skip-idxstats)." >&2
             echo "       Or set SKIP_IDXSTATS_METRICS=1 to bypass idxstats-based metrics." >&2
             exit 1
         fi

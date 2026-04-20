@@ -520,8 +520,9 @@ def extract_reads(
     except Exception as exc:
         raise RuntimeError(
             "Failed to compute required idxstats sidecars. "
-            "Re-run with skip_idxstats=True (CLI: --skip-idxstats) to bypass "
-            f"idxstats metrics when needed. Sample: {sample_id}. Error: {exc}"
+            "Python API: set skip_idxstats=True to bypass idxstats metrics when needed. "
+            "CLI: use --skip-idxstats to bypass idxstats metrics when needed. "
+            f"Sample: {sample_id}. Error: {exc}"
         ) from exc
 
     result["total_mapped"] = summary["total_mapped"]
