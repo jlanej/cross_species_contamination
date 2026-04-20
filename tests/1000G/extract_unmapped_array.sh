@@ -324,6 +324,7 @@ else
 import datetime
 import json
 import os
+import sys
 from pathlib import Path
 
 sample_id = os.environ["CSC_SAMPLE_ID"]
@@ -334,12 +335,14 @@ reads_summary_json = Path(os.environ["CSC_READS_SUMMARY_JSON"])
 per_chromosome = []
 total_mapped = 0
 total_unmapped = 0
+skipped_lines = 0
 
 for line in idxstats_tsv.read_text().splitlines():
     if not line.strip():
         continue
     parts = line.split("\t")
     if len(parts) < 4:
+        skipped_lines += 1
         continue
     chrom, length_s, mapped_s, unmapped_s = parts[:4]
     try:
@@ -347,6 +350,7 @@ for line in idxstats_tsv.read_text().splitlines():
         mapped = int(mapped_s)
         unmapped = int(unmapped_s)
     except ValueError:
+        skipped_lines += 1
         continue
     per_chromosome.append(
         {
@@ -371,6 +375,11 @@ summary = {
 }
 
 reads_summary_json.write_text(json.dumps(summary, indent=2) + "\n")
+if skipped_lines:
+    print(
+        f"WARNING: skipped {skipped_lines} malformed/non-numeric idxstats line(s) for {sample_id}",
+        file=sys.stderr,
+    )
 PY
     if ! container_run env \
         CSC_SAMPLE_ID="${SAMPLE_ID}" \

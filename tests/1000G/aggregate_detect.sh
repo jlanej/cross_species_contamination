@@ -267,6 +267,7 @@ if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
         if [[ ! -s "${reads_summary}" ]]; then
             echo "ERROR: Missing required idxstats sidecar for sample ${sid}: ${reads_summary}" >&2
             echo "       Ensure extraction ran with submit_extract.sh (without --skip-idxstats)." >&2
+            echo "       Re-run extraction or provide a compatible ${sid}.reads_summary.json sidecar." >&2
             echo "       Or set SKIP_IDXSTATS_METRICS=1 to bypass idxstats-based metrics." >&2
             exit 1
         fi
