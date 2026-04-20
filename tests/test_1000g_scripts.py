@@ -176,6 +176,31 @@ class TestSubmitExtractDryRun:
         assert result.returncode == 0, result.stderr
         assert "CONTAINER_SIF=" in result.stdout
 
+    def test_dry_run_skip_idxstats_default_exported(self, tmp_path):
+        """SKIP_IDXSTATS should default to 0 in array job exports."""
+        manifest = minimal_manifest(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(tmp_path / "output"),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS=0" in result.stdout
+
+    def test_dry_run_skip_idxstats_flag_exported(self, tmp_path):
+        """--skip-idxstats should export SKIP_IDXSTATS=1."""
+        manifest = minimal_manifest(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(tmp_path / "output"),
+            "--skip-idxstats",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS=1" in result.stdout
+
     def test_dry_run_custom_container(self, tmp_path):
         """--container <path> should propagate the custom SIF path to sbatch."""
         manifest = minimal_manifest(tmp_path)
@@ -323,6 +348,14 @@ class TestArrayScript:
         ][0]
         # The default SIF path must be under OUTDIR (not a SLURM temp dir)
         assert sif_path.startswith(str(tmp_path / "outdir"))
+
+    def test_idxstats_enabled_by_default_and_can_be_skipped(self):
+        """Array script should default SKIP_IDXSTATS=0 and support skip mode."""
+        content = ARRAY_SCRIPT.read_text()
+        assert 'SKIP_IDXSTATS="${SKIP_IDXSTATS:-0}"' in content
+        assert 'if [[ "${SKIP_IDXSTATS}" == "1" ]]; then' in content
+        assert "samtools idxstats" in content
+        assert ".reads_summary.json" in content
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +1004,52 @@ class TestSubmitClassifyDryRun:
         # DB_PATH should be exported to the aggregate/detect job with the DB value
         assert f"DB_PATH={db}" in result.stdout
 
+    def test_dry_run_extract_outdir_exported_to_aggregate_job(self, tmp_path):
+        """EXTRACT_OUTDIR should be exported to aggregate/detect job."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert f"EXTRACT_OUTDIR={extract_out}" in result.stdout
+
+    def test_dry_run_skip_idxstats_metrics_default_exported(self, tmp_path):
+        """SKIP_IDXSTATS_METRICS should default to 0."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS_METRICS=0" in result.stdout
+
+    def test_dry_run_skip_idxstats_metrics_flag_exported(self, tmp_path):
+        """--skip-idxstats-metrics should export SKIP_IDXSTATS_METRICS=1."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--skip-idxstats-metrics",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS_METRICS=1" in result.stdout
+
     def test_dry_run_db_path_explicit_override(self, tmp_path):
         """--db-path should override the default DB_PATH in aggregate/detect exports."""
         extract_out = tmp_path / "output"
@@ -1204,6 +1283,70 @@ class TestAggregateDetectScript:
         result = run(["bash", "-c", inline])
         assert result.returncode == 0
         assert "--db-path" not in result.stdout
+
+    def test_idxstats_paths_added_to_aggregate_args_by_default(self, tmp_path):
+        """Aggregate args should include --idxstats with per-sample reads_summary files."""
+        extract_out = tmp_path / "extract"
+        sample = extract_out / "NA12718"
+        sample.mkdir(parents=True)
+        reads_summary = sample / "NA12718.reads_summary.json"
+        reads_summary.write_text('{"sample_id":"NA12718","total_reads":70}\n')
+        inline = textwrap.dedent(f"""\
+            SKIP_IDXSTATS_METRICS=0
+            EXTRACT_OUTDIR="{extract_out}"
+            REPORTS=("/classify/NA12718/NA12718.kraken2.report.txt")
+            AGGREGATE_ARGS=(csc-aggregate "${{REPORTS[@]}}" -o /agg)
+            if [[ "${{SKIP_IDXSTATS_METRICS}}" != "1" ]]; then
+                IDXSTATS_PATHS=()
+                for report in "${{REPORTS[@]}}"; do
+                    sid="$(basename "$report")"
+                    sid="${{sid%.kraken2.report.txt}}"
+                    reads_summary="${{EXTRACT_OUTDIR}}/${{sid}}/${{sid}}.reads_summary.json"
+                    [[ -s "$reads_summary" ]] || exit 1
+                    IDXSTATS_PATHS+=("$reads_summary")
+                done
+                AGGREGATE_ARGS+=("--idxstats" "${{IDXSTATS_PATHS[@]}}")
+            fi
+            echo "${{AGGREGATE_ARGS[@]}}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--idxstats" in result.stdout
+        assert str(reads_summary) in result.stdout
+
+    def test_idxstats_missing_sidecar_fails_when_not_skipped(self, tmp_path):
+        """Missing reads_summary should fail when idxstats metrics are required."""
+        extract_out = tmp_path / "extract"
+        extract_out.mkdir()
+        inline = textwrap.dedent(f"""\
+            SKIP_IDXSTATS_METRICS=0
+            EXTRACT_OUTDIR="{extract_out}"
+            report="/classify/NA12718/NA12718.kraken2.report.txt"
+            sid="$(basename "$report")"
+            sid="${{sid%.kraken2.report.txt}}"
+            reads_summary="${{EXTRACT_OUTDIR}}/${{sid}}/${{sid}}.reads_summary.json"
+            if [[ ! -s "$reads_summary" ]]; then
+                echo "ERROR: Missing required idxstats sidecar for sample $sid: $reads_summary" >&2
+                exit 1
+            fi
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode != 0
+        assert "Missing required idxstats sidecar" in result.stderr
+
+    def test_skip_idxstats_metrics_omits_idxstats_args(self, tmp_path):
+        """When skip is enabled, aggregate args should not include --idxstats."""
+        inline = textwrap.dedent("""\
+            SKIP_IDXSTATS_METRICS=1
+            AGGREGATE_ARGS=(csc-aggregate /report.txt -o /agg)
+            if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
+                AGGREGATE_ARGS+=("--idxstats" "/x.reads_summary.json")
+            fi
+            echo "${AGGREGATE_ARGS[@]}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--idxstats" not in result.stdout
 
     def test_aggregate_args_always_include_rank_filter(self, tmp_path):
         """csc-aggregate AGGREGATE_ARGS must always include --rank-filter with rank codes."""

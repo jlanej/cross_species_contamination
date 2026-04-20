@@ -97,6 +97,14 @@ Each sample directory contains gzip-compressed FASTQ files for the
 unmapped reads.  Samples with zero unmapped reads will have an empty
 directory.
 
+By default, extraction also writes per-sample idxstats sidecars:
+
+- `{sample}.idxstats.tsv`
+- `{sample}.reads_summary.json`
+
+These are used downstream to compute idxstats-based total-sequenced-read
+metrics (absolute burden matrices and reporting).
+
 ---
 
 ## Options (`submit_extract.sh`)
@@ -117,6 +125,7 @@ directory.
 | `--container FILE` | `./csc.sif` | Path to pre-pulled Apptainer SIF image |
 | `--image URI` | `ghcr.io/jlanej/cross_species_contamination:latest` | Docker URI for auto-pull |
 | `--keep-cram` | off | Also save an intermediate unmapped CRAM |
+| `--skip-idxstats` | off | Skip idxstats sidecars (default computes and requires them) |
 | `--dry-run` | off | Print sbatch command without submitting |
 
 ---
@@ -162,6 +171,10 @@ to `ftp.sra.ebi.ac.uk` and HTTPS (port 443) to `ghcr.io` are allowed.
 `_unmapped_R1.fastq.gz` already exists and is non-empty, and exits cleanly if
 everything selected is already complete. `extract_unmapped_array.sh` also
 checks per-sample output and skips completed work at task runtime.
+
+If you intentionally skipped idxstats sidecars during extraction, run
+`submit_classify.sh --skip-idxstats-metrics` to bypass idxstats-based
+absolute metrics in aggregation/reporting.
 
 ---
 

@@ -95,6 +95,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override sample ID used for output file names.",
     )
     parser.add_argument(
+        "--skip-idxstats",
+        action="store_true",
+        help=(
+            "Skip idxstats sidecars and idxstats-derived metrics. "
+            "By default idxstats is required and extraction fails if it "
+            "cannot be computed."
+        ),
+    )
+    parser.add_argument(
         "--json-log",
         action="store_true",
         help="Emit structured JSON log lines instead of human-readable text.",
@@ -202,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
                 threads=args.threads,
                 reference=args.reference,
                 interleaved=args.interleaved,
+                skip_idxstats=args.skip_idxstats,
             )
             results.append(result)
             for kind, path in sorted(result["files"].items()):

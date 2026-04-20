@@ -74,6 +74,8 @@
 #   --iqr-multiplier FLOAT IQR multiplier for outlier detection [default: 1.5]
 #   --skip-aggregate       Skip aggregate and detect steps entirely
 #   --skip-detect          Run aggregate but skip the detect step
+#   --skip-idxstats-metrics  Skip idxstats-based absolute burden metrics in
+#                          aggregate/reporting (default: off; required)
 #   --agg-cpus      N      CPUs for aggregate/detect job [default: 4]
 #   --agg-mem       STR    Memory for aggregate/detect job [default: 16G]
 #   --agg-time      STR    Wall-clock time for aggregate/detect [default: 02:00:00]
@@ -115,6 +117,7 @@ IQR_MULTIPLIER=1.5
 GMM_THRESHOLD=0.5
 SKIP_AGGREGATE=0
 SKIP_DETECT=0
+SKIP_IDXSTATS_METRICS=0
 AGG_CPUS=4
 AGG_MEM="16G"
 AGG_WALLTIME="02:00:00"
@@ -155,6 +158,7 @@ while [[ $# -gt 0 ]]; do
         --iqr-multiplier) IQR_MULTIPLIER="$2"; shift 2 ;;
         --skip-aggregate) SKIP_AGGREGATE=1;    shift ;;
         --skip-detect)    SKIP_DETECT=1;       shift ;;
+        --skip-idxstats-metrics) SKIP_IDXSTATS_METRICS=1; shift ;;
         --agg-cpus)       AGG_CPUS="$2";       shift 2 ;;
         --agg-mem)        AGG_MEM="$2";        shift 2 ;;
         --agg-time)       AGG_WALLTIME="$2";   shift 2 ;;
@@ -499,6 +503,7 @@ mkdir -p "${AGG_OUTDIR}" "${DETECT_OUTDIR}"
 
 AGG_EXPORTS=(
     "CLASSIFY_OUTDIR=${CLASSIFY_OUTDIR}"
+    "EXTRACT_OUTDIR=${EXTRACT_OUTDIR}"
     "AGG_OUTDIR=${AGG_OUTDIR}"
     "DETECT_OUTDIR=${DETECT_OUTDIR}"
     "THREADS=${AGG_CPUS}"
@@ -510,6 +515,7 @@ AGG_EXPORTS=(
     "IQR_MULTIPLIER=${IQR_MULTIPLIER}"
     "GMM_THRESHOLD=${GMM_THRESHOLD}"
     "SKIP_DETECT=${SKIP_DETECT}"
+    "SKIP_IDXSTATS_METRICS=${SKIP_IDXSTATS_METRICS}"
     "DB_PATH=${DB_PATH}"
     "CONTAINER_SIF=${CONTAINER_SIF}"
     "CONTAINER_IMAGE=${CONTAINER_IMAGE}"

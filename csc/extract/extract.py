@@ -364,6 +364,7 @@ def extract_reads(
     threads: int = 1,
     reference: str | Path | None = None,
     interleaved: bool = False,
+    skip_idxstats: bool = False,
 ) -> ExtractionResult:
     """Extract unmapped (and optionally low-MAPQ) reads from a BAM/CRAM file.
 
@@ -390,6 +391,10 @@ def extract_reads(
         Reference FASTA for CRAM files.
     interleaved:
         If True, write a single interleaved FASTQ instead of split files.
+    skip_idxstats:
+        If True, do not run ``samtools idxstats`` or emit idxstats sidecars.
+        By default idxstats sidecars are required and extraction raises if
+        idxstats fails.
     """
     input_path = Path(input_path).resolve()
     output_dir = Path(output_dir).resolve()
@@ -500,9 +505,10 @@ def extract_reads(
         "input": str(input_path),
     }
 
-    # Always emit idxstats sidecars.  Failures are logged but do not
-    # abort extraction – idxstats requires an index which may be absent
-    # for test fixtures or streamed inputs.
+    if skip_idxstats:
+        logger.info("Skipping idxstats sidecars for %s (--skip-idxstats)", sample_id)
+        return result
+
     try:
         summary = run_idxstats(
             input_path,
@@ -511,13 +517,18 @@ def extract_reads(
             reference=reference,
             threads=threads,
         )
-        result["total_mapped"] = summary["total_mapped"]
-        result["total_unmapped"] = summary["total_unmapped"]
-        result["total_reads"] = summary["total_reads"]
-        result["idxstats_path"] = output_dir / f"{sample_id}.idxstats.tsv"
-        result["reads_summary_path"] = output_dir / f"{sample_id}.reads_summary.json"
-    except Exception as exc:  # noqa: BLE001 - non-fatal sidecar
-        logger.warning("idxstats sidecar skipped for %s: %s", sample_id, exc)
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to compute required idxstats sidecars. "
+            "Re-run with skip_idxstats=True (CLI: --skip-idxstats) to bypass "
+            f"idxstats metrics when needed. Sample: {sample_id}. Error: {exc}"
+        ) from exc
+
+    result["total_mapped"] = summary["total_mapped"]
+    result["total_unmapped"] = summary["total_unmapped"]
+    result["total_reads"] = summary["total_reads"]
+    result["idxstats_path"] = output_dir / f"{sample_id}.idxstats.tsv"
+    result["reads_summary_path"] = output_dir / f"{sample_id}.reads_summary.json"
 
     return result
 

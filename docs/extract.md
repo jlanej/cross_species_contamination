@@ -23,6 +23,9 @@ csc-extract sample.bam -o output_dir/ --interleaved
 
 # Multiple threads
 csc-extract sample.bam -o output_dir/ --threads 4
+
+# Skip idxstats sidecars (optional; default is required)
+csc-extract sample.bam -o output_dir/ --skip-idxstats
 ```
 
 ## Python API
@@ -48,6 +51,11 @@ cmds = build_extract_command(Path("sample.bam"), mapq_threshold=10)
 | `{sample}.unmapped.fastq.gz` | Interleaved output (if `--interleaved`) |
 | `{sample}.idxstats.tsv` | Raw `samtools idxstats` per-chromosome counts |
 | `{sample}.reads_summary.json` | Aggregate mapped / unmapped / total reads (see below) |
+
+By default, `csc-extract` requires idxstats sidecars to be computed
+successfully and exits with an error if they cannot be produced.
+Use `--skip-idxstats` only when you intentionally want to bypass
+idxstats-based metrics.
 
 ### `{sample}.idxstats.tsv`
 

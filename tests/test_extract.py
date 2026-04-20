@@ -500,21 +500,48 @@ class TestIdxstats:
         assert rows[0]["total_unmapped"] == "20"
         assert rows[0]["total_reads"] == "70"
 
-    def test_run_idxstats_missing_index_is_nonfatal_for_extract(
+    def test_cli_skip_idxstats_allows_processing_when_idxstats_fails(
         self, test_bam: Path, tmp_path: Path
     ) -> None:
-        """If idxstats fails (e.g. missing index), extract still succeeds."""
+        """--skip-idxstats should bypass idxstats failures."""
+        from csc.extract.cli import main
         from unittest import mock
 
-        # Simulate idxstats failure without breaking the main extraction.
         with mock.patch(
             "csc.extract.extract.run_idxstats",
             side_effect=RuntimeError("no index"),
         ):
-            result = extract_reads(test_bam, tmp_path / "out_noidx")
+            rc = main([
+                str(test_bam), "-o", str(tmp_path / "cli_idx_skip"),
+                "--skip-idxstats",
+            ])
+        assert rc == 0
 
-        # Core extraction still worked
+    def test_run_idxstats_missing_index_fails_extract_by_default(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """If idxstats fails, extraction should fail by default."""
+        from unittest import mock
+
+        with mock.patch(
+            "csc.extract.extract.run_idxstats",
+            side_effect=RuntimeError("no index"),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to compute required idxstats"):
+                extract_reads(test_bam, tmp_path / "out_noidx")
+
+    def test_run_idxstats_missing_index_can_be_skipped(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """If explicitly skipped, extraction should succeed without idxstats fields."""
+        from unittest import mock
+
+        with mock.patch(
+            "csc.extract.extract.run_idxstats",
+            side_effect=RuntimeError("no index"),
+        ):
+            result = extract_reads(test_bam, tmp_path / "out_noidx_skip", skip_idxstats=True)
+
         assert result["read_count"] == EXPECTED_UNMAPPED_READS * 2
-        # idxstats-derived fields are absent when the sidecar call failed
         assert "total_reads" not in result
         assert "reads_summary_path" not in result
