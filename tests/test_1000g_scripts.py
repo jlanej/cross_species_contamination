@@ -17,6 +17,7 @@ a local temp file (Aspera first, curl fallback) before running the
 samtools pipeline, then pass the **local path** to ``-X``.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -176,6 +177,31 @@ class TestSubmitExtractDryRun:
         assert result.returncode == 0, result.stderr
         assert "CONTAINER_SIF=" in result.stdout
 
+    def test_dry_run_skip_idxstats_default_exported(self, tmp_path):
+        """SKIP_IDXSTATS should default to 0 in array job exports."""
+        manifest = minimal_manifest(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(tmp_path / "output"),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS=0" in result.stdout
+
+    def test_dry_run_skip_idxstats_flag_exported(self, tmp_path):
+        """--skip-idxstats should export SKIP_IDXSTATS=1."""
+        manifest = minimal_manifest(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_SCRIPT),
+            "--manifest", str(manifest),
+            "--outdir", str(tmp_path / "output"),
+            "--skip-idxstats",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS=1" in result.stdout
+
     def test_dry_run_custom_container(self, tmp_path):
         """--container <path> should propagate the custom SIF path to sbatch."""
         manifest = minimal_manifest(tmp_path)
@@ -323,6 +349,169 @@ class TestArrayScript:
         ][0]
         # The default SIF path must be under OUTDIR (not a SLURM temp dir)
         assert sif_path.startswith(str(tmp_path / "outdir"))
+
+    def test_idxstats_enabled_by_default_and_can_be_skipped(self):
+        """Array script should default SKIP_IDXSTATS=0 and support skip mode."""
+        content = ARRAY_SCRIPT.read_text()
+        assert 'SKIP_IDXSTATS="${SKIP_IDXSTATS:-0}"' in content
+        assert 'if [[ "${SKIP_IDXSTATS}" == "1" ]]; then' in content
+        assert "samtools idxstats" in content
+        assert ".reads_summary.json" in content
+
+    def test_idxstats_uses_cram_url_directly(self):
+        """idxstats should use the CRAM URL directly (htslib auto-fetches remote CRAI).
+
+        ``samtools idxstats`` does not support ``-X``.  For remote CRAM URLs
+        htslib automatically fetches the CRAI from <URL>.crai.
+        """
+        content = ARRAY_SCRIPT.read_text()
+        # Should call idxstats with CRAM_URL (no -X flag)
+        assert 'samtools idxstats "${CRAM_URL}"' in content
+        # Must NOT use the (invalid for idxstats) -X flag
+        assert 'samtools idxstats -X' not in content
+
+    def test_idxstats_remote_url_local_crai_functional(self, tmp_path: Path):
+        """Functional test: idxstats block executes samtools idxstats <remote_url>.
+
+        Uses a fake samtools that captures its arguments and emits valid
+        idxstats output, simulating the 1000G remote CRAM scenario without
+        actual network access.  Verifies:
+
+        * samtools is called with the remote CRAM URL (no ``-X``)
+        * the ``.idxstats.tsv`` sidecar is written
+        * the ``reads_summary.json`` sidecar is produced with correct structure
+        """
+        sample_dir = tmp_path / "NA12718"
+        sample_dir.mkdir()
+
+        # A real (but empty) file to stand in as the local CRAI
+        crai_local = tmp_path / ".NA12718.crai.tmp"
+        crai_local.write_bytes(b"")
+
+        # Fake samtools: record args, emit valid idxstats TSV on idxstats sub-command
+        args_log = tmp_path / "samtools_args.txt"
+        fake_samtools = tmp_path / "samtools"
+        fake_samtools.write_text(
+            "#!/usr/bin/env bash\n"
+            "echo \"$@\" >> " + str(args_log) + "\n"
+            'if [[ "$1" == "idxstats" ]]; then\n'
+            "    printf 'chr1\\t248956422\\t45\\t5\\n'\n"
+            "    printf 'chr2\\t242193529\\t5\\t3\\n'\n"
+            "    printf '*\\t0\\t0\\t12\\n'\n"
+            "fi\n"
+        )
+        fake_samtools.chmod(0o755)
+
+        # The idxstats block expects python3 to be available for the JSON step.
+        remote_cram_url = (
+            "ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR323/ERR3239480/NA12718.final.cram"
+        )
+        reads_summary_json = sample_dir / "NA12718.reads_summary.json"
+        idxstats_tsv = sample_dir / "NA12718.idxstats.tsv"
+
+        # Execute the idxstats block inline, with our fake samtools on the PATH.
+        # ``samtools idxstats`` does NOT use -X; the URL is the sole argument.
+        inline = textwrap.dedent(f"""\
+            set -euo pipefail
+            export PATH="{tmp_path}:$PATH"
+            SAMPLE_ID="NA12718"
+            SAMPLE_DIR="{sample_dir}"
+            CRAM_URL="{remote_cram_url}"
+            CRAI_LOCAL="{crai_local}"
+            SLURM_ARRAY_TASK_ID="1"
+            IDXSTATS_TSV="{idxstats_tsv}"
+            READS_SUMMARY_JSON="{reads_summary_json}"
+            # container_run: no apptainer in CI, so run directly
+            container_run() {{ "$@"; }}
+            SKIP_IDXSTATS=0
+
+            if [[ "${{SKIP_IDXSTATS}}" == "1" ]]; then
+                echo "Skipping idxstats sidecars (SKIP_IDXSTATS=1)."
+            else
+                echo "Computing idxstats sidecars for ${{SAMPLE_ID}}..."
+                if container_run samtools idxstats "${{CRAM_URL}}" > "${{IDXSTATS_TSV}}.tmp"; then
+                    echo "idxstats computed (${{CRAM_URL}})"
+                else
+                    echo "ERROR: samtools idxstats failed." >&2
+                    exit 1
+                fi
+                [[ -s "${{IDXSTATS_TSV}}.tmp" ]] || {{ echo "ERROR: empty idxstats output." >&2; exit 1; }}
+                mv -f "${{IDXSTATS_TSV}}.tmp" "${{IDXSTATS_TSV}}"
+
+                IDXSTATS_JSON_SCRIPT="{tmp_path}/.idxstats_to_json_1.py"
+                cat > "${{IDXSTATS_JSON_SCRIPT}}" <<'PY'
+import datetime
+import json
+import os
+import sys
+from pathlib import Path
+
+sample_id = os.environ["CSC_SAMPLE_ID"]
+input_path = os.environ["CSC_INPUT_PATH"]
+idxstats_tsv = Path(os.environ["CSC_IDXSTATS_TSV"])
+reads_summary_json = Path(os.environ["CSC_READS_SUMMARY_JSON"])
+per_chromosome = []
+total_mapped = 0
+total_unmapped = 0
+for line in idxstats_tsv.read_text().splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\\t")
+    if len(parts) < 4:
+        continue
+    chrom, length_s, mapped_s, unmapped_s = parts[:4]
+    try:
+        length = int(length_s)
+        mapped = int(mapped_s)
+        unmapped = int(unmapped_s)
+    except ValueError:
+        continue
+    per_chromosome.append({{"chrom": chrom, "length": length, "mapped": mapped, "unmapped": unmapped}})
+    total_mapped += mapped
+    total_unmapped += unmapped
+summary = {{
+    "schema_version": "1.0", "sample_id": sample_id, "input": input_path,
+    "extraction_time": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+    "total_mapped": total_mapped, "total_unmapped": total_unmapped,
+    "total_reads": total_mapped + total_unmapped, "per_chromosome": per_chromosome,
+}}
+reads_summary_json.write_text(json.dumps(summary, indent=2) + "\\n")
+PY
+                CSC_SAMPLE_ID="${{SAMPLE_ID}}" CSC_INPUT_PATH="${{CRAM_URL}}" \
+                    CSC_IDXSTATS_TSV="${{IDXSTATS_TSV}}" \
+                    CSC_READS_SUMMARY_JSON="${{READS_SUMMARY_JSON}}" \
+                    python3 "${{IDXSTATS_JSON_SCRIPT}}"
+            fi
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, f"idxstats block failed:\n{result.stderr}"
+
+        # Verify samtools was invoked with the remote CRAM URL (not -X)
+        assert args_log.exists(), "Fake samtools never invoked"
+        args_recorded = args_log.read_text().strip().splitlines()
+        assert len(args_recorded) >= 1, "samtools args not captured"
+        first_call = args_recorded[0]
+        assert remote_cram_url in first_call, (
+            f"Expected remote CRAM URL in samtools args: {first_call!r}"
+        )
+        assert "-X" not in first_call, (
+            f"samtools idxstats must NOT use -X (not supported): {first_call!r}"
+        )
+
+        # Verify sidecars were produced
+        assert idxstats_tsv.exists(), ".idxstats.tsv sidecar not written"
+        assert reads_summary_json.exists(), "reads_summary.json not written"
+
+        # Verify reads_summary.json structure and counts
+        doc = json.loads(reads_summary_json.read_text())
+        assert doc["sample_id"] == "NA12718"
+        assert doc["input"] == remote_cram_url
+        assert doc["total_mapped"] == 50   # 45 + 5
+        assert doc["total_unmapped"] == 20  # 5 + 3 + 12
+        assert doc["total_reads"] == 70
+        assert "per_chromosome" in doc
+        chroms = {r["chrom"] for r in doc["per_chromosome"]}
+        assert "chr1" in chroms and "*" in chroms
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +1160,52 @@ class TestSubmitClassifyDryRun:
         # DB_PATH should be exported to the aggregate/detect job with the DB value
         assert f"DB_PATH={db}" in result.stdout
 
+    def test_dry_run_extract_outdir_exported_to_aggregate_job(self, tmp_path):
+        """EXTRACT_OUTDIR should be exported to aggregate/detect job."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert f"EXTRACT_OUTDIR={extract_out}" in result.stdout
+
+    def test_dry_run_skip_idxstats_metrics_default_exported(self, tmp_path):
+        """SKIP_IDXSTATS_METRICS should default to 0."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS_METRICS=0" in result.stdout
+
+    def test_dry_run_skip_idxstats_metrics_flag_exported(self, tmp_path):
+        """--skip-idxstats-metrics should export SKIP_IDXSTATS_METRICS=1."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--skip-idxstats-metrics",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_IDXSTATS_METRICS=1" in result.stdout
+
     def test_dry_run_db_path_explicit_override(self, tmp_path):
         """--db-path should override the default DB_PATH in aggregate/detect exports."""
         extract_out = tmp_path / "output"
@@ -1204,6 +1439,70 @@ class TestAggregateDetectScript:
         result = run(["bash", "-c", inline])
         assert result.returncode == 0
         assert "--db-path" not in result.stdout
+
+    def test_idxstats_paths_added_to_aggregate_args_by_default(self, tmp_path):
+        """Aggregate args should include --idxstats with per-sample reads_summary files."""
+        extract_out = tmp_path / "extract"
+        sample = extract_out / "NA12718"
+        sample.mkdir(parents=True)
+        reads_summary = sample / "NA12718.reads_summary.json"
+        reads_summary.write_text('{"sample_id":"NA12718","total_reads":70}\n')
+        inline = textwrap.dedent(f"""\
+            SKIP_IDXSTATS_METRICS=0
+            EXTRACT_OUTDIR="{extract_out}"
+            REPORTS=("/classify/NA12718/NA12718.kraken2.report.txt")
+            AGGREGATE_ARGS=(csc-aggregate "${{REPORTS[@]}}" -o /agg)
+            if [[ "${{SKIP_IDXSTATS_METRICS}}" != "1" ]]; then
+                IDXSTATS_PATHS=()
+                for report in "${{REPORTS[@]}}"; do
+                    sid="$(basename "$report")"
+                    sid="${{sid%.kraken2.report.txt}}"
+                    reads_summary="${{EXTRACT_OUTDIR}}/${{sid}}/${{sid}}.reads_summary.json"
+                    [[ -s "$reads_summary" ]] || exit 1
+                    IDXSTATS_PATHS+=("$reads_summary")
+                done
+                AGGREGATE_ARGS+=("--idxstats" "${{IDXSTATS_PATHS[@]}}")
+            fi
+            echo "${{AGGREGATE_ARGS[@]}}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--idxstats" in result.stdout
+        assert str(reads_summary) in result.stdout
+
+    def test_idxstats_missing_sidecar_fails_when_not_skipped(self, tmp_path):
+        """Missing reads_summary should fail when idxstats metrics are required."""
+        extract_out = tmp_path / "extract"
+        extract_out.mkdir()
+        inline = textwrap.dedent(f"""\
+            SKIP_IDXSTATS_METRICS=0
+            EXTRACT_OUTDIR="{extract_out}"
+            report="/classify/NA12718/NA12718.kraken2.report.txt"
+            sid="$(basename "$report")"
+            sid="${{sid%.kraken2.report.txt}}"
+            reads_summary="${{EXTRACT_OUTDIR}}/${{sid}}/${{sid}}.reads_summary.json"
+            if [[ ! -s "$reads_summary" ]]; then
+                echo "ERROR: Missing required idxstats sidecar for sample $sid: $reads_summary" >&2
+                exit 1
+            fi
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode != 0
+        assert "Missing required idxstats sidecar" in result.stderr
+
+    def test_skip_idxstats_metrics_omits_idxstats_args(self, tmp_path):
+        """When skip is enabled, aggregate args should not include --idxstats."""
+        inline = textwrap.dedent("""\
+            SKIP_IDXSTATS_METRICS=1
+            AGGREGATE_ARGS=(csc-aggregate /report.txt -o /agg)
+            if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
+                AGGREGATE_ARGS+=("--idxstats" "/x.reads_summary.json")
+            fi
+            echo "${AGGREGATE_ARGS[@]}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert "--idxstats" not in result.stdout
 
     def test_aggregate_args_always_include_rank_filter(self, tmp_path):
         """csc-aggregate AGGREGATE_ARGS must always include --rank-filter with rank codes."""

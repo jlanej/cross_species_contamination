@@ -13,6 +13,8 @@
 # Output:
 #   <AGG_OUTDIR>/taxa_matrix_cpm.tsv      – all-sample CPM matrix
 #   <AGG_OUTDIR>/taxa_matrix_raw.tsv      – all-sample raw-count matrix
+#   <AGG_OUTDIR>/taxa_matrix_abs.tsv      – all-sample absolute burden matrix
+#                                           (idxstats-based; unless skipped)
 #   <AGG_OUTDIR>/taxa_matrix_cpm_S.tsv    – species-level CPM matrix
 #   <AGG_OUTDIR>/taxa_matrix_cpm_G.tsv    – genus-level CPM matrix
 #   <AGG_OUTDIR>/taxa_matrix_cpm_F.tsv    – family-level CPM matrix
@@ -36,6 +38,9 @@
 # Optional environment variables:
 #   DETECT_OUTDIR   – output directory for detect results
 #                     (default: <AGG_OUTDIR>/../detect)
+#   EXTRACT_OUTDIR  – extraction output directory containing per-sample
+#                     `{sample}.reads_summary.json` sidecars. Required unless
+#                     SKIP_IDXSTATS_METRICS=1.
 #   THREADS         – CPUs for aggregate/detect (default: SLURM_CPUS_PER_TASK or 4)
 #   MIN_READS       – minimum direct-read count per taxon (default: 0)
 #   NO_NORMALIZE    – removed; both raw and CPM matrices are always produced
@@ -47,6 +52,8 @@
 #   IQR_MULTIPLIER  – IQR multiplier (default: 1.5)
 #   GMM_THRESHOLD   – GMM posterior probability threshold (default: 0.5)
 #   SKIP_DETECT     – set to "1" to skip outlier detection (default: 0)
+#   SKIP_IDXSTATS_METRICS – set to "1" to skip idxstats-based absolute burden
+#                     metrics in aggregation/reporting (default: 0)
 #   DB_PATH         – path to the Kraken2 database directory (must contain
 #                     taxonomy/nodes.dmp); when set, a lineage-aware "domain"
 #                     column is added to every output matrix (default: unset)
@@ -71,6 +78,7 @@ set -euo pipefail
 # Configurable defaults                                                         #
 # --------------------------------------------------------------------------- #
 CLASSIFY_OUTDIR="${CLASSIFY_OUTDIR:-}"
+EXTRACT_OUTDIR="${EXTRACT_OUTDIR:-}"
 AGG_OUTDIR="${AGG_OUTDIR:-}"
 # DETECT_OUTDIR defaults to a sibling directory of AGG_OUTDIR; computed below
 # after we know AGG_OUTDIR.
@@ -85,6 +93,7 @@ MAD_THRESHOLD="${MAD_THRESHOLD:-3.5}"
 IQR_MULTIPLIER="${IQR_MULTIPLIER:-1.5}"
 GMM_THRESHOLD="${GMM_THRESHOLD:-0.5}"
 SKIP_DETECT="${SKIP_DETECT:-0}"
+SKIP_IDXSTATS_METRICS="${SKIP_IDXSTATS_METRICS:-0}"
 DB_PATH="${DB_PATH:-}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
@@ -106,6 +115,18 @@ fi
 if [[ -z "${AGG_OUTDIR}" ]]; then
     echo "ERROR: AGG_OUTDIR is not set." >&2
     exit 1
+fi
+
+if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
+    if [[ -z "${EXTRACT_OUTDIR}" ]]; then
+        echo "ERROR: EXTRACT_OUTDIR is not set. It is required to load reads_summary.json sidecars." >&2
+        echo "       Set SKIP_IDXSTATS_METRICS=1 to bypass idxstats-based metrics." >&2
+        exit 1
+    fi
+    if [[ ! -d "${EXTRACT_OUTDIR}" ]]; then
+        echo "ERROR: EXTRACT_OUTDIR not found: ${EXTRACT_OUTDIR}" >&2
+        exit 1
+    fi
 fi
 
 # Default DETECT_OUTDIR now that AGG_OUTDIR is validated
@@ -201,6 +222,10 @@ echo "  Min reads       : ${MIN_READS}"
 echo "  Detect matrix   : ${DETECT_MATRIX}"
 echo "  Rank filter     : ${RANK_FILTER_DISPLAY}"
 echo "  Skip detect     : ${SKIP_DETECT}"
+echo "  Skip idxstats   : ${SKIP_IDXSTATS_METRICS}"
+if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
+    echo "  Extract outdir  : ${EXTRACT_OUTDIR}"
+fi
 if [[ -n "${DB_PATH}" ]]; then
     echo "  DB path         : ${DB_PATH} (domain annotation enabled)"
 else
@@ -231,6 +256,24 @@ fi
 AGGREGATE_ARGS+=("--rank-filter" "${RANK_CODES[@]}")
 if [[ -n "${DB_PATH}" ]]; then
     AGGREGATE_ARGS+=("--db-path" "${DB_PATH}")
+fi
+
+if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
+    IDXSTATS_PATHS=()
+    for report in "${REPORTS[@]}"; do
+        sid="$(basename "${report}")"
+        sid="${sid%.kraken2.report.txt}"
+        reads_summary="${EXTRACT_OUTDIR}/${sid}/${sid}.reads_summary.json"
+        if [[ ! -s "${reads_summary}" ]]; then
+            echo "ERROR: Missing required idxstats sidecar for sample ${sid}: ${reads_summary}" >&2
+            echo "       Ensure extraction ran with submit_extract.sh (without --skip-idxstats)." >&2
+            echo "       Re-run extraction or provide a compatible ${sid}.reads_summary.json sidecar." >&2
+            echo "       Or set SKIP_IDXSTATS_METRICS=1 to bypass idxstats-based metrics." >&2
+            exit 1
+        fi
+        IDXSTATS_PATHS+=("${reads_summary}")
+    done
+    AGGREGATE_ARGS+=("--idxstats" "${IDXSTATS_PATHS[@]}")
 fi
 
 echo ""

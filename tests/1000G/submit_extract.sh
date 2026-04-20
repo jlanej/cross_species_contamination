@@ -41,6 +41,7 @@
 #   --image     URI   Docker URI to pull the container from
 #                     [default: ghcr.io/jlanej/cross_species_contamination:latest]
 #   --keep-cram       Also save intermediate unmapped CRAM per sample
+#   --skip-idxstats   Skip idxstats/reads_summary sidecars during extraction
 #   --dry-run         Print sbatch command; do not submit
 #   -h, --help        Show this help message
 #
@@ -65,6 +66,7 @@ REFERENCE=""
 CONTAINER_SIF="${SCRIPT_DIR}/csc.sif"
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 KEEP_CRAM="0"
+SKIP_IDXSTATS="0"
 DRY_RUN=0
 MAX_CONCURRENT_JOBS=300
 MAX_CONCURRENT_JOBS_SET=0
@@ -95,6 +97,7 @@ while [[ $# -gt 0 ]]; do
         --container) CONTAINER_SIF="$2"; shift 2 ;;
         --image)     CONTAINER_IMAGE="$2"; shift 2 ;;
         --keep-cram) KEEP_CRAM="1";   shift ;;
+        --skip-idxstats) SKIP_IDXSTATS="1"; shift ;;
         --dry-run)   DRY_RUN=1;       shift ;;
         -h|--help)   usage ;;
         *) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
@@ -277,7 +280,7 @@ SBATCH_CMD=(
     --partition="${PARTITION}"
     --output="${SCRIPT_DIR}/logs/extract_%A_%a.out"
     --error="${SCRIPT_DIR}/logs/extract_%A_%a.err"
-    --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM},${ARRAY_JOB_EXPORTS}"
+    --export="ALL,MANIFEST=${MANIFEST},OUTDIR=${OUTDIR},THREADS=${CPUS},KEEP_CRAM=${KEEP_CRAM},SKIP_IDXSTATS=${SKIP_IDXSTATS},${ARRAY_JOB_EXPORTS}"
     "${SCRIPT_DIR}/extract_unmapped_array.sh"
 )
 

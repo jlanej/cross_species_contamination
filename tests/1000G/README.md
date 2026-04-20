@@ -7,7 +7,8 @@ Only the unmapped section of each remote CRAM is fetched (using the CRAI index
 as a seek pointer), so the full ~30 GB file is never downloaded.
 
 The CRAI index is downloaded to a local temporary file before calling
-`samtools view -X` (Aspera first when available, `curl` fallback). This avoids
+`samtools view -X` and before idxstats collection (Aspera first when available,
+`curl` fallback). This avoids
 `htslib`/`samtools` failures seen when passing FTP URLs directly as the `-X`
 index argument ("Exec format error"). The data CRAM stream is still read
 directly from EBI.
@@ -97,6 +98,14 @@ Each sample directory contains gzip-compressed FASTQ files for the
 unmapped reads.  Samples with zero unmapped reads will have an empty
 directory.
 
+By default, extraction also writes per-sample idxstats sidecars:
+
+- `{sample}.idxstats.tsv`
+- `{sample}.reads_summary.json`
+
+These are used downstream to compute idxstats-based total-sequenced-read
+metrics (absolute burden matrices and reporting).
+
 ---
 
 ## Options (`submit_extract.sh`)
@@ -117,6 +126,7 @@ directory.
 | `--container FILE` | `./csc.sif` | Path to pre-pulled Apptainer SIF image |
 | `--image URI` | `ghcr.io/jlanej/cross_species_contamination:latest` | Docker URI for auto-pull |
 | `--keep-cram` | off | Also save an intermediate unmapped CRAM |
+| `--skip-idxstats` | off | Skip idxstats sidecars (default computes and requires them) |
 | `--dry-run` | off | Print sbatch command without submitting |
 
 ---
@@ -162,6 +172,10 @@ to `ftp.sra.ebi.ac.uk` and HTTPS (port 443) to `ghcr.io` are allowed.
 `_unmapped_R1.fastq.gz` already exists and is non-empty, and exits cleanly if
 everything selected is already complete. `extract_unmapped_array.sh` also
 checks per-sample output and skips completed work at task runtime.
+
+If you intentionally skipped idxstats sidecars during extraction, run
+`submit_classify.sh --skip-idxstats-metrics` to bypass idxstats-based
+absolute metrics in aggregation/reporting.
 
 ---
 

@@ -500,21 +500,131 @@ class TestIdxstats:
         assert rows[0]["total_unmapped"] == "20"
         assert rows[0]["total_reads"] == "70"
 
-    def test_run_idxstats_missing_index_is_nonfatal_for_extract(
+    def test_cli_skip_idxstats_allows_processing_when_idxstats_fails(
         self, test_bam: Path, tmp_path: Path
     ) -> None:
-        """If idxstats fails (e.g. missing index), extract still succeeds."""
+        """--skip-idxstats should bypass idxstats failures."""
+        from csc.extract.cli import main
         from unittest import mock
 
-        # Simulate idxstats failure without breaking the main extraction.
         with mock.patch(
             "csc.extract.extract.run_idxstats",
             side_effect=RuntimeError("no index"),
         ):
-            result = extract_reads(test_bam, tmp_path / "out_noidx")
+            rc = main([
+                str(test_bam), "-o", str(tmp_path / "cli_idx_skip"),
+                "--skip-idxstats",
+            ])
+        assert rc == 0
 
-        # Core extraction still worked
+    def test_run_idxstats_missing_index_fails_extract_by_default(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """If idxstats fails, extraction should fail by default."""
+        from unittest import mock
+
+        with mock.patch(
+            "csc.extract.extract.run_idxstats",
+            side_effect=RuntimeError("no index"),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to compute required idxstats"):
+                extract_reads(test_bam, tmp_path / "out_noidx")
+
+    def test_run_idxstats_missing_index_can_be_skipped(
+        self, test_bam: Path, tmp_path: Path
+    ) -> None:
+        """If explicitly skipped, extraction should succeed without idxstats fields."""
+        from unittest import mock
+
+        with mock.patch(
+            "csc.extract.extract.run_idxstats",
+            side_effect=RuntimeError("no index"),
+        ):
+            result = extract_reads(test_bam, tmp_path / "out_noidx_skip", skip_idxstats=True)
+
         assert result["read_count"] == EXPECTED_UNMAPPED_READS * 2
-        # idxstats-derived fields are absent when the sidecar call failed
         assert "total_reads" not in result
         assert "reads_summary_path" not in result
+
+    def test_run_idxstats_with_explicit_crai_path(
+        self, test_cram: Path, test_reference: Path, tmp_path: Path
+    ) -> None:
+        """run_idxstats must work when given an explicit local CRAI path.
+
+        This simulates the 1000G workflow where the CRAI is at a non-standard
+        location (e.g., a temp download path) and must be passed explicitly.
+        The implementation symlinks the CRAM and co-locates the CRAI so that
+        ``samtools idxstats`` auto-detects it.
+        """
+        from csc.extract.extract import run_idxstats
+
+        # pysam.index produces <cram>.crai alongside the CRAM
+        crai_path = Path(str(test_cram) + ".crai")
+        assert crai_path.exists(), f"Expected CRAI at {crai_path}"
+
+        # Move the CRAI to a separate dir to simulate a non-standard CRAI location
+        alt_crai = tmp_path / "downloaded.crai.tmp"
+        import shutil as _shutil
+        _shutil.copy(crai_path, alt_crai)
+
+        summary = run_idxstats(
+            test_cram,
+            tmp_path / "idx_explicit_crai",
+            sample_id="remote_sim",
+            reference=test_reference,
+            crai_path=alt_crai,
+        )
+        # Counts must match the synthetic CRAM composition
+        assert summary["total_mapped"] == 50
+        assert summary["total_unmapped"] == 20
+        assert summary["total_reads"] == 70
+        assert summary["sample_id"] == "remote_sim"
+        # The sidecar files must exist
+        idx_tsv = tmp_path / "idx_explicit_crai" / "remote_sim.idxstats.tsv"
+        idx_json = tmp_path / "idx_explicit_crai" / "remote_sim.reads_summary.json"
+        assert idx_tsv.exists()
+        assert idx_json.exists()
+
+    def test_run_idxstats_explicit_crai_matches_implicit(
+        self, test_cram: Path, test_reference: Path, tmp_path: Path
+    ) -> None:
+        """Explicit CRAI path must yield identical counts to auto-resolved index."""
+        from csc.extract.extract import run_idxstats
+        import shutil as _shutil
+
+        crai_path = Path(str(test_cram) + ".crai")
+        alt_crai = tmp_path / "downloaded.crai.tmp"
+        _shutil.copy(crai_path, alt_crai)
+
+        implicit = run_idxstats(test_cram, tmp_path / "implicit", sample_id="imp")
+        explicit = run_idxstats(
+            test_cram, tmp_path / "explicit", sample_id="exp", crai_path=alt_crai
+        )
+        assert explicit["total_mapped"] == implicit["total_mapped"]
+        assert explicit["total_unmapped"] == implicit["total_unmapped"]
+        assert explicit["total_reads"] == implicit["total_reads"]
+
+    def test_run_idxstats_with_file_url(
+        self, test_cram: Path, test_reference: Path, tmp_path: Path
+    ) -> None:
+        """run_idxstats must work with a ``file://`` URL, exercising htslib URL code path.
+
+        ``file://`` URLs are treated by htslib the same as remote URLs (same
+        open/read code path).  This confirms that ``samtools idxstats`` works
+        correctly with URL-style inputs without requiring actual network access.
+        htslib auto-detects the co-located CRAI index.
+        """
+        from csc.extract.extract import run_idxstats
+
+        file_url = f"file://{test_cram}"
+        summary = run_idxstats(
+            file_url,
+            tmp_path / "idx_fileurl",
+            sample_id="fileurl_sim",
+        )
+        assert summary["total_mapped"] == 50
+        assert summary["total_unmapped"] == 20
+        assert summary["total_reads"] == 70
+        assert summary["sample_id"] == "fileurl_sim"
+        # Input recorded in summary must be the URL as given
+        assert summary["input"] == file_url

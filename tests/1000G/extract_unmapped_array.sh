@@ -44,6 +44,8 @@
 #   THREADS       – samtools threads (default: matches --cpus-per-task)
 #   KEEP_CRAM     – if set to "1", also save the raw unmapped CRAM before FASTQ
 #                   conversion (useful for downstream csc-extract / re-processing)
+#   SKIP_IDXSTATS – set to "1" to skip idxstats/reads_summary sidecars
+#                   (default: 0; idxstats is required and failures abort)
 #   ASPERA_SSH_KEY – optional explicit path to the Aspera SSH key file
 #   ASPERA_BANDWIDTH – Aspera transfer cap (default: 300m)
 #   ASPERA_PORT   – Aspera transfer port (default: 33001)
@@ -70,6 +72,7 @@ MANIFEST="${MANIFEST:-${SCRIPT_DIR}/manifest.tsv}"
 OUTDIR="${OUTDIR:-${SCRIPT_DIR}/output}"
 THREADS="${THREADS:-${SLURM_CPUS_PER_TASK:-4}}"
 KEEP_CRAM="${KEEP_CRAM:-0}"
+SKIP_IDXSTATS="${SKIP_IDXSTATS:-0}"
 
 # Container settings – no pre-setup required; image is pulled automatically
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
@@ -254,6 +257,7 @@ echo "  CRAM URL   : ${CRAM_URL}"
 echo "  CRAI URL   : ${CRAI_URL}"
 echo "  Output dir : ${OUTDIR}"
 echo "  Threads    : ${THREADS}"
+echo "  Skip idxstats: ${SKIP_IDXSTATS}"
 echo "  Container  : ${CONTAINER_SIF}"
 echo "======================================================"
 
@@ -289,6 +293,119 @@ else
     echo "ERROR: Failed to download CRAI index: ${CRAI_URL}" >&2
     rm -f "${CRAI_LOCAL}"
     exit 1
+fi
+
+# --------------------------------------------------------------------------- #
+# Compute idxstats-derived total sequence counts (required by default)        #
+# --------------------------------------------------------------------------- #
+IDXSTATS_TSV="${SAMPLE_DIR}/${SAMPLE_ID}.idxstats.tsv"
+READS_SUMMARY_JSON="${SAMPLE_DIR}/${SAMPLE_ID}.reads_summary.json"
+if [[ "${SKIP_IDXSTATS}" == "1" ]]; then
+    echo "Skipping idxstats sidecars (SKIP_IDXSTATS=1)."
+else
+    echo "Computing idxstats sidecars for ${SAMPLE_ID}..."
+    # ``samtools idxstats`` does not support an explicit ``-X`` flag (unlike
+    # ``samtools view``).  For remote CRAM URLs, htslib automatically fetches
+    # the CRAI from <URL>.crai, which is the standard 1000G naming convention.
+    # The CRAI downloaded for ``samtools view -X`` is reused for view only;
+    # for idxstats we rely on htslib's built-in remote index resolution.
+    if container_run samtools idxstats "${CRAM_URL}" > "${IDXSTATS_TSV}.tmp"; then
+        echo "idxstats computed (${CRAM_URL})"
+    else
+        echo "ERROR: samtools idxstats failed for ${SAMPLE_ID} (${CRAM_URL})." >&2
+        echo "       Tried both explicit local CRAI and default index resolution." >&2
+        echo "       Re-run with SKIP_IDXSTATS=1 to bypass idxstats-based metrics." >&2
+        rm -f "${IDXSTATS_TSV}.tmp"
+        rm -f "${CRAI_LOCAL}"
+        exit 1
+    fi
+    if [[ ! -s "${IDXSTATS_TSV}.tmp" ]]; then
+        echo "ERROR: idxstats output is empty for ${SAMPLE_ID}." >&2
+        rm -f "${IDXSTATS_TSV}.tmp"
+        rm -f "${CRAI_LOCAL}"
+        exit 1
+    fi
+    mv -f "${IDXSTATS_TSV}.tmp" "${IDXSTATS_TSV}"
+
+    IDXSTATS_JSON_SCRIPT="${SAMPLE_DIR}/.idxstats_to_json_${SLURM_ARRAY_TASK_ID}.py"
+    cat > "${IDXSTATS_JSON_SCRIPT}" <<'PY'
+import datetime
+import json
+import os
+import sys
+from pathlib import Path
+
+sample_id = os.environ["CSC_SAMPLE_ID"]
+input_path = os.environ["CSC_INPUT_PATH"]
+idxstats_tsv = Path(os.environ["CSC_IDXSTATS_TSV"])
+reads_summary_json = Path(os.environ["CSC_READS_SUMMARY_JSON"])
+
+per_chromosome = []
+total_mapped = 0
+total_unmapped = 0
+skipped_lines = 0
+
+for line in idxstats_tsv.read_text().splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\t")
+    if len(parts) < 4:
+        skipped_lines += 1
+        continue
+    chrom, length_s, mapped_s, unmapped_s = parts[:4]
+    try:
+        length = int(length_s)
+        mapped = int(mapped_s)
+        unmapped = int(unmapped_s)
+    except ValueError:
+        skipped_lines += 1
+        continue
+    per_chromosome.append(
+        {
+            "chrom": chrom,
+            "length": length,
+            "mapped": mapped,
+            "unmapped": unmapped,
+        }
+    )
+    total_mapped += mapped
+    total_unmapped += unmapped
+
+summary = {
+    "schema_version": "1.0",
+    "sample_id": sample_id,
+    "input": input_path,
+    "extraction_time": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+    "total_mapped": total_mapped,
+    "total_unmapped": total_unmapped,
+    "total_reads": total_mapped + total_unmapped,
+    "per_chromosome": per_chromosome,
+}
+
+reads_summary_json.write_text(json.dumps(summary, indent=2) + "\n")
+if skipped_lines:
+    print(
+        f"WARNING: skipped {skipped_lines} malformed/non-numeric idxstats line(s) for {sample_id}",
+        file=sys.stderr,
+    )
+PY
+    if ! container_run env \
+        CSC_SAMPLE_ID="${SAMPLE_ID}" \
+        CSC_INPUT_PATH="${CRAM_URL}" \
+        CSC_IDXSTATS_TSV="${IDXSTATS_TSV}" \
+        CSC_READS_SUMMARY_JSON="${READS_SUMMARY_JSON}" \
+        python3 "${IDXSTATS_JSON_SCRIPT}"; then
+        echo "ERROR: Failed to write reads_summary.json for ${SAMPLE_ID}." >&2
+        rm -f "${IDXSTATS_JSON_SCRIPT}"
+        rm -f "${CRAI_LOCAL}"
+        exit 1
+    fi
+    rm -f "${IDXSTATS_JSON_SCRIPT}"
+    if [[ ! -s "${READS_SUMMARY_JSON}" ]]; then
+        echo "ERROR: reads_summary.json was not created for ${SAMPLE_ID}." >&2
+        rm -f "${CRAI_LOCAL}"
+        exit 1
+    fi
 fi
 
 # --------------------------------------------------------------------------- #
