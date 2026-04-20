@@ -305,15 +305,15 @@ if [[ "${SKIP_IDXSTATS}" == "1" ]]; then
 else
     echo "Computing idxstats sidecars for ${SAMPLE_ID}..."
     # ``samtools idxstats`` does not support an explicit ``-X`` flag (unlike
-    # ``samtools view``).  For remote CRAM URLs, htslib automatically fetches
-    # the CRAI from <URL>.crai, which is the standard 1000G naming convention.
-    # The CRAI downloaded for ``samtools view -X`` is reused for view only;
-    # for idxstats we rely on htslib's built-in remote index resolution.
-    if container_run samtools idxstats "${CRAM_URL}" > "${IDXSTATS_TSV}.tmp"; then
+    # ``samtools view``).  However, htslib supports the ``##idx##`` URL suffix
+    # to specify an explicit index path alongside any URL.  We pass the
+    # already-downloaded local CRAI via this mechanism so that htslib reads the
+    # CRAM header from the remote URL but uses the local index file directly,
+    # avoiding a redundant (and potentially stalling) FTP fetch of the CRAI.
+    if container_run samtools idxstats "${CRAM_URL}##idx##${CRAI_LOCAL}" > "${IDXSTATS_TSV}.tmp"; then
         echo "idxstats computed (${CRAM_URL})"
     else
         echo "ERROR: samtools idxstats failed for ${SAMPLE_ID} (${CRAM_URL})." >&2
-        echo "       Tried both explicit local CRAI and default index resolution." >&2
         echo "       Re-run with SKIP_IDXSTATS=1 to bypass idxstats-based metrics." >&2
         rm -f "${IDXSTATS_TSV}.tmp"
         rm -f "${CRAI_LOCAL}"
