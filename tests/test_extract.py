@@ -628,3 +628,43 @@ class TestIdxstats:
         assert summary["sample_id"] == "fileurl_sim"
         # Input recorded in summary must be the URL as given
         assert summary["input"] == file_url
+
+    def test_run_idxstats_remote_url_with_explicit_crai_uses_idx_syntax(
+        self, test_cram: Path, test_reference: Path, tmp_path: Path
+    ) -> None:
+        """run_idxstats with a remote URL + explicit crai_path uses ``##idx##`` syntax.
+
+        This exercises the code path added to fix the 1000G idxstats stall:
+        when ``input_path`` is a remote URL (including ``file://``) and
+        ``crai_path`` is provided, htslib's ``##idx##`` URL suffix is used so
+        the already-downloaded local CRAI is read directly instead of htslib
+        fetching the index via a potentially stalling FTP/HTTP connection.
+        """
+        import shutil as _shutil
+        from csc.extract.extract import run_idxstats
+
+        # Place the CRAI at a non-standard location to simulate a downloaded temp file
+        alt_crai = tmp_path / "downloaded.crai.tmp"
+        crai_src = Path(str(test_cram) + ".crai")
+        assert crai_src.exists(), f"Expected CRAI at {crai_src}"
+        _shutil.copy(crai_src, alt_crai)
+
+        file_url = f"file://{test_cram}"
+        summary = run_idxstats(
+            file_url,
+            tmp_path / "idx_remote_explicit_crai",
+            sample_id="remote_explicit",
+            crai_path=alt_crai,
+        )
+        # Counts must match the synthetic CRAM
+        assert summary["total_mapped"] == 50
+        assert summary["total_unmapped"] == 20
+        assert summary["total_reads"] == 70
+        assert summary["sample_id"] == "remote_explicit"
+        # Input must be recorded as the URL (not the ##idx## form)
+        assert summary["input"] == file_url
+        # Sidecar files must exist
+        idx_tsv = tmp_path / "idx_remote_explicit_crai" / "remote_explicit.idxstats.tsv"
+        idx_json = tmp_path / "idx_remote_explicit_crai" / "remote_explicit.reads_summary.json"
+        assert idx_tsv.exists()
+        assert idx_json.exists()

@@ -121,11 +121,12 @@ def run_idxstats(
         supplied and *input_path* is a local file, ``samtools idxstats``
         is run from a temporary directory where the input is symlinked
         and the index is placed at the co-located path that samtools
-        auto-detects.  This supports the 1000G workflow where the CRAI
-        is downloaded locally before running idxstats.  Note that
-        ``samtools idxstats`` does not support an explicit ``-X`` flag
-        (unlike ``samtools view``); the co-location approach is the
-        portable way to specify an alternate index for local files.
+        auto-detects.  When supplied and *input_path* is a remote URL,
+        htslib's ``##idx##`` URL suffix is used so the already-downloaded
+        local CRAI is used directly, avoiding a redundant (and potentially
+        stalling) FTP/HTTP fetch of the CRAI.  Note that ``samtools
+        idxstats`` does not support an explicit ``-X`` flag (unlike
+        ``samtools view``).
 
     Returns
     -------
@@ -174,6 +175,17 @@ def run_idxstats(
             proc = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
             )
+    elif crai_path is not None:
+        # Remote URL with an explicitly supplied local CRAI.  Use htslib's
+        # ``##idx##`` URL suffix to point to the already-downloaded index file
+        # and avoid a redundant (and potentially stalling) FTP/HTTP fetch of
+        # the CRAI.  samtools reads the CRAM header from the remote URL but
+        # uses the local index directly.
+        _crai = Path(crai_path).resolve()
+        _url_with_idx = f"{input_path_str}##idx##file://{_crai}"
+        cmd = [samtools, "idxstats", "-@", str(threads), _url_with_idx]
+        logger.debug("Running (with ##idx## local crai): %s", " ".join(cmd))
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     else:
         # Remote URL or no explicit crai_path: let htslib auto-resolve the index.
         # For remote URLs (ftp://, http://, etc.) htslib fetches <url>.crai

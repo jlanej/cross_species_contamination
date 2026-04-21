@@ -77,7 +77,46 @@ jobs:
             -
 
       # --------------------------------------------------------------------- #
-      # Step 3: Verify that reads were extracted.                              #
+      # Step 3: Run idxstats using the local CRAI via ##idx## URL suffix.      #
+      # This is the fix for the 30-min stall: htslib reads the CRAM index      #
+      # from the local file (already downloaded in Step 1) instead of          #
+      # re-fetching it via FTP, which stalls behind HPC firewalls.             #
+      # --------------------------------------------------------------------- #
+      - name: Run idxstats with local CRAI via ##idx## (stall-fix verification)
+        run: |
+          CRAI_LOCAL="/tmp/${SAMPLE_ID}.crai"
+          IDX_URL="${CRAM_URL}##idx##${CRAI_LOCAL}"
+
+          echo "Running: samtools idxstats '${IDX_URL}'"
+          samtools idxstats "${IDX_URL}" > /tmp/${SAMPLE_ID}.idxstats.tsv
+          echo "idxstats output:"
+          cat /tmp/${SAMPLE_ID}.idxstats.tsv
+
+          # Verify output is non-empty and has the expected TSV structure
+          LINES=$(wc -l < /tmp/${SAMPLE_ID}.idxstats.tsv)
+          if [[ "${LINES}" -lt 2 ]]; then
+            echo "ERROR: idxstats output has fewer than 2 lines (expected chromosome rows + '*')" >&2
+            exit 1
+          fi
+
+          # Parse mapped and unmapped totals from all rows
+          TOTAL_MAPPED=0
+          TOTAL_UNMAPPED=0
+          while IFS=$'\t' read -r chrom length mapped unmapped; do
+            TOTAL_MAPPED=$(( TOTAL_MAPPED + mapped ))
+            TOTAL_UNMAPPED=$(( TOTAL_UNMAPPED + unmapped ))
+          done < /tmp/${SAMPLE_ID}.idxstats.tsv
+          TOTAL_READS=$(( TOTAL_MAPPED + TOTAL_UNMAPPED ))
+
+          echo "total_mapped=${TOTAL_MAPPED} total_unmapped=${TOTAL_UNMAPPED} total_reads=${TOTAL_READS}"
+          if [[ "${TOTAL_READS}" -eq 0 ]]; then
+            echo "ERROR: idxstats reports zero total reads for ${SAMPLE_ID}" >&2
+            exit 1
+          fi
+          echo "idxstats ##idx## verification succeeded."
+
+      # --------------------------------------------------------------------- #
+      # Step 4: Verify that reads were extracted.                              #
       # --------------------------------------------------------------------- #
       - name: Verify output files
         run: |
@@ -103,4 +142,4 @@ jobs:
 
       - name: Clean up temporary files
         if: always()
-        run: rm -rf /tmp/csc_remote_out /tmp/csc_collate_tmp /tmp/${SAMPLE_ID}.crai
+        run: rm -rf /tmp/csc_remote_out /tmp/csc_collate_tmp /tmp/${SAMPLE_ID}.crai /tmp/${SAMPLE_ID}.idxstats.tsv

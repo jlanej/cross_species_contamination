@@ -358,26 +358,30 @@ class TestArrayScript:
         assert "samtools idxstats" in content
         assert ".reads_summary.json" in content
 
-    def test_idxstats_uses_cram_url_directly(self):
-        """idxstats should use the CRAM URL directly (htslib auto-fetches remote CRAI).
+    def test_idxstats_uses_cram_url_with_local_crai_idx(self):
+        """idxstats should use the CRAM URL with ``##idx##`` pointing to the local CRAI.
 
-        ``samtools idxstats`` does not support ``-X``.  For remote CRAM URLs
-        htslib automatically fetches the CRAI from <URL>.crai.
+        ``samtools idxstats`` does not support ``-X``.  Instead, htslib's
+        ``##idx##`` URL suffix is used to pass the already-downloaded local
+        CRAI, avoiding a redundant (and potentially stalling) FTP fetch.
         """
         content = ARRAY_SCRIPT.read_text()
-        # Should call idxstats with CRAM_URL (no -X flag)
-        assert 'samtools idxstats "${CRAM_URL}"' in content
+        # Should call idxstats with CRAM_URL##idx##CRAI_LOCAL (no -X flag)
+        assert 'samtools idxstats "${CRAM_URL}##idx##${CRAI_LOCAL}"' in content
         # Must NOT use the (invalid for idxstats) -X flag
         assert 'samtools idxstats -X' not in content
+        # Must NOT use the old bare URL form (which re-downloads CRAI via FTP)
+        assert 'samtools idxstats "${CRAM_URL}"' not in content
 
     def test_idxstats_remote_url_local_crai_functional(self, tmp_path: Path):
-        """Functional test: idxstats block executes samtools idxstats <remote_url>.
+        """Functional test: idxstats block executes samtools idxstats with ##idx##.
 
         Uses a fake samtools that captures its arguments and emits valid
         idxstats output, simulating the 1000G remote CRAM scenario without
         actual network access.  Verifies:
 
-        * samtools is called with the remote CRAM URL (no ``-X``)
+        * samtools is called with ``<CRAM_URL>##idx##<CRAI_LOCAL>`` (no ``-X``)
+        * the local CRAI path is embedded in the argument via ``##idx##``
         * the ``.idxstats.tsv`` sidecar is written
         * the ``reads_summary.json`` sidecar is produced with correct structure
         """
@@ -410,7 +414,7 @@ class TestArrayScript:
         idxstats_tsv = sample_dir / "NA12718.idxstats.tsv"
 
         # Execute the idxstats block inline, with our fake samtools on the PATH.
-        # ``samtools idxstats`` does NOT use -X; the URL is the sole argument.
+        # ``samtools idxstats`` uses ##idx## to specify the local CRAI; no -X.
         inline = textwrap.dedent(f"""\
             set -euo pipefail
             export PATH="{tmp_path}:$PATH"
@@ -429,7 +433,7 @@ class TestArrayScript:
                 echo "Skipping idxstats sidecars (SKIP_IDXSTATS=1)."
             else
                 echo "Computing idxstats sidecars for ${{SAMPLE_ID}}..."
-                if container_run samtools idxstats "${{CRAM_URL}}" > "${{IDXSTATS_TSV}}.tmp"; then
+                if container_run samtools idxstats "${{CRAM_URL}}##idx##${{CRAI_LOCAL}}" > "${{IDXSTATS_TSV}}.tmp"; then
                     echo "idxstats computed (${{CRAM_URL}})"
                 else
                     echo "ERROR: samtools idxstats failed." >&2
@@ -486,13 +490,17 @@ PY
         result = run(["bash", "-c", inline])
         assert result.returncode == 0, f"idxstats block failed:\n{result.stderr}"
 
-        # Verify samtools was invoked with the remote CRAM URL (not -X)
+        # Verify samtools was invoked with ##idx## URL (not bare CRAM_URL, not -X)
         assert args_log.exists(), "Fake samtools never invoked"
         args_recorded = args_log.read_text().strip().splitlines()
         assert len(args_recorded) >= 1, "samtools args not captured"
         first_call = args_recorded[0]
-        assert remote_cram_url in first_call, (
-            f"Expected remote CRAM URL in samtools args: {first_call!r}"
+        expected_arg = f"{remote_cram_url}##idx##"
+        assert expected_arg in first_call, (
+            f"Expected '##idx##' in samtools args: {first_call!r}"
+        )
+        assert str(crai_local) in first_call, (
+            f"Expected local CRAI path in samtools args: {first_call!r}"
         )
         assert "-X" not in first_call, (
             f"samtools idxstats must NOT use -X (not supported): {first_call!r}"
