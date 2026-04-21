@@ -51,8 +51,9 @@ jobs:
 
       # --------------------------------------------------------------------- #
       # Step 2: Stream only the unmapped reads from the remote CRAM.           #
-      # -X <local_crai> + '*' seeks directly to the unmapped section; the     #
-      # full ~30 GB file is never downloaded.                                  #
+      # -X <CRAM_URL> <local_crai> + '*' seeks directly to the unmapped       #
+      # section; the full ~30 GB file is never downloaded.  The CRAM URL      #
+      # must come before the local CRAI path (input then index order).        #
       # --------------------------------------------------------------------- #
       - name: Extract unmapped reads via local CRAI + remote CRAM
         run: |
@@ -61,8 +62,7 @@ jobs:
           samtools view \
             --threads 2 \
             -u -f 4 \
-            -X /tmp/${SAMPLE_ID}.crai \
-            "${CRAM_URL}" \
+            -X "${CRAM_URL}" /tmp/${SAMPLE_ID}.crai \
             '*' \
           | samtools collate \
             --threads 2 \
