@@ -90,7 +90,8 @@ def load_taxonomy_tree(db_path: str | Path) -> dict[int, int]:
         nodes_path = db / "nodes.dmp"
     if not nodes_path.exists():
         raise FileNotFoundError(
-            f"taxonomy/nodes.dmp not found in {db_path}"
+            f"nodes.dmp not found in {db_path} "
+            "(checked taxonomy/ subdirectory and DB root)"
         )
 
     tree: dict[int, int] = {}
