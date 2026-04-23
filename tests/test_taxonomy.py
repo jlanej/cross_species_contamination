@@ -131,6 +131,18 @@ class TestLoadTaxonomyTree:
         tree = load_taxonomy_tree(mini_db)
         assert len(tree) == len(_MINI_TREE)
 
+    def test_fallback_to_db_root(self, tmp_path: Path) -> None:
+        """nodes.dmp in db root (not taxonomy/) should be found via fallback."""
+        db = tmp_path / "db"
+        db.mkdir()
+        nodes = db / "nodes.dmp"
+        with open(nodes, "w") as fh:
+            for child, parent in _MINI_TREE:
+                fh.write(f"{child}\t|\t{parent}\t|\tno rank\t|\n")
+        tree = load_taxonomy_tree(db)
+        assert tree[1] == 1
+        assert len(tree) == len(_MINI_TREE)
+
 
 # ---------------------------------------------------------------------------
 # Tests – _get_lineage

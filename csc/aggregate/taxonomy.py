@@ -82,7 +82,12 @@ def load_taxonomy_tree(db_path: str | Path) -> dict[int, int]:
     FileNotFoundError
         If ``taxonomy/nodes.dmp`` does not exist under *db_path*.
     """
-    nodes_path = Path(db_path) / "taxonomy" / "nodes.dmp"
+    db = Path(db_path)
+    nodes_path = db / "taxonomy" / "nodes.dmp"
+    if not nodes_path.exists():
+        # Some databases (e.g. k2_NCBI_reference_20251007) place nodes.dmp
+        # directly in the DB root rather than in a taxonomy/ subdirectory.
+        nodes_path = db / "nodes.dmp"
     if not nodes_path.exists():
         raise FileNotFoundError(
             f"taxonomy/nodes.dmp not found in {db_path}"
