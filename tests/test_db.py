@@ -558,6 +558,16 @@ class TestValidateTaxonomy:
         assert result["taxonomy/nodes.dmp"] is True
         assert result["taxonomy/names.dmp"] is False
 
+    def test_taxonomy_files_in_db_root(self, tmp_path: Path) -> None:
+        """Taxonomy files in DB root (not taxonomy/) should be detected."""
+        db_dir = tmp_path / "flat_db"
+        db_dir.mkdir()
+        (db_dir / "nodes.dmp").write_text("1\t|\t1\t|\n")
+        (db_dir / "names.dmp").write_text("1\t|\troot\t|\t\t|\tscientific name\t|\n")
+        result = validate_taxonomy(db_dir)
+        assert result["taxonomy/nodes.dmp"] is True
+        assert result["taxonomy/names.dmp"] is True
+
 
 # ---------------------------------------------------------------------------
 # PrackenDB detection

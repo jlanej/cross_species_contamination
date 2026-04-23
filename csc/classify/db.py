@@ -524,7 +524,10 @@ def validate_taxonomy(db_path: str | Path) -> dict[str, bool]:
     db = Path(db_path).resolve()
     result: dict[str, bool] = {}
     for relpath in TAXONOMY_FILES:
-        result[relpath] = (db / relpath).is_file()
+        # Some databases (e.g. k2_NCBI_reference_20251007) place taxonomy
+        # files directly in the DB root rather than in a taxonomy/ subdirectory.
+        filename = Path(relpath).name
+        result[relpath] = (db / relpath).is_file() or (db / filename).is_file()
     return result
 
 
