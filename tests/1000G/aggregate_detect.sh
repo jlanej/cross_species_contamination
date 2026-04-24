@@ -185,6 +185,9 @@ container_run() {
     local -a bind_args=()
     bind_args+=("--bind" "${CLASSIFY_OUTDIR}:${CLASSIFY_OUTDIR}")
     bind_args+=("--bind" "${AGG_OUTDIR}:${AGG_OUTDIR}")
+    if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
+        bind_args+=("--bind" "${EXTRACT_OUTDIR}:${EXTRACT_OUTDIR}")
+    fi
     if [[ "${SKIP_DETECT}" != "1" ]]; then
         bind_args+=("--bind" "${DETECT_OUTDIR}:${DETECT_OUTDIR}")
     fi

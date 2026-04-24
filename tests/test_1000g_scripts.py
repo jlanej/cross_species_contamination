@@ -1615,3 +1615,90 @@ class TestAggregateDetectScript:
         assert result.returncode == 0
         assert "Skipping" in result.stdout
         assert "RUNNING_DETECT" not in result.stdout
+
+    def test_container_run_binds_extract_outdir_when_idxstats_enabled(self, tmp_path):
+        """container_run must bind EXTRACT_OUTDIR when SKIP_IDXSTATS_METRICS != 1.
+
+        Regression test for the bug where reads_summary.json sidecars were
+        inaccessible inside the Apptainer container because EXTRACT_OUTDIR was
+        not included in the bind-mount arguments.
+        """
+        extract_out = tmp_path / "extract"
+        classify_out = tmp_path / "classify"
+        agg_out = tmp_path / "agg"
+        detect_out = tmp_path / "detect"
+        for d in (extract_out, classify_out, agg_out, detect_out):
+            d.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            SKIP_IDXSTATS_METRICS=0
+            SKIP_DETECT=0
+            CLASSIFY_OUTDIR="{classify_out}"
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR="{detect_out}"
+            EXTRACT_OUTDIR="{extract_out}"
+            DB_PATH=""
+            container_run() {{
+                local -a bind_args=()
+                bind_args+=("--bind" "${{CLASSIFY_OUTDIR}}:${{CLASSIFY_OUTDIR}}")
+                bind_args+=("--bind" "${{AGG_OUTDIR}}:${{AGG_OUTDIR}}")
+                if [[ "${{SKIP_IDXSTATS_METRICS}}" != "1" ]]; then
+                    bind_args+=("--bind" "${{EXTRACT_OUTDIR}}:${{EXTRACT_OUTDIR}}")
+                fi
+                if [[ "${{SKIP_DETECT}}" != "1" ]]; then
+                    bind_args+=("--bind" "${{DETECT_OUTDIR}}:${{DETECT_OUTDIR}}")
+                fi
+                if [[ -n "${{DB_PATH}}" ]]; then
+                    bind_args+=("--bind" "${{DB_PATH}}:${{DB_PATH}}")
+                fi
+                echo "${{bind_args[@]}}"
+            }}
+            container_run
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert str(extract_out) in result.stdout, (
+            "EXTRACT_OUTDIR must appear in container bind args when "
+            "SKIP_IDXSTATS_METRICS != 1"
+        )
+
+    def test_container_run_omits_extract_outdir_when_idxstats_skipped(self, tmp_path):
+        """container_run must NOT bind EXTRACT_OUTDIR when SKIP_IDXSTATS_METRICS=1."""
+        extract_out = tmp_path / "extract"
+        classify_out = tmp_path / "classify"
+        agg_out = tmp_path / "agg"
+        detect_out = tmp_path / "detect"
+        for d in (extract_out, classify_out, agg_out, detect_out):
+            d.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            SKIP_IDXSTATS_METRICS=1
+            SKIP_DETECT=0
+            CLASSIFY_OUTDIR="{classify_out}"
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR="{detect_out}"
+            EXTRACT_OUTDIR="{extract_out}"
+            DB_PATH=""
+            container_run() {{
+                local -a bind_args=()
+                bind_args+=("--bind" "${{CLASSIFY_OUTDIR}}:${{CLASSIFY_OUTDIR}}")
+                bind_args+=("--bind" "${{AGG_OUTDIR}}:${{AGG_OUTDIR}}")
+                if [[ "${{SKIP_IDXSTATS_METRICS}}" != "1" ]]; then
+                    bind_args+=("--bind" "${{EXTRACT_OUTDIR}}:${{EXTRACT_OUTDIR}}")
+                fi
+                if [[ "${{SKIP_DETECT}}" != "1" ]]; then
+                    bind_args+=("--bind" "${{DETECT_OUTDIR}}:${{DETECT_OUTDIR}}")
+                fi
+                if [[ -n "${{DB_PATH}}" ]]; then
+                    bind_args+=("--bind" "${{DB_PATH}}:${{DB_PATH}}")
+                fi
+                echo "${{bind_args[@]}}"
+            }}
+            container_run
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0
+        assert str(extract_out) not in result.stdout, (
+            "EXTRACT_OUTDIR must NOT appear in container bind args when "
+            "SKIP_IDXSTATS_METRICS=1"
+        )
