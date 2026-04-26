@@ -146,6 +146,28 @@ expand_array_spec() {
     done
 }
 
+# Convert a sorted list of integers (one per line on stdin) to compact SLURM
+# range notation, merging consecutive runs into N-M ranges.
+# Example: 1 2 3 5 6 10  →  1-3,5-6,10
+compress_indices_to_range() {
+    awk '
+    BEGIN { start = -1; prev = -1 }
+    {
+        n = $1 + 0
+        if (start < 0) { start = n; prev = n; next }
+        if (n == prev + 1) { prev = n; next }
+        if (prev > start) printf "%d-%d,", start, prev
+        else printf "%d,", start
+        start = n; prev = n
+    }
+    END {
+        if (start >= 0) {
+            if (prev > start) printf "%d-%d", start, prev
+            else printf "%d", start
+        }
+    }'
+}
+
 sample_complete_for_index() {
     local idx="$1"
     local sid r1
@@ -185,8 +207,8 @@ elif [[ -n "${SAMPLES_FILE}" ]]; then
         exit 1
     fi
 
-    # Sort and de-duplicate indices, then format as SLURM array spec
-    ARRAY_SPEC="$(printf '%s\n' "${INDICES[@]}" | sort -n | uniq | paste -sd',')"
+    # Sort, de-duplicate, and compress consecutive runs into range notation
+    ARRAY_SPEC="$(printf '%s\n' "${INDICES[@]}" | sort -n | uniq | compress_indices_to_range)"
     echo "Resolved ${#INDICES[@]} samples → array spec: ${ARRAY_SPEC}"
 
 elif [[ -n "${LIMIT}" ]]; then
@@ -213,7 +235,7 @@ if [[ ${#PENDING_INDICES[@]} -eq 0 ]]; then
 fi
 
 if [[ "${COMPLETED_COUNT}" -gt 0 ]]; then
-    ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | paste -sd',')"
+    ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | compress_indices_to_range)"
     echo "Skipping ${COMPLETED_COUNT} completed sample(s); submitting ${#PENDING_INDICES[@]} pending sample(s)."
 fi
 

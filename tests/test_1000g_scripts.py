@@ -286,7 +286,7 @@ class TestSubmitExtractDryRun:
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        assert "--array=2,3%300" in result.stdout
+        assert "--array=2-3%300" in result.stdout
         assert "Skipping 1 completed sample(s)" in result.stdout
 
     def test_dry_run_all_completed_submits_nothing(self, tmp_path):
