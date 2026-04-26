@@ -356,6 +356,28 @@ expand_array_spec() {
     done
 }
 
+# Convert a sorted list of integers (one per line on stdin) to compact SLURM
+# range notation, merging consecutive runs into N-M ranges.
+# Example: 1 2 3 5 6 10  →  1-3,5-6,10
+compress_indices_to_range() {
+    awk '
+    BEGIN { start = -1; prev = -1 }
+    {
+        n = $1 + 0
+        if (start < 0) { start = n; prev = n; next }
+        if (n == prev + 1) { prev = n; next }
+        if (prev > start) printf "%d-%d,", start, prev
+        else printf "%d,", start
+        start = n; prev = n
+    }
+    END {
+        if (start >= 0) {
+            if (prev > start) printf "%d-%d", start, prev
+            else printf "%d", start
+        }
+    }'
+}
+
 # Check if a sample (by 1-based manifest index) is already classified
 sample_classified_for_index() {
     local idx="$1"
@@ -405,8 +427,8 @@ else
         echo "Skipping ${COMPLETED_COUNT} already-classified sample(s); submitting ${#PENDING_INDICES[@]} pending sample(s)."
     fi
 
-    # Rebuild the array spec from pending indices
-    PENDING_ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | paste -sd',')"
+    # Rebuild the array spec from pending indices, compressing consecutive runs
+    PENDING_ARRAY_SPEC="$(printf '%s\n' "${PENDING_INDICES[@]}" | sort -n | uniq | compress_indices_to_range)"
 
     # Apply concurrency throttle
     if [[ "${PENDING_ARRAY_SPEC}" == *%* ]]; then
