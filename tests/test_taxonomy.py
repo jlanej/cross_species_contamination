@@ -143,6 +143,22 @@ class TestLoadTaxonomyTree:
         assert tree[1] == 1
         assert len(tree) == len(_MINI_TREE)
 
+    def test_fallback_to_db_root_emits_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A warning should be logged when falling back to DB root location."""
+        db = tmp_path / "db"
+        db.mkdir()
+        nodes = db / "nodes.dmp"
+        with open(nodes, "w") as fh:
+            for child, parent in _MINI_TREE:
+                fh.write(f"{child}\t|\t{parent}\t|\tno rank\t|\n")
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="csc.aggregate.taxonomy"):
+            load_taxonomy_tree(db)
+        assert any("falling back to DB root" in msg for msg in caplog.messages)
+
 
 # ---------------------------------------------------------------------------
 # Tests – _get_lineage
@@ -505,3 +521,42 @@ class TestCLIDbPath:
             reader = csv.reader(fh, delimiter="\t")
             header = next(reader)
         assert header[2] != "domain"
+
+    def test_cli_with_flat_db_path(self, tmp_path: Path) -> None:
+        """--db-path with nodes.dmp at DB root (no taxonomy/ subdir) should work.
+
+        This is the k2_NCBI_reference_20251007 layout that triggered issue #64.
+        """
+        # Build a flat DB: nodes.dmp directly under db/, no taxonomy/ dir.
+        flat_db = tmp_path / "flat_db"
+        flat_db.mkdir()
+        with open(flat_db / "nodes.dmp", "w") as fh:
+            for child, parent in _MINI_TREE:
+                fh.write(f"{child}\t|\t{parent}\t|\tno rank\t|\n")
+
+        report = _write_report(
+            tmp_path / "s1.kraken2.report.txt",
+            "100.00\t100\t100\tS\t562\tEscherichia coli\n",
+        )
+        from csc.aggregate.cli import main
+
+        rc = main([
+            str(report),
+            "-o", str(tmp_path / "cli_out"),
+            "--db-path", str(flat_db),
+        ])
+        assert rc == 0
+
+        with open(tmp_path / "cli_out" / "taxa_matrix_raw.tsv") as fh:
+            reader = csv.reader(fh, delimiter="\t")
+            header = next(reader)
+        assert header[2] == "domain"
+
+        # Verify domain assignment was applied correctly
+        rows = {}
+        with open(tmp_path / "cli_out" / "taxa_matrix_raw.tsv") as fh:
+            reader = csv.reader(fh, delimiter="\t")
+            next(reader)  # skip header
+            for cols in reader:
+                rows[int(cols[0])] = cols[2]
+        assert rows[562] == DOMAIN_BACTERIA
