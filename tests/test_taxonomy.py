@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -153,8 +154,6 @@ class TestLoadTaxonomyTree:
         with open(nodes, "w") as fh:
             for child, parent in _MINI_TREE:
                 fh.write(f"{child}\t|\t{parent}\t|\tno rank\t|\n")
-        import logging
-
         with caplog.at_level(logging.WARNING, logger="csc.aggregate.taxonomy"):
             load_taxonomy_tree(db)
         assert any("falling back to DB root" in msg for msg in caplog.messages)
@@ -547,16 +546,12 @@ class TestCLIDbPath:
         ])
         assert rc == 0
 
-        with open(tmp_path / "cli_out" / "taxa_matrix_raw.tsv") as fh:
-            reader = csv.reader(fh, delimiter="\t")
-            header = next(reader)
-        assert header[2] == "domain"
-
-        # Verify domain assignment was applied correctly
+        # Read matrix once: verify domain column header and data rows.
         rows = {}
         with open(tmp_path / "cli_out" / "taxa_matrix_raw.tsv") as fh:
             reader = csv.reader(fh, delimiter="\t")
-            next(reader)  # skip header
+            header = next(reader)
+            assert header[2] == "domain"
             for cols in reader:
                 rows[int(cols[0])] = cols[2]
         assert rows[562] == DOMAIN_BACTERIA
