@@ -57,6 +57,11 @@ params.min_reads       = 0
 params.rank_filter     = 'S G F'
 params.db_path         = null       // path to Kraken2 DB for domain annotation (optional)
 params.detect_matrix   = 'cpm'    // 'cpm' or 'raw'
+// High-confidence tier (per-read confidence recomputation; requires --db-path).
+// Multiple values can be supplied space-separated (e.g. '0.1 0.5'); each
+// produces a parallel matrix set with suffix _conf{T}.  An empty string
+// disables high-confidence aggregation (only the sensitive tier is built).
+params.confidence_thresholds = ''
 params.aggregate_cpus   = 2
 params.aggregate_memory = '4 GB'
 params.aggregate_time   = '1h'
@@ -109,7 +114,17 @@ workflow {
         .collect()
         .set { all_reports_ch }
 
-    AGGREGATE_REPORTS(all_reports_ch)
+    // Collect per-read kraken2 outputs alongside reports.  These are
+    // required when the high-confidence tier is enabled
+    // (params.confidence_thresholds non-empty); they are otherwise
+    // ignored by csc-aggregate.
+    CLASSIFY_READS.out.outputs
+        .map { sample_id, output -> output }
+        .collect()
+        .ifEmpty([])
+        .set { all_outputs_ch }
+
+    AGGREGATE_REPORTS(all_reports_ch, all_outputs_ch)
 
     // --- 5. Detect outliers --------------------------------------------------
     def detect_input_ch = params.detect_matrix == 'raw'
@@ -123,7 +138,14 @@ workflow {
         .collect()
         .ifEmpty([])
 
-    DETECT_OUTLIERS(detect_input_ch, rank_matrices_ch)
+    // Stage confidence-tier matrices (and their per-rank siblings) so
+    // that csc-detect can auto-discover them and run detection per tier.
+    def tier_matrices_ch = AGGREGATE_REPORTS.out.tier_matrices
+        .flatten()
+        .collect()
+        .ifEmpty([])
+
+    DETECT_OUTLIERS(detect_input_ch, rank_matrices_ch, tier_matrices_ch)
 
     // --- 6. Pipeline summary report ------------------------------------------
     PIPELINE_SUMMARY(

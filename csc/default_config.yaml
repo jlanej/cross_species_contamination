@@ -29,6 +29,13 @@ aggregate:
     - "S"                    # species
     - "G"                    # genus
     - "F"                    # family
+  # Optional high-confidence tier(s).  For each value > 0.0,
+  # csc-aggregate recomputes per-read Kraken2 confidence from the
+  # existing *.kraken2.output.txt files and writes a parallel matrix
+  # set with suffix _conf{T} (e.g. taxa_matrix_raw_conf0p50.tsv).
+  # Requires db_path (taxonomy/nodes.dmp).  Empty list = sensitive
+  # tier only.
+  confidence_thresholds: []  # e.g. [0.1, 0.5]
 
 detect:
   method: "mad"              # outlier detection method: "mad" or "iqr"

@@ -17,24 +17,32 @@ process AGGREGATE_REPORTS {
 
     input:
     path(reports)
+    path(kraken2_outputs)
 
     output:
-    path("taxa_matrix_cpm.tsv"),          emit: matrix_cpm
-    path("taxa_matrix_raw.tsv"),          emit: matrix_raw
-    path("taxa_matrix_*_?.tsv"),          emit: rank_matrices, optional: true
-    path("aggregation_metadata.json"),    emit: metadata
-    path("rank_filter_metadata.json"),    emit: rank_metadata
+    path("taxa_matrix_cpm.tsv"),                  emit: matrix_cpm
+    path("taxa_matrix_raw.tsv"),                  emit: matrix_raw
+    path("taxa_matrix_*_?.tsv"),                  emit: rank_matrices,    optional: true
+    path("taxa_matrix_*_conf*.tsv"),              emit: tier_matrices,    optional: true
+    path("aggregation_metadata.json"),            emit: metadata
+    path("rank_filter_metadata.json"),            emit: rank_metadata
 
     script:
-    def min_reads_arg = params.min_reads ? "--min-reads ${params.min_reads}" : ''
-    def rank_arg      = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
-    def db_path_arg   = params.db_path    ? "--db-path ${params.db_path}"         : ''
+    def min_reads_arg     = params.min_reads ? "--min-reads ${params.min_reads}" : ''
+    def rank_arg          = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
+    def db_path_arg       = params.db_path    ? "--db-path ${params.db_path}"         : ''
+    // Confidence-tier inputs (only attached when configured + DB available)
+    def has_conf = params.confidence_thresholds && kraken2_outputs && (kraken2_outputs as List).size() > 0
+    def conf_arg          = has_conf ? "--confidence-threshold ${params.confidence_thresholds}" : ''
+    def kraken_output_arg = has_conf ? "--kraken2-output ${kraken2_outputs}"                   : ''
     """
     csc-aggregate \\
         ${reports} \\
         -o . \\
         ${min_reads_arg} \\
         ${rank_arg} \\
-        ${db_path_arg}
+        ${db_path_arg} \\
+        ${conf_arg} \\
+        ${kraken_output_arg}
     """
 }

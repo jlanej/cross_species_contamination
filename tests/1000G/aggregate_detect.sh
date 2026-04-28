@@ -57,6 +57,14 @@
 #   DB_PATH         – path to the Kraken2 database directory (must contain
 #                     taxonomy/nodes.dmp); when set, a lineage-aware "domain"
 #                     column is added to every output matrix (default: unset)
+#   CONFIDENCE_THRESHOLDS – colon-separated Kraken2 confidence cutoffs
+#                     in [0.0, 1.0] for high-confidence aggregation
+#                     (e.g. "0.1:0.5").  Each value > 0 produces a parallel
+#                     matrix set with suffix _conf{T} (e.g.
+#                     taxa_matrix_raw_conf0p50.tsv) using per-read
+#                     `*.kraken2.output.txt` files from CLASSIFY_OUTDIR.
+#                     Requires DB_PATH (taxonomy/nodes.dmp). (default: unset
+#                     → only the canonical sensitive tier is built.)
 #   CONTAINER_SIF   – path to the Apptainer SIF image
 #   CONTAINER_IMAGE – Docker URI for auto-pull
 #                     (default: ghcr.io/jlanej/cross_species_contamination:latest)
@@ -95,6 +103,8 @@ GMM_THRESHOLD="${GMM_THRESHOLD:-0.5}"
 SKIP_DETECT="${SKIP_DETECT:-0}"
 SKIP_IDXSTATS_METRICS="${SKIP_IDXSTATS_METRICS:-0}"
 DB_PATH="${DB_PATH:-}"
+# Colon-separated thresholds; empty = sensitive tier only.
+CONFIDENCE_THRESHOLDS="${CONFIDENCE_THRESHOLDS:-}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
 CONTAINER_SIF="${CONTAINER_SIF:-${AGG_OUTDIR}/csc.sif}"
@@ -234,6 +244,11 @@ if [[ -n "${DB_PATH}" ]]; then
 else
     echo "  DB path         : (not set – domain annotation disabled)"
 fi
+if [[ -n "${CONFIDENCE_THRESHOLDS}" ]]; then
+    echo "  Confidence tiers: ${CONFIDENCE_THRESHOLDS//:/ } (high-confidence aggregation enabled)"
+else
+    echo "  Confidence tiers: (sensitive tier only)"
+fi
 if [[ "${SKIP_DETECT}" != "1" ]]; then
     echo "  Detect method   : ${DETECT_METHOD}"
     echo "  MAD threshold   : ${MAD_THRESHOLD}"
@@ -277,6 +292,39 @@ if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
         IDXSTATS_PATHS+=("${reads_summary}")
     done
     AGGREGATE_ARGS+=("--idxstats" "${IDXSTATS_PATHS[@]}")
+fi
+
+# Optional: high-confidence tier(s).  Re-uses the per-read kraken2
+# output files emitted by classify (sample.kraken2.output.txt) so we
+# do NOT have to re-run Kraken2.
+if [[ -n "${CONFIDENCE_THRESHOLDS}" ]]; then
+    if [[ -z "${DB_PATH}" ]]; then
+        echo "ERROR: CONFIDENCE_THRESHOLDS requires DB_PATH (taxonomy/nodes.dmp)." >&2
+        exit 1
+    fi
+    IFS=':' read -ra CONF_THRESHOLDS <<< "${CONFIDENCE_THRESHOLDS}"
+    KRAKEN_OUTPUTS=()
+    for report in "${REPORTS[@]}"; do
+        sid="$(basename "${report}")"
+        sid="${sid%.kraken2.report.txt}"
+        out_path="${CLASSIFY_OUTDIR}/${sid}/${sid}.kraken2.output.txt"
+        # Some classify layouts place outputs at the same depth as reports.
+        if [[ ! -s "${out_path}" ]]; then
+            alt_path="$(dirname "${report}")/${sid}.kraken2.output.txt"
+            if [[ -s "${alt_path}" ]]; then
+                out_path="${alt_path}"
+            fi
+        fi
+        if [[ ! -s "${out_path}" ]]; then
+            echo "ERROR: Missing per-read kraken2 output for sample ${sid}: ${out_path}" >&2
+            echo "       The high-confidence tier requires CLASSIFY_OUTDIR to contain" >&2
+            echo "       <sample>.kraken2.output.txt files (csc-classify produces these)." >&2
+            exit 1
+        fi
+        KRAKEN_OUTPUTS+=("${out_path}")
+    done
+    AGGREGATE_ARGS+=("--confidence-threshold" "${CONF_THRESHOLDS[@]}")
+    AGGREGATE_ARGS+=("--kraken2-output" "${KRAKEN_OUTPUTS[@]}")
 fi
 
 echo ""

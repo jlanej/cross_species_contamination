@@ -240,6 +240,35 @@ def test_format_threshold_suffix() -> None:
     assert format_threshold_suffix(1.0) == "conf1p00"
 
 
+def test_detect_cli_tier_discovery(tmp_path: Path) -> None:
+    """csc-detect's confidence-tier discovery picks up sibling matrices."""
+    from csc.detect.cli import (
+        _discover_confidence_tier_matrices,
+        _rank_matrix_candidates,
+    )
+
+    for name in (
+        "taxa_matrix_cpm.tsv", "taxa_matrix_cpm_conf0p50.tsv",
+        "taxa_matrix_cpm_conf0p10.tsv", "taxa_matrix_raw.tsv",
+        "taxa_matrix_cpm_S.tsv", "taxa_matrix_cpm_S_conf0p50.tsv",
+    ):
+        (tmp_path / name).write_text("")
+
+    base = tmp_path / "taxa_matrix_cpm.tsv"
+    tiers = sorted(p.name for p in _discover_confidence_tier_matrices(base))
+    assert tiers == [
+        "taxa_matrix_cpm_conf0p10.tsv",
+        "taxa_matrix_cpm_conf0p50.tsv",
+    ]
+    # When called on a tier matrix directly, no further tiers are discovered.
+    tier = tmp_path / "taxa_matrix_cpm_conf0p50.tsv"
+    assert _discover_confidence_tier_matrices(tier) == []
+    # Rank candidates resolve to the tier-suffixed rank matrix.
+    assert [c.name for c in _rank_matrix_candidates(tier, "S")] == [
+        "taxa_matrix_cpm_S_conf0p50.tsv"
+    ]
+
+
 # ── End-to-end aggregate_reports dual-tier integration ───────────────────────
 
 

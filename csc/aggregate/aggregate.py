@@ -94,7 +94,11 @@ DEFAULT_RANK_FILTER: tuple[str, ...] = ("S", "G", "F")
 # Schema version for aggregation outputs.  Bump on breaking changes to
 # the matrix format / metadata JSON so downstream consumers (detect,
 # reporting, the PR #55 summary report) can detect and adapt.
-# 1.2: introduces optional confidence-tier outputs.
+# Version history:
+#   1.0  initial schema (raw + CPM matrices, rank metadata sidecar).
+#   1.1  added absolute-burden matrix + per-sample idxstats provenance.
+#   1.2  added optional confidence-tier outputs (taxa_matrix_*_conf{T}.tsv)
+#        and the `confidence_tiers` block in aggregation_metadata.json.
 AGGREGATION_SCHEMA_VERSION = "1.2"
 
 
