@@ -108,6 +108,16 @@ csc-classify reads.fastq.gz --db /data/kraken2/PlusPF -o results/ -v
 | `-v, --verbose` | Debug logging |
 | `--version` | Show version |
 
+> **Note – sensitive vs. high-confidence reporting.**  We recommend
+> running `csc-classify` with the default `--confidence 0.0` (maximum
+> sensitivity) so the per-read kraken2 output captures every k-mer
+> match, then producing a high-confidence tier downstream in
+> `csc-aggregate` via `--confidence-threshold`.  This avoids re-running
+> Kraken2: the per-read confidence is recomputed from the existing
+> `*.kraken2.output.txt` file using the same definition Kraken2 itself
+> uses (in-clade k-mers ÷ non-ambiguous k-mers).  See
+> [Aggregate – High-Confidence Tier](aggregate.md#high-confidence-tier-dual-tier-reporting).
+
 ## Chaining with Extract
 
 The classify module is designed to accept output directly from `csc-extract`:

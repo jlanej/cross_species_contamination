@@ -68,6 +68,12 @@
 #   --db-path       DIR    Kraken2 DB dir for lineage-aware domain annotation in
 #                          aggregate; defaults to the value of --db (set to ""
 #                          to disable domain annotation)
+#   --confidence-thresholds STR  Colon-separated Kraken2 confidence cutoffs
+#                          (e.g. "0.1:0.5") for the high-confidence tier.
+#                          Each value > 0 produces a parallel matrix set with
+#                          suffix _conf{T} using the per-read kraken2 outputs
+#                          already produced by classify.  Requires --db-path.
+#                          [default: "" – sensitive tier only]
 #   --detect-matrix STR    Matrix type for detect input: cpm or raw [default: cpm]
 #   --detect-method STR    Outlier detection method: mad or iqr [default: mad]
 #   --mad-threshold FLOAT  MAD threshold for outlier detection [default: 3.5]
@@ -141,6 +147,7 @@ REPORT_WALLTIME="00:30:00"
 CONTAINER_SIF=""          # resolved later to an absolute path under OUTDIR
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 DB_PATH=""                # defaults to DB after argument parsing
+CONFIDENCE_THRESHOLDS=""  # colon-separated; empty = sensitive tier only
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
 USAGE_LINES=110
@@ -169,6 +176,7 @@ while [[ $# -gt 0 ]]; do
         --min-reads)      MIN_READS="$2";      shift 2 ;;
         --rank-filter)    RANK_FILTER="$2";    shift 2 ;;
         --db-path)        DB_PATH="$2";        shift 2 ;;
+        --confidence-thresholds) CONFIDENCE_THRESHOLDS="$2"; shift 2 ;;
         --detect-matrix)  DETECT_MATRIX="$2";  shift 2 ;;
         --detect-method)  DETECT_METHOD="$2";  shift 2 ;;
         --mad-threshold)  MAD_THRESHOLD="$2";  shift 2 ;;
@@ -564,6 +572,7 @@ AGG_EXPORTS=(
     "SKIP_DETECT=${SKIP_DETECT}"
     "SKIP_IDXSTATS_METRICS=${SKIP_IDXSTATS_METRICS}"
     "DB_PATH=${DB_PATH}"
+    "CONFIDENCE_THRESHOLDS=${CONFIDENCE_THRESHOLDS}"
     "CONTAINER_SIF=${CONTAINER_SIF}"
     "CONTAINER_IMAGE=${CONTAINER_IMAGE}"
 )

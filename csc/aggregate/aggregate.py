@@ -67,6 +67,22 @@ class AggregationResult(TypedDict, total=False):
     # are supplied via the ``idxstats_paths`` parameter).
     matrix_abs_path: Path
     rank_matrices_abs: dict[str, Path]
+    # High-confidence tier outputs (present when ``confidence_thresholds``
+    # is supplied with at least one value > 0.0).  Keyed by the
+    # filesystem-safe tier suffix (e.g. ``"conf0p50"``).
+    confidence_tiers: dict[str, "TierPaths"]
+
+
+class TierPaths(TypedDict, total=False):
+    """Output paths for a single confidence tier."""
+
+    threshold: float
+    matrix_raw_path: Path
+    matrix_cpm_path: Path
+    matrix_abs_path: Path
+    rank_matrices_raw: dict[str, Path]
+    rank_matrices_cpm: dict[str, Path]
+    rank_matrices_abs: dict[str, Path]
 
 
 # Valid Kraken2 rank codes.
@@ -78,10 +94,15 @@ DEFAULT_RANK_FILTER: tuple[str, ...] = ("S", "G", "F")
 # Schema version for aggregation outputs.  Bump on breaking changes to
 # the matrix format / metadata JSON so downstream consumers (detect,
 # reporting, the PR #55 summary report) can detect and adapt.
-AGGREGATION_SCHEMA_VERSION = "1.1"
+# Version history:
+#   1.0  initial schema (raw + CPM matrices, rank metadata sidecar).
+#   1.1  added absolute-burden matrix + per-sample idxstats provenance.
+#   1.2  added optional confidence-tier outputs (taxa_matrix_*_conf{T}.tsv)
+#        and the `confidence_tiers` block in aggregation_metadata.json.
+AGGREGATION_SCHEMA_VERSION = "1.2"
 
 
-def typed_matrix_filename(matrix_type: str) -> str:
+def typed_matrix_filename(matrix_type: str, tier_suffix: str = "") -> str:
     """Return canonical filename for a typed unfiltered matrix.
 
     Parameters
@@ -90,13 +111,21 @@ def typed_matrix_filename(matrix_type: str) -> str:
         Matrix type code: ``"raw"`` (integer counts), ``"cpm"``
         (relative, per-million of classified reads) or ``"abs"``
         (absolute burden, per-million of *total sequenced reads*).
+    tier_suffix:
+        Optional confidence-tier suffix (e.g. ``"conf0p50"``).  When
+        non-empty it is appended after the matrix type, yielding for
+        example ``taxa_matrix_raw_conf0p50.tsv``.  An empty string
+        gives the canonical sensitive-tier filename.
     """
     if matrix_type not in ("raw", "cpm", "abs"):
         raise ValueError("matrix_type must be 'raw', 'cpm', or 'abs'")
-    return f"taxa_matrix_{matrix_type}.tsv"
+    suffix = f"_{tier_suffix}" if tier_suffix else ""
+    return f"taxa_matrix_{matrix_type}{suffix}.tsv"
 
 
-def typed_rank_matrix_filename(rank: str, matrix_type: str) -> str:
+def typed_rank_matrix_filename(
+    rank: str, matrix_type: str, tier_suffix: str = ""
+) -> str:
     """Return canonical filename for a typed rank-filtered matrix.
 
     Parameters
@@ -105,12 +134,15 @@ def typed_rank_matrix_filename(rank: str, matrix_type: str) -> str:
         Kraken2 rank code (for example ``"S"``, ``"G"``, ``"F"``).
     matrix_type:
         Matrix type code: ``"raw"``, ``"cpm"``, or ``"abs"``.
+    tier_suffix:
+        Optional confidence-tier suffix (see :func:`typed_matrix_filename`).
     """
     if rank not in VALID_RANK_CODES:
         raise ValueError(f"rank must be one of: {VALID_RANK_CODES}")
     if matrix_type not in ("raw", "cpm", "abs"):
         raise ValueError("matrix_type must be 'raw', 'cpm', or 'abs'")
-    return f"taxa_matrix_{matrix_type}_{rank}.tsv"
+    suffix = f"_{tier_suffix}" if tier_suffix else ""
+    return f"taxa_matrix_{matrix_type}_{rank}{suffix}.tsv"
 
 
 # ---- idxstats sidecar ingestion ---------------------------------------------
@@ -303,6 +335,8 @@ def aggregate_reports(
     rank_filter: tuple[str, ...] | list[str] = DEFAULT_RANK_FILTER,
     db_path: str | Path | None = None,
     idxstats_paths: list[str | Path] | None = None,
+    confidence_thresholds: list[float] | tuple[float, ...] | None = None,
+    kraken2_output_paths: list[str | Path] | None = None,
 ) -> AggregationResult:
     """Build a sample-by-taxon matrix from Kraken2 reports.
 
@@ -361,6 +395,21 @@ def aggregate_reports(
         matrices and recorded in ``aggregation_metadata.json`` under
         ``samples_without_idxstats``; they appear as ``NA`` rows in the
         absolute matrix.
+    confidence_thresholds:
+        Optional list of Kraken2 confidence cutoffs in ``[0.0, 1.0]``.
+        For every threshold ``T > 0.0``, the per-read kraken2 output
+        files supplied via *kraken2_output_paths* are scanned and reads
+        whose recomputed confidence falls below ``T`` are demoted to
+        unclassified, producing a parallel "high-confidence" matrix
+        set with filenames suffixed ``_conf{T}`` (e.g.
+        ``taxa_matrix_raw_conf0p50.tsv``).  The sensitive tier (no
+        suffix) is always written.  Requires *db_path* (for
+        ``taxonomy/nodes.dmp``).
+    kraken2_output_paths:
+        Optional list of ``{sample_id}.kraken2.output.txt`` files (the
+        per-read output produced by Kraken2 with ``--output``).  Required
+        when *confidence_thresholds* contains any value greater than
+        ``0.0``.  Files are matched to samples by filename.
 
     Returns
     -------
@@ -473,6 +522,7 @@ def aggregate_reports(
 
     # Lineage-aware domain assignment (optional)
     tax_domains: dict[int, str] | None = None
+    tree: dict[int, int] | None = None
     if db_path is not None:
         from csc.aggregate.taxonomy import assign_domains, load_taxonomy_tree
 
@@ -480,35 +530,7 @@ def aggregate_reports(
         tax_domains = assign_domains(all_taxa, tree)
         logger.info("Assigned domains for %d taxa", len(tax_domains))
 
-    # Always write both unfiltered matrices (raw + CPM)
-    matrix_raw_path = output_dir / typed_matrix_filename("raw")
-    matrix_cpm_path = output_dir / typed_matrix_filename("cpm")
-    _write_matrix(
-        matrix_raw_path,
-        sample_ids=sample_ids,
-        all_taxa=all_taxa,
-        tax_names=tax_names,
-        sample_data=sample_data,
-        sample_totals=sample_totals,
-        normalize=False,
-        tax_domains=tax_domains,
-    )
-    _write_matrix(
-        matrix_cpm_path,
-        sample_ids=sample_ids,
-        all_taxa=all_taxa,
-        tax_names=tax_names,
-        sample_data=sample_data,
-        sample_totals=sample_totals,
-        normalize=True,
-        tax_domains=tax_domains,
-    )
-
-    # Absolute-burden outputs (per-million total sequenced reads) –
-    # only produced when idxstats sidecars are provided.  Samples
-    # missing a sidecar are written as ``NA`` so readers can clearly
-    # distinguish "no denominator" from "zero reads".
-    matrix_abs_path: Path | None = None
+    # Resolve idxstats → per-sample total_reads (for absolute burden).
     sample_total_reads: dict[str, int] = {}
     samples_without_idxstats: list[str] = []
     if idxstats_map:
@@ -525,100 +547,182 @@ def aggregate_reports(
                 len(samples_without_idxstats),
                 ", ".join(samples_without_idxstats),
             )
-        matrix_abs_path = output_dir / typed_matrix_filename("abs")
-        _write_matrix(
-            matrix_abs_path,
-            sample_ids=sample_ids,
-            all_taxa=all_taxa,
-            tax_names=tax_names,
-            sample_data=sample_data,
-            sample_totals=sample_totals,
-            normalize=False,
-            tax_domains=tax_domains,
-            absolute=True,
-            sample_total_reads=sample_total_reads,
+
+    # ---- Sensitive tier (canonical, suffix="") ----
+    sensitive_tier = _write_tier_outputs(
+        output_dir=output_dir,
+        tier_suffix="",
+        sample_ids=sample_ids,
+        all_taxa=all_taxa,
+        tax_names=tax_names,
+        tax_ranks=tax_ranks,
+        sample_data=sample_data,
+        sample_clade_data=sample_clade_data,
+        sample_totals=sample_totals,
+        rank_filter=rank_filter,
+        tax_domains=tax_domains,
+        write_abs=bool(idxstats_map),
+        sample_total_reads=sample_total_reads,
+    )
+    matrix_raw_path = sensitive_tier["matrix_raw_path"]
+    matrix_cpm_path = sensitive_tier["matrix_cpm_path"]
+    matrix_abs_path = sensitive_tier.get("matrix_abs_path")
+    rank_matrices_raw = sensitive_tier.get("rank_matrices_raw", {})
+    rank_matrices_cpm = sensitive_tier.get("rank_matrices_cpm", {})
+    rank_matrices_abs = sensitive_tier.get("rank_matrices_abs", {})
+    rank_sidecar: dict[str, Any] = sensitive_tier.get("_rank_sidecar", {})
+
+    # ---- High-confidence tiers (optional) ----
+    confidence_tiers_meta: dict[str, dict[str, Any]] = {}
+    confidence_tiers_paths: dict[str, TierPaths] = {}
+    if confidence_thresholds and kraken2_output_paths:
+        from csc.aggregate.confidence import (
+            filter_records_by_confidence,
+            format_threshold_suffix,
+            load_names_dmp,
+            load_ranks_dmp,
+            map_outputs_to_samples,
         )
 
-    # Write per-rank filtered matrices (raw + CPM, plus abs when idxstats supplied)
-    # For species (S) rank, direct_reads is used; for higher ranks (G, F, etc.)
-    # clade_reads is used so that genus/family matrices capture descendant
-    # species abundance rather than being misleadingly sparse.
-    rank_matrices_raw: dict[str, Path] = {}
-    rank_matrices_cpm: dict[str, Path] = {}
-    rank_matrices_abs: dict[str, Path] = {}
-    rank_sidecar: dict[str, Any] = {}
-    for rank in rank_filter:
-        rank_taxa = [t for t in all_taxa if tax_ranks.get(t) == rank]
-        if not rank_taxa:
-            logger.info("Rank '%s': no taxa found, skipping matrix", rank)
-            continue
+        # Validate thresholds
+        for t in confidence_thresholds:
+            if not (0.0 <= t <= 1.0):
+                raise ValueError(
+                    f"confidence threshold must be in [0.0, 1.0], got {t}"
+                )
 
-        # Issue 2: Use clade_reads for non-species ranks (G, F, etc.)
-        use_clade = rank != "S"
-        data_for_rank = sample_clade_data if use_clade else sample_data
+        # The confidence calculation needs the taxonomy tree.  Load it
+        # lazily here if we did not already load it via *db_path* for
+        # domain annotation.
+        if tree is None:
+            if db_path is None:
+                raise ValueError(
+                    "confidence_thresholds requires db_path (taxonomy/nodes.dmp)."
+                )
+            from csc.aggregate.taxonomy import load_taxonomy_tree
+            tree = load_taxonomy_tree(db_path)
 
-        rank_raw_path = output_dir / typed_rank_matrix_filename(rank, "raw")
-        _write_matrix(
-            rank_raw_path,
-            sample_ids=sample_ids,
-            all_taxa=rank_taxa,
-            tax_names=tax_names,
-            sample_data=data_for_rank,
-            sample_totals=sample_totals,
-            normalize=False,
-            tax_domains=tax_domains,
-        )
-        rank_matrices_raw[rank] = rank_raw_path
+        # Names + ranks from the database (best-effort: missing files
+        # produce empty maps and the records still aggregate correctly).
+        if db_path is not None:
+            tier_names = load_names_dmp(db_path)
+            tier_ranks_map = load_ranks_dmp(db_path)
+        else:
+            tier_names = {}
+            tier_ranks_map = {}
 
-        rank_cpm_path = output_dir / typed_rank_matrix_filename(rank, "cpm")
-        _write_matrix(
-            rank_cpm_path,
-            sample_ids=sample_ids,
-            all_taxa=rank_taxa,
-            tax_names=tax_names,
-            sample_data=data_for_rank,
-            sample_totals=sample_totals,
-            normalize=True,
-            tax_domains=tax_domains,
-        )
-        rank_matrices_cpm[rank] = rank_cpm_path
+        out_map = map_outputs_to_samples(kraken2_output_paths)
+        missing_outputs = [s for s in sample_ids if s not in out_map]
+        if missing_outputs:
+            logger.warning(
+                "No kraken2 output file for %d sample(s); their high-"
+                "confidence rows will be empty: %s",
+                len(missing_outputs),
+                ", ".join(missing_outputs),
+            )
 
-        rank_entry: dict[str, Any] = {
-            "matrix_raw_path": str(rank_raw_path),
-            "matrix_cpm_path": str(rank_cpm_path),
-            "taxon_count": len(rank_taxa),
-            "taxa": [
-                {"tax_id": t, "name": tax_names.get(t, "")}
-                for t in rank_taxa
-            ],
-        }
+        for threshold in confidence_thresholds:
+            if threshold <= 0.0:
+                # threshold 0.0 == sensitive tier; do not duplicate.
+                continue
+            tier_suffix = format_threshold_suffix(threshold)
+            tier_sample_data: dict[str, dict[int, int]] = {}
+            tier_sample_clade_data: dict[str, dict[int, int]] = {}
+            tier_tax_names: dict[int, str] = dict(tax_names)
+            tier_tax_ranks: dict[int, str] = dict(tax_ranks)
+            tier_sample_totals: dict[str, int] = {}
+            tier_dropped: dict[str, int] = {}
 
-        if idxstats_map:
-            rank_abs_path = output_dir / typed_rank_matrix_filename(rank, "abs")
-            _write_matrix(
-                rank_abs_path,
+            for sid in sample_ids:
+                opath = out_map.get(sid)
+                if opath is None or not opath.exists():
+                    tier_sample_data[sid] = {}
+                    tier_sample_clade_data[sid] = {}
+                    tier_sample_totals[sid] = sample_totals.get(sid, 0)
+                    continue
+                tier_stats: dict[str, int] = {}
+                tier_records = filter_records_by_confidence(
+                    opath,
+                    threshold=threshold,
+                    tree=tree,
+                    names=tier_names,
+                    ranks=tier_ranks_map,
+                    stats=tier_stats,
+                )
+                tier_sample_data[sid] = _collect_sample_counts(
+                    tier_records, min_reads=min_reads,
+                )
+                tier_sample_clade_data[sid] = _collect_sample_clade_counts(
+                    tier_records, min_reads=min_reads,
+                )
+                # CPM denominator = classified reads in this tier
+                # (i.e. reads passing the confidence threshold).  Using
+                # the same pre-filter total ensures CPM is comparable
+                # within tier; cross-tier comparisons should rely on
+                # absolute burden.
+                tier_sample_totals[sid] = _compute_pre_filter_total(tier_records)
+                # Track how many classified reads were demoted to
+                # unclassified in this tier (for provenance).
+                tier_dropped[sid] = tier_stats.get("demoted_to_unclassified", 0)
+
+                for rec in tier_records:
+                    if rec["direct_reads"] >= min_reads or rec["clade_reads"] >= min_reads:
+                        tid = rec["tax_id"]
+                        if tid not in tier_tax_names and rec["name"]:
+                            tier_tax_names[tid] = rec["name"]
+                        if tid not in tier_tax_ranks and rec["rank"]:
+                            tier_tax_ranks[tid] = rec["rank"]
+
+            tier_all_taxa = sorted(tier_tax_names.keys())
+            tier_domains: dict[int, str] | None = None
+            if db_path is not None and tree is not None:
+                from csc.aggregate.taxonomy import assign_domains as _ad
+                tier_domains = _ad(tier_all_taxa, tree)
+
+            tier_out = _write_tier_outputs(
+                output_dir=output_dir,
+                tier_suffix=tier_suffix,
                 sample_ids=sample_ids,
-                all_taxa=rank_taxa,
-                tax_names=tax_names,
-                sample_data=data_for_rank,
-                sample_totals=sample_totals,
-                normalize=False,
-                tax_domains=tax_domains,
-                absolute=True,
+                all_taxa=tier_all_taxa,
+                tax_names=tier_tax_names,
+                tax_ranks=tier_tax_ranks,
+                sample_data=tier_sample_data,
+                sample_clade_data=tier_sample_clade_data,
+                sample_totals=tier_sample_totals,
+                rank_filter=rank_filter,
+                tax_domains=tier_domains,
+                write_abs=bool(idxstats_map),
                 sample_total_reads=sample_total_reads,
             )
-            rank_matrices_abs[rank] = rank_abs_path
-            rank_entry["matrix_abs_path"] = str(rank_abs_path)
+            tier_paths: TierPaths = {
+                "threshold": float(threshold),
+                "matrix_raw_path": tier_out["matrix_raw_path"],
+                "matrix_cpm_path": tier_out["matrix_cpm_path"],
+                "rank_matrices_raw": tier_out.get("rank_matrices_raw", {}),
+                "rank_matrices_cpm": tier_out.get("rank_matrices_cpm", {}),
+            }
+            if "matrix_abs_path" in tier_out:
+                tier_paths["matrix_abs_path"] = tier_out["matrix_abs_path"]
+            if "rank_matrices_abs" in tier_out:
+                tier_paths["rank_matrices_abs"] = tier_out["rank_matrices_abs"]
+            confidence_tiers_paths[tier_suffix] = tier_paths
 
-        rank_sidecar[rank] = rank_entry
-        logger.info(
-            "Rank '%s': wrote %d taxa to %s / %s%s",
-            rank,
-            len(rank_taxa),
-            rank_raw_path,
-            rank_cpm_path,
-            f" / {rank_matrices_abs[rank]}" if rank in rank_matrices_abs else "",
-        )
+            confidence_tiers_meta[tier_suffix] = {
+                "threshold": float(threshold),
+                "matrix_raw": tier_out["matrix_raw_path"].name,
+                "matrix_cpm": tier_out["matrix_cpm_path"].name,
+                "matrix_abs": (
+                    tier_out["matrix_abs_path"].name
+                    if "matrix_abs_path" in tier_out
+                    else None
+                ),
+                "samples_with_output": [
+                    sid for sid in sample_ids if sid in out_map
+                ],
+                "samples_without_output": missing_outputs,
+                "reads_demoted_to_unclassified": tier_dropped,
+                "taxon_count": len(tier_all_taxa),
+            }
 
     # Write rank-filter metadata sidecar
     rank_metadata_path = output_dir / "rank_filter_metadata.json"
@@ -665,6 +769,7 @@ def aggregate_reports(
         "samples_without_idxstats": samples_without_idxstats,
         "sample_provenance": sample_provenance,
         "errors": errors,
+        "confidence_tiers": confidence_tiers_meta,
     }
     with open(metadata_path, "w") as fh:
         json.dump(meta, fh, indent=2)
@@ -682,7 +787,176 @@ def aggregate_reports(
     if matrix_abs_path is not None:
         result["matrix_abs_path"] = matrix_abs_path
         result["rank_matrices_abs"] = rank_matrices_abs
+    if confidence_tiers_paths:
+        result["confidence_tiers"] = confidence_tiers_paths
     return result
+
+
+def _write_tier_outputs(
+    *,
+    output_dir: Path,
+    tier_suffix: str,
+    sample_ids: list[str],
+    all_taxa: list[int],
+    tax_names: dict[int, str],
+    tax_ranks: dict[int, str],
+    sample_data: dict[str, dict[int, int]],
+    sample_clade_data: dict[str, dict[int, int]],
+    sample_totals: dict[str, int],
+    rank_filter: tuple[str, ...],
+    tax_domains: dict[int, str] | None,
+    write_abs: bool,
+    sample_total_reads: dict[str, int],
+) -> dict[str, Any]:
+    """Write the matrix set for a single confidence tier.
+
+    The *tier_suffix* is appended to all output filenames (empty string
+    for the canonical sensitive tier).  Returns a dict with the paths
+    written plus a ``_rank_sidecar`` entry (the per-rank metadata block
+    used by the rank_filter_metadata.json sidecar – only the sensitive
+    tier writes this sidecar).
+    """
+    out: dict[str, Any] = {}
+
+    # Always write both unfiltered matrices (raw + CPM)
+    matrix_raw_path = output_dir / typed_matrix_filename("raw", tier_suffix)
+    matrix_cpm_path = output_dir / typed_matrix_filename("cpm", tier_suffix)
+    _write_matrix(
+        matrix_raw_path,
+        sample_ids=sample_ids,
+        all_taxa=all_taxa,
+        tax_names=tax_names,
+        sample_data=sample_data,
+        sample_totals=sample_totals,
+        normalize=False,
+        tax_domains=tax_domains,
+    )
+    _write_matrix(
+        matrix_cpm_path,
+        sample_ids=sample_ids,
+        all_taxa=all_taxa,
+        tax_names=tax_names,
+        sample_data=sample_data,
+        sample_totals=sample_totals,
+        normalize=True,
+        tax_domains=tax_domains,
+    )
+    out["matrix_raw_path"] = matrix_raw_path
+    out["matrix_cpm_path"] = matrix_cpm_path
+
+    # Absolute-burden output
+    if write_abs:
+        matrix_abs_path = output_dir / typed_matrix_filename("abs", tier_suffix)
+        _write_matrix(
+            matrix_abs_path,
+            sample_ids=sample_ids,
+            all_taxa=all_taxa,
+            tax_names=tax_names,
+            sample_data=sample_data,
+            sample_totals=sample_totals,
+            normalize=False,
+            tax_domains=tax_domains,
+            absolute=True,
+            sample_total_reads=sample_total_reads,
+        )
+        out["matrix_abs_path"] = matrix_abs_path
+
+    # Per-rank filtered matrices.  Species (S) uses direct_reads;
+    # higher ranks use clade_reads so that genus/family rows include
+    # descendant-species abundance.
+    rank_matrices_raw: dict[str, Path] = {}
+    rank_matrices_cpm: dict[str, Path] = {}
+    rank_matrices_abs: dict[str, Path] = {}
+    rank_sidecar: dict[str, Any] = {}
+    for rank in rank_filter:
+        rank_taxa = [t for t in all_taxa if tax_ranks.get(t) == rank]
+        if not rank_taxa:
+            logger.info(
+                "Rank '%s'%s: no taxa found, skipping matrix",
+                rank,
+                f" (tier {tier_suffix})" if tier_suffix else "",
+            )
+            continue
+
+        use_clade = rank != "S"
+        data_for_rank = sample_clade_data if use_clade else sample_data
+
+        rank_raw_path = output_dir / typed_rank_matrix_filename(
+            rank, "raw", tier_suffix,
+        )
+        _write_matrix(
+            rank_raw_path,
+            sample_ids=sample_ids,
+            all_taxa=rank_taxa,
+            tax_names=tax_names,
+            sample_data=data_for_rank,
+            sample_totals=sample_totals,
+            normalize=False,
+            tax_domains=tax_domains,
+        )
+        rank_matrices_raw[rank] = rank_raw_path
+
+        rank_cpm_path = output_dir / typed_rank_matrix_filename(
+            rank, "cpm", tier_suffix,
+        )
+        _write_matrix(
+            rank_cpm_path,
+            sample_ids=sample_ids,
+            all_taxa=rank_taxa,
+            tax_names=tax_names,
+            sample_data=data_for_rank,
+            sample_totals=sample_totals,
+            normalize=True,
+            tax_domains=tax_domains,
+        )
+        rank_matrices_cpm[rank] = rank_cpm_path
+
+        rank_entry: dict[str, Any] = {
+            "matrix_raw_path": str(rank_raw_path),
+            "matrix_cpm_path": str(rank_cpm_path),
+            "taxon_count": len(rank_taxa),
+            "taxa": [
+                {"tax_id": t, "name": tax_names.get(t, "")}
+                for t in rank_taxa
+            ],
+        }
+
+        if write_abs:
+            rank_abs_path = output_dir / typed_rank_matrix_filename(
+                rank, "abs", tier_suffix,
+            )
+            _write_matrix(
+                rank_abs_path,
+                sample_ids=sample_ids,
+                all_taxa=rank_taxa,
+                tax_names=tax_names,
+                sample_data=data_for_rank,
+                sample_totals=sample_totals,
+                normalize=False,
+                tax_domains=tax_domains,
+                absolute=True,
+                sample_total_reads=sample_total_reads,
+            )
+            rank_matrices_abs[rank] = rank_abs_path
+            rank_entry["matrix_abs_path"] = str(rank_abs_path)
+
+        rank_sidecar[rank] = rank_entry
+        logger.info(
+            "Rank '%s'%s: wrote %d taxa to %s / %s%s",
+            rank,
+            f" (tier {tier_suffix})" if tier_suffix else "",
+            len(rank_taxa),
+            rank_raw_path,
+            rank_cpm_path,
+            f" / {rank_matrices_abs[rank]}" if rank in rank_matrices_abs else "",
+        )
+
+    out["rank_matrices_raw"] = rank_matrices_raw
+    out["rank_matrices_cpm"] = rank_matrices_cpm
+    if rank_matrices_abs:
+        out["rank_matrices_abs"] = rank_matrices_abs
+    out["_rank_sidecar"] = rank_sidecar
+    return out
 
 
 def _write_matrix(

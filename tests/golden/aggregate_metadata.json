@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "sample_count": 2,
   "taxon_count": 6,
   "min_reads": 0,
@@ -35,5 +35,6 @@
       "extraction_time": null
     }
   },
-  "errors": []
+  "errors": [],
+  "confidence_tiers": {}
 }

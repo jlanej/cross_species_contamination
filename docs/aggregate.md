@@ -11,7 +11,79 @@ raw direct-read counts and counts-per-million (CPM).
 The implementation is designed to handle very large cohorts (100 K+ samples)
 efficiently by processing reports in configurable chunks.
 
-## Python API
+## High-Confidence Tier (Dual-Tier Reporting)
+
+By default Kraken2 is run with `--confidence 0.0` (maximum sensitivity).
+This is great for catching trace contamination but can produce false
+positives caused by low-complexity regions or sparse k-mer matches.
+The aggregate module supports an optional **high-confidence tier**
+that recomputes per-read confidence from the existing per-read
+output files (`*.kraken2.output.txt`) and demotes weak classifications
+to "unclassified" before building the matrices.  This avoids re-running
+Kraken2 entirely.
+
+The confidence definition matches Kraken2's own algorithm
+(`classify.cc`):
+
+```
+confidence(taxon) = (k-mers whose taxon ∈ clade rooted at taxon)
+                    -------------------------------------------------
+                    (total k-mers excluding ambiguous A:N runs)
+```
+
+Multiple thresholds may be supplied; each non-zero threshold produces
+a parallel matrix set with suffix `_conf{T}` (e.g.
+`taxa_matrix_raw_conf0p50.tsv`, `taxa_matrix_cpm_S_conf0p50.tsv`).
+The canonical sensitive tier (no suffix) is always written.
+
+### CLI
+
+```bash
+csc-aggregate \
+    sampleA.kraken2.report.txt sampleB.kraken2.report.txt \
+    -o results/ \
+    --db-path /path/to/kraken2_db \
+    --kraken2-output sampleA.kraken2.output.txt sampleB.kraken2.output.txt \
+    --confidence-threshold 0.1 0.5
+```
+
+Files supplied to `--kraken2-output` are matched to samples by
+filename (the `.kraken2.output.txt` suffix is stripped).  The flag
+requires `--db-path` (we need `taxonomy/nodes.dmp` to walk the
+clade).  `--confidence-threshold 0.0` is treated as a no-op.
+
+### Python API
+
+```python
+result = aggregate_reports(
+    [...],
+    output_dir="results/",
+    db_path="/path/to/kraken2_db",
+    kraken2_output_paths=[...],
+    confidence_thresholds=[0.1, 0.5],
+)
+for tier_suffix, tier in result.get("confidence_tiers", {}).items():
+    print(tier_suffix, tier["threshold"], tier["matrix_raw_path"])
+```
+
+`aggregation_metadata.json` records every tier under
+`confidence_tiers.<suffix>` with the threshold, output filenames,
+and per-sample `reads_demoted_to_unclassified` counters for
+auditability.
+
+### Downstream propagation
+
+`csc-detect` automatically discovers sibling confidence-tier matrices
+next to the input matrix and runs detection on each, writing results
+into `<output>/<tier_suffix>/` (e.g. `detect/conf0p50/`).  Disable with
+`--no-confidence-tiers`.  Per-rank tier matrices are picked up
+automatically as well (`<output>/<tier_suffix>/<rank>/`).
+
+The Nextflow workflow exposes `--confidence_thresholds '0.1 0.5'`
+and the 1000G driver exposes `CONFIDENCE_THRESHOLDS=0.1:0.5`
+(colon-separated to avoid spaces in `sbatch --export`).
+
+
 
 ```python
 from csc.aggregate import parse_kraken2_report, aggregate_reports
