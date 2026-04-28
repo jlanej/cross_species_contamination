@@ -6,6 +6,22 @@ The **extract** module (`csc.extract`) provides streaming extraction of
 unmapped and optionally poorly mapped reads from BAM/CRAM files using
 samtools.  No intermediate disk files are created.
 
+### Records excluded from extraction
+
+In addition to the explicit selection (`-f 4` unmapped, or
+`flag.unmap || mapq < <threshold>` in MAPQ mode), `csc-extract` always
+applies a defensive `-F` exclusion bitmask of `0xD00` (3328) to remove:
+
+| SAM flag | Meaning | Why excluded |
+|---------:|---------|---------------|
+| `0x100` (256) | Secondary alignment | Already-placed alignment of a read; including it would double-count reads sent to Kraken2 |
+| `0x400` (1024) | PCR / optical duplicate | Marked duplicates are amplification artefacts that would inflate per-taxon counts |
+| `0x800` (2048) | Supplementary alignment | Chimeric / split-read fragment of an already-placed read; double-counting same as secondary |
+
+This exclusion is applied identically in simple mode and MAPQ-filter
+mode so that downstream aggregate / detect results are independent of
+the extraction mode chosen.
+
 ## CLI Usage
 
 ```bash

@@ -7,5 +7,6 @@
     "contam_01"
   ],
   "kitome_taxa_excluded": 0,
-  "background_subtracted": true
+  "background_subtracted": true,
+  "taxa_skipped_mad_zero": 0
 }

@@ -8,9 +8,15 @@ suggesting cross-species contamination.
 Three complementary strategies are implemented:
 
 * **MAD (Median Absolute Deviation)** – robust measure of dispersion
-  that is insensitive to extreme outliers.
-* **IQR (Inter-Quartile Range)** – flags values beyond
-  ``Q1 - k·IQR`` or ``Q3 + k·IQR``.
+  that is insensitive to extreme outliers.  Flags samples whose
+  modified Z-score (``|x − median| / (1.4826·MAD)``) exceeds a
+  threshold *and* whose value is **above** the population median.
+  Only the upper tail is flagged because contamination manifests as
+  excess abundance, not depletion.
+* **IQR (Inter-Quartile Range)** – flags values above Tukey's upper
+  fence (``Q3 + k·IQR``).  As with MAD, only the upper tail is
+  flagged: a sample with an unusually *low* abundance for a given
+  taxon is not informative for contamination detection.
 * **GMM (Gaussian Mixture Model)** – a two-component mixture model
   fitted via Expectation-Maximization.  Unlike MAD/IQR, the GMM does
   **not** assume that the majority of samples are clean; it explicitly
@@ -458,7 +464,19 @@ def subtract_population_background(
 
     After subtraction a sample sitting at the population mean will have
     a value of zero.  Negative values are preserved so that the
-    distribution shape (and therefore MAD / IQR) remains meaningful.
+    distribution shape is not distorted.
+
+    .. note::
+       MAD and IQR are **translation-invariant** statistics: subtracting
+       a per-taxon constant (the mean) shifts every sample by the same
+       amount, so the median, MAD, quartiles and IQR all shift by that
+       same amount and the set of flagged samples is unchanged.  This
+       function therefore exists for **presentational** clarity (centred
+       deviations are easier to interpret) rather than to alter
+       detection sensitivity for MAD/IQR.  The GMM operates on the
+       centred values too, but it is *not* translation-invariant; for
+       GMM the centring re-anchors the background component near zero
+       which can stabilise EM initialisation.
 
     Parameters
     ----------
@@ -500,15 +518,26 @@ def _run_mad(
     tax_names: dict[int, str],
     *,
     mad_threshold: float,
-) -> list[FlaggedSample]:
-    """Apply MAD-based outlier detection to every taxon row."""
+) -> tuple[list[FlaggedSample], int]:
+    """Apply MAD-based outlier detection to every taxon row.
+
+    Only samples *above* the population median are flagged: contamination
+    is an additive signal, so a value far below the median is not
+    informative for cross-species contamination detection.  When the MAD
+    is exactly zero (more than half of the values are identical) the
+    modified Z-score is undefined and the taxon is skipped; the count of
+    skipped taxa is returned alongside the flag list so callers can
+    surface it in QC output.
+    """
     flagged: list[FlaggedSample] = []
+    zero_mad_taxa = 0
     for row in rows:
         tid = row["tax_id"]
         values = [row.get(sid, 0.0) for sid in sample_ids]
         med = _median(values)
         mad_val = _mad(values)
         if mad_val == 0.0:
+            zero_mad_taxa += 1
             continue
         scaled_mad = mad_val * _MAD_SCALE
         for sid, v in zip(sample_ids, values):
@@ -525,7 +554,7 @@ def _run_mad(
                         method="mad",
                     )
                 )
-    return flagged
+    return flagged, zero_mad_taxa
 
 
 def _run_iqr(
@@ -534,14 +563,29 @@ def _run_iqr(
     tax_names: dict[int, str],
     *,
     iqr_multiplier: float,
-) -> list[FlaggedSample]:
-    """Apply IQR fence-based outlier detection to every taxon row."""
+) -> tuple[list[FlaggedSample], int]:
+    """Apply IQR-fence outlier detection to every taxon row.
+
+    Flags samples whose value exceeds Tukey's upper fence
+    ``Q3 + k·IQR`` and is strictly positive.  The lower fence
+    ``Q1 - k·IQR`` is intentionally **not** evaluated because
+    contamination produces excess (upper-tail) abundance; samples
+    falling below the lower fence indicate undersampling and are not
+    relevant for contamination detection.  Taxa with ``IQR == 0``
+    (more than half of the values share both the median and one of the
+    quartiles) are skipped and counted; the count is returned to the
+    caller.
+    """
     flagged: list[FlaggedSample] = []
+    zero_iqr_taxa = 0
     for row in rows:
         tid = row["tax_id"]
         values = [row.get(sid, 0.0) for sid in sample_ids]
         q1, med, q3 = _quartiles(values)
         iqr = q3 - q1
+        if iqr == 0.0:
+            zero_iqr_taxa += 1
+            continue
         upper_fence = q3 + iqr_multiplier * iqr
         for sid, v in zip(sample_ids, values):
             if v > upper_fence and v > 0:
@@ -556,7 +600,7 @@ def _run_iqr(
                         method="iqr",
                     )
                 )
-    return flagged
+    return flagged, zero_iqr_taxa
 
 
 def _run_gmm(
@@ -689,6 +733,8 @@ def detect_outliers(
         rows = subtract_population_background(rows, sample_ids)
 
     flagged: list[FlaggedSample] = []
+    zero_mad_taxa = 0
+    zero_iqr_taxa = 0
 
     methods_to_run: list[str] = (
         ["mad", "iqr", "gmm"] if method == "all" else [method]
@@ -696,15 +742,17 @@ def detect_outliers(
 
     for m in methods_to_run:
         if m == "mad":
-            flagged.extend(
-                _run_mad(sample_ids, rows, tax_names,
-                         mad_threshold=mad_threshold)
+            mad_flags, zero_mad_taxa = _run_mad(
+                sample_ids, rows, tax_names,
+                mad_threshold=mad_threshold,
             )
+            flagged.extend(mad_flags)
         elif m == "iqr":
-            flagged.extend(
-                _run_iqr(sample_ids, rows, tax_names,
-                         iqr_multiplier=iqr_multiplier)
+            iqr_flags, zero_iqr_taxa = _run_iqr(
+                sample_ids, rows, tax_names,
+                iqr_multiplier=iqr_multiplier,
             )
+            flagged.extend(iqr_flags)
         else:  # gmm
             flagged.extend(
                 _run_gmm(sample_ids, rows, tax_names,
@@ -720,6 +768,13 @@ def detect_outliers(
         "kitome_taxa_excluded": len(kitome_taxa) if kitome_taxa else 0,
         "background_subtracted": subtract_background,
     }
+    # Diagnostic counters: surface taxa skipped by MAD/IQR due to zero
+    # dispersion so users can interpret apparent low flag counts.  Only
+    # included for methods that were actually run.
+    if "mad" in methods_to_run:
+        summary["taxa_skipped_mad_zero"] = zero_mad_taxa
+    if "iqr" in methods_to_run:
+        summary["taxa_skipped_iqr_zero"] = zero_iqr_taxa
 
     logger.info(
         "Detection complete: %d flags across %d samples",
