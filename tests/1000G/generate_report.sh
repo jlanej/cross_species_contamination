@@ -53,8 +53,8 @@
 #SBATCH --output=logs/generate_report_%j.out
 #SBATCH --error=logs/generate_report_%j.err
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
-#SBATCH --time=00:30:00
+#SBATCH --mem=60G
+#SBATCH --time=04:30:00
 #SBATCH --partition=normal
 
 set -euo pipefail
