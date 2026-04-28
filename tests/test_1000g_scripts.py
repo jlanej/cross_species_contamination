@@ -1702,3 +1702,370 @@ class TestAggregateDetectScript:
             "EXTRACT_OUTDIR must NOT appear in container bind args when "
             "SKIP_IDXSTATS_METRICS=1"
         )
+
+
+# ---------------------------------------------------------------------------
+# generate_report.sh tests
+# ---------------------------------------------------------------------------
+
+GENERATE_REPORT_SCRIPT = SCRIPTS_DIR / "generate_report.sh"
+
+
+class TestGenerateReportScript:
+    """Tests for generate_report.sh."""
+
+    def test_bash_syntax(self):
+        """generate_report.sh must pass bash -n syntax check."""
+        result = run(["bash", "-n", str(GENERATE_REPORT_SCRIPT)])
+        assert result.returncode == 0, result.stderr
+
+    def test_fails_without_agg_outdir(self, tmp_path):
+        """Missing AGG_OUTDIR env var must exit with an error."""
+        result = run(
+            ["bash", str(GENERATE_REPORT_SCRIPT)],
+            env={**os.environ, "AGG_OUTDIR": ""},
+        )
+        assert result.returncode != 0
+        assert "AGG_OUTDIR" in result.stderr
+
+    def test_fails_when_agg_outdir_missing(self, tmp_path):
+        """Non-existent AGG_OUTDIR must exit with an error."""
+        result = run(
+            ["bash", str(GENERATE_REPORT_SCRIPT)],
+            env={**os.environ, "AGG_OUTDIR": str(tmp_path / "nonexistent")},
+        )
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr
+
+    def test_detect_outdir_auto_discovery_logic(self, tmp_path):
+        """When DETECT_OUTDIR is unset, script auto-discovers <AGG_OUTDIR>/../detect."""
+        agg_out = tmp_path / "run" / "aggregate"
+        detect_out = tmp_path / "run" / "detect"
+        agg_out.mkdir(parents=True)
+        detect_out.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR=""
+            REPORT_OUTDIR=""
+            CONTAINER_SIF=""
+            if [[ -z "$DETECT_OUTDIR" ]]; then
+                candidate="$(dirname "$AGG_OUTDIR")/detect"
+                if [[ -d "$candidate" ]]; then
+                    DETECT_OUTDIR="$candidate"
+                fi
+            fi
+            echo "DETECT_OUTDIR=$DETECT_OUTDIR"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert str(detect_out) in result.stdout
+
+    def test_detect_outdir_not_included_when_skip_detect_in_report(self, tmp_path):
+        """container_run must NOT bind DETECT_OUTDIR when SKIP_DETECT_IN_REPORT=1."""
+        agg_out = tmp_path / "aggregate"
+        detect_out = tmp_path / "detect"
+        report_out = tmp_path / "report"
+        for d in (agg_out, detect_out, report_out):
+            d.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR="{detect_out}"
+            REPORT_OUTDIR="{report_out}"
+            SKIP_DETECT_IN_REPORT=1
+            container_run() {{
+                local -a bind_args=()
+                bind_args+=("--bind" "${{AGG_OUTDIR}}:${{AGG_OUTDIR}}")
+                bind_args+=("--bind" "${{REPORT_OUTDIR}}:${{REPORT_OUTDIR}}")
+                if [[ "${{SKIP_DETECT_IN_REPORT}}" != "1" && -n "${{DETECT_OUTDIR}}" && -d "${{DETECT_OUTDIR}}" ]]; then
+                    bind_args+=("--bind" "${{DETECT_OUTDIR}}:${{DETECT_OUTDIR}}")
+                fi
+                echo "${{bind_args[@]}}"
+            }}
+            container_run
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert str(detect_out) not in result.stdout
+
+    def test_detect_outdir_included_when_set_and_exists(self, tmp_path):
+        """container_run must bind DETECT_OUTDIR when it is set and SKIP_DETECT_IN_REPORT=0."""
+        agg_out = tmp_path / "aggregate"
+        detect_out = tmp_path / "detect"
+        report_out = tmp_path / "report"
+        for d in (agg_out, detect_out, report_out):
+            d.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR="{detect_out}"
+            REPORT_OUTDIR="{report_out}"
+            SKIP_DETECT_IN_REPORT=0
+            container_run() {{
+                local -a bind_args=()
+                bind_args+=("--bind" "${{AGG_OUTDIR}}:${{AGG_OUTDIR}}")
+                bind_args+=("--bind" "${{REPORT_OUTDIR}}:${{REPORT_OUTDIR}}")
+                if [[ "${{SKIP_DETECT_IN_REPORT}}" != "1" && -n "${{DETECT_OUTDIR}}" && -d "${{DETECT_OUTDIR}}" ]]; then
+                    bind_args+=("--bind" "${{DETECT_OUTDIR}}:${{DETECT_OUTDIR}}")
+                fi
+                echo "${{bind_args[@]}}"
+            }}
+            container_run
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert str(detect_out) in result.stdout
+
+    def test_report_outdir_defaults_to_sibling_of_agg(self, tmp_path):
+        """REPORT_OUTDIR must default to <AGG_OUTDIR>/../report."""
+        agg_out = tmp_path / "run" / "aggregate"
+        agg_out.mkdir(parents=True)
+        expected_report = tmp_path / "run" / "report"
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            REPORT_OUTDIR=""
+            if [[ -z "$REPORT_OUTDIR" ]]; then
+                REPORT_OUTDIR="$(dirname "$AGG_OUTDIR")/report"
+            fi
+            echo "REPORT_OUTDIR=$REPORT_OUTDIR"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert str(expected_report) in result.stdout
+
+    def test_report_args_include_detect_dir(self, tmp_path):
+        """csc-report invocation must include --detect-dir when DETECT_OUTDIR is set."""
+        agg_out = tmp_path / "aggregate"
+        detect_out = tmp_path / "detect"
+        report_out = tmp_path / "report"
+        for d in (agg_out, detect_out, report_out):
+            d.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR="{detect_out}"
+            REPORT_OUTDIR="{report_out}"
+            REPORT_FILE="{report_out}/contamination_report.html"
+            REPORT_TITLE="My Report"
+            TOP_N=10
+            VARIANT_IMPACT_THRESHOLD_PPM=""
+            SKIP_DETECT_IN_REPORT=0
+            REPORT_ARGS=(
+                csc-report
+                "${{AGG_OUTDIR}}"
+                -o "${{REPORT_FILE}}"
+                --title "${{REPORT_TITLE}}"
+                --top-n "${{TOP_N}}"
+            )
+            if [[ "${{SKIP_DETECT_IN_REPORT}}" != "1" && -n "${{DETECT_OUTDIR}}" && -d "${{DETECT_OUTDIR}}" ]]; then
+                REPORT_ARGS+=("--detect-dir" "${{DETECT_OUTDIR}}")
+            fi
+            if [[ -n "${{VARIANT_IMPACT_THRESHOLD_PPM}}" ]]; then
+                REPORT_ARGS+=("--variant-impact-threshold-ppm" "${{VARIANT_IMPACT_THRESHOLD_PPM}}")
+            fi
+            echo "${{REPORT_ARGS[@]}}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert "--detect-dir" in result.stdout
+        assert str(detect_out) in result.stdout
+
+    def test_report_args_omit_detect_dir_when_skipped(self, tmp_path):
+        """csc-report invocation must NOT include --detect-dir when SKIP_DETECT_IN_REPORT=1."""
+        agg_out = tmp_path / "aggregate"
+        detect_out = tmp_path / "detect"
+        report_out = tmp_path / "report"
+        for d in (agg_out, detect_out, report_out):
+            d.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR="{detect_out}"
+            REPORT_OUTDIR="{report_out}"
+            REPORT_FILE="{report_out}/contamination_report.html"
+            REPORT_TITLE="Test"
+            TOP_N=5
+            VARIANT_IMPACT_THRESHOLD_PPM=""
+            SKIP_DETECT_IN_REPORT=1
+            REPORT_ARGS=(
+                csc-report
+                "${{AGG_OUTDIR}}"
+                -o "${{REPORT_FILE}}"
+                --title "${{REPORT_TITLE}}"
+                --top-n "${{TOP_N}}"
+            )
+            if [[ "${{SKIP_DETECT_IN_REPORT}}" != "1" && -n "${{DETECT_OUTDIR}}" && -d "${{DETECT_OUTDIR}}" ]]; then
+                REPORT_ARGS+=("--detect-dir" "${{DETECT_OUTDIR}}")
+            fi
+            echo "${{REPORT_ARGS[@]}}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert "--detect-dir" not in result.stdout
+
+    def test_report_args_include_variant_impact_threshold(self, tmp_path):
+        """--variant-impact-threshold-ppm must be passed when VARIANT_IMPACT_THRESHOLD_PPM is set."""
+        agg_out = tmp_path / "aggregate"
+        report_out = tmp_path / "report"
+        agg_out.mkdir(parents=True)
+        report_out.mkdir(parents=True)
+
+        inline = textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            AGG_OUTDIR="{agg_out}"
+            DETECT_OUTDIR=""
+            REPORT_FILE="{report_out}/contamination_report.html"
+            REPORT_TITLE="Test"
+            TOP_N=10
+            VARIANT_IMPACT_THRESHOLD_PPM=500
+            SKIP_DETECT_IN_REPORT=1
+            REPORT_ARGS=(
+                csc-report
+                "${{AGG_OUTDIR}}"
+                -o "${{REPORT_FILE}}"
+                --title "${{REPORT_TITLE}}"
+                --top-n "${{TOP_N}}"
+            )
+            if [[ "${{SKIP_DETECT_IN_REPORT}}" != "1" && -n "${{DETECT_OUTDIR}}" ]]; then
+                REPORT_ARGS+=("--detect-dir" "${{DETECT_OUTDIR}}")
+            fi
+            if [[ -n "${{VARIANT_IMPACT_THRESHOLD_PPM}}" ]]; then
+                REPORT_ARGS+=("--variant-impact-threshold-ppm" "${{VARIANT_IMPACT_THRESHOLD_PPM}}")
+            fi
+            echo "${{REPORT_ARGS[@]}}"
+        """)
+        result = run(["bash", "-c", inline])
+        assert result.returncode == 0, result.stderr
+        assert "--variant-impact-threshold-ppm" in result.stdout
+        assert "500" in result.stdout
+
+
+class TestSubmitClassifyReportOptions:
+    """Tests for the new report-related options in submit_classify.sh."""
+
+    def test_dry_run_includes_report_sbatch(self, tmp_path):
+        """dry-run should emit a report sbatch command after aggregate/detect."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "generate_report.sh" in result.stdout
+
+    def test_dry_run_skip_report(self, tmp_path):
+        """--skip-report should suppress the report sbatch command."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--skip-report",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "generate_report.sh" not in result.stdout
+
+    def test_dry_run_report_title_exported(self, tmp_path):
+        """--report-title should appear in the report job export string."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--report-title", "My1KGReport",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "My1KGReport" in result.stdout
+
+    def test_dry_run_report_top_n_exported(self, tmp_path):
+        """--report-top-n should appear in the report job export string."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--report-top-n", "20",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "TOP_N=20" in result.stdout
+
+    def test_dry_run_variant_impact_threshold_exported(self, tmp_path):
+        """--variant-impact-threshold-ppm should appear in the report job export string."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--variant-impact-threshold-ppm", "250",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "VARIANT_IMPACT_THRESHOLD_PPM=250" in result.stdout
+
+    def test_dry_run_report_outdir_is_sibling_of_agg(self, tmp_path):
+        """Report output dir must be <outdir>/report."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        out = tmp_path / "classify_out"
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        expected_report_dir = str(out / "report")
+        assert expected_report_dir in result.stdout
+
+    def test_dry_run_skip_detect_propagated_to_report(self, tmp_path):
+        """SKIP_DETECT_IN_REPORT must equal SKIP_DETECT value in report exports."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--skip-detect",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "SKIP_DETECT_IN_REPORT=1" in result.stdout

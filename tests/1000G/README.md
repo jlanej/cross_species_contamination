@@ -41,6 +41,10 @@ automatically via GitHub Actions on every push to `main`.
 | `manifest.tsv` | 3202-sample manifest with FTP URLs for every 1KG CRAM/CRAI |
 | `extract_unmapped_array.sh` | SLURM array job – one task per sample |
 | `submit_extract.sh` | Submission helper with subsetting options |
+| `classify_array.sh` | SLURM array job – Kraken2 classification, one task per sample |
+| `submit_classify.sh` | Submission wrapper: classify → aggregate/detect → report |
+| `aggregate_detect.sh` | SLURM job – aggregate Kraken2 reports and run outlier detection |
+| `generate_report.sh` | SLURM job – generate a static HTML contamination report |
 
 ---
 
@@ -176,6 +180,41 @@ checks per-sample output and skips completed work at task runtime.
 If you intentionally skipped idxstats sidecars during extraction, run
 `submit_classify.sh --skip-idxstats-metrics` to bypass idxstats-based
 absolute metrics in aggregation/reporting.
+
+---
+
+## Report generation (`generate_report.sh`)
+
+After aggregation and detection complete, `submit_classify.sh` automatically
+submits `generate_report.sh` as a follow-up SLURM job to produce a single,
+self-contained HTML summary report.
+
+The report is written to `<outdir>/report/contamination_report.html` and
+includes a machine-readable sidecar at `<outdir>/report/report_manifest.json`.
+
+### Options (`submit_classify.sh` report flags)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--skip-report` | off | Skip HTML report generation |
+| `--report-title STR` | `"Cross-Species Contamination Summary Report"` | Title in the HTML `<h1>` and `<title>` |
+| `--report-top-n N` | `10` | Number of top taxa in the cohort-wide table |
+| `--variant-impact-threshold-ppm FLOAT` | `1000` (csc-report default; applied only when flag is given) | Absolute-burden threshold (ppm) for the Variant-Calling Impact section |
+| `--report-cpus N` | `2` | CPUs for the report job |
+| `--report-mem STR` | `8G` | Memory for the report job |
+| `--report-time STR` | `00:30:00` | Wall-clock time for the report job |
+
+### Standalone usage
+
+`generate_report.sh` can also be submitted directly via environment variables:
+
+```bash
+AGG_OUTDIR=/scratch/me/1kg_classify/aggregate \
+DETECT_OUTDIR=/scratch/me/1kg_classify/detect \
+REPORT_OUTDIR=/scratch/me/1kg_classify/report \
+CONTAINER_SIF=/scratch/me/1kg_classify/csc.sif \
+sbatch generate_report.sh
+```
 
 ---
 
