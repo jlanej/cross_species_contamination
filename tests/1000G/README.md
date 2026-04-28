@@ -199,7 +199,7 @@ includes a machine-readable sidecar at `<outdir>/report/report_manifest.json`.
 | `--skip-report` | off | Skip HTML report generation |
 | `--report-title STR` | `"Cross-Species Contamination Summary Report"` | Title in the HTML `<h1>` and `<title>` |
 | `--report-top-n N` | `10` | Number of top taxa in the cohort-wide table |
-| `--variant-impact-threshold-ppm FLOAT` | `1000` | Absolute-burden threshold (ppm) for the Variant-Calling Impact section |
+| `--variant-impact-threshold-ppm FLOAT` | `1000` (csc-report default; applied only when flag is given) | Absolute-burden threshold (ppm) for the Variant-Calling Impact section |
 | `--report-cpus N` | `2` | CPUs for the report job |
 | `--report-mem STR` | `8G` | Memory for the report job |
 | `--report-time STR` | `00:30:00` | Wall-clock time for the report job |

@@ -1737,7 +1737,7 @@ class TestGenerateReportScript:
         assert result.returncode != 0
         assert "ERROR" in result.stderr
 
-    def test_detect_outdir_auto_discovered(self, tmp_path):
+    def test_detect_outdir_auto_discovery_logic(self, tmp_path):
         """When DETECT_OUTDIR is unset, script auto-discovers <AGG_OUTDIR>/../detect."""
         agg_out = tmp_path / "run" / "aggregate"
         detect_out = tmp_path / "run" / "detect"
