@@ -32,6 +32,17 @@ SUPPORTED_EXTENSIONS = {".bam", ".cram"}
 # summary report) can detect and adapt.
 READS_SUMMARY_SCHEMA_VERSION = "1.0"
 
+# Combined SAM filter flags excluded from contamination extraction.
+#   0x100 (256)  – secondary alignment
+#   0x400 (1024) – PCR / optical duplicate
+#   0x800 (2048) – supplementary alignment
+# Secondary and supplementary records are by definition alignments of an
+# already-placed read; including them would double-count reads passed to
+# Kraken2.  Marked duplicates are PCR/optical artefacts that should not
+# inflate per-taxon counts.  Combined as a single bitmask because
+# ``samtools -F`` accepts only one value per invocation.
+EXCLUDE_FLAGS = 0x100 | 0x400 | 0x800  # = 0xD00 = 3328
+
 
 class ReadsSummary(TypedDict):
     """Per-sample mapped/unmapped read counts derived from ``samtools idxstats``.
@@ -379,12 +390,18 @@ def build_extract_command(
         out_args += ["-0", str(output_other)]
 
     if mapq_threshold is None:
-        # Simple mode: extract only unmapped reads
+        # Simple mode: extract only primary, non-duplicate unmapped reads.
+        # ``-f 4`` requires the unmapped flag; ``-F EXCLUDE_FLAGS`` excludes
+        # secondary (256), duplicate (1024) and supplementary (2048)
+        # alignments so that contamination counts cannot be inflated by
+        # alternate alignment records or PCR duplicates of unmapped reads.
         cmd = [
             samtools,
             "fastq",
             "-f",
             "4",
+            "-F",
+            str(EXCLUDE_FLAGS),
             *thread_args,
             *ref_args,
             *out_args,
@@ -392,14 +409,16 @@ def build_extract_command(
         ]
         return [cmd]
     else:
-        # Advanced mode: unmapped OR MAPQ < threshold
-        # Uses samtools expression filter (requires samtools >= 1.12)
+        # Advanced mode: unmapped OR MAPQ < threshold.  ``-F EXCLUDE_FLAGS``
+        # excludes secondary, duplicate and supplementary alignments to
+        # match the simple-mode filter.  Uses samtools expression filter
+        # (requires samtools >= 1.12).
         view_cmd = [
             samtools,
             "view",
             "-h",
             "-F",
-            "256",  # exclude secondary alignments
+            str(EXCLUDE_FLAGS),
             "-e",
             f"flag.unmap || mapq < {mapq_threshold}",
             *thread_args,

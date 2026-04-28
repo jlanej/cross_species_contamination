@@ -27,7 +27,7 @@ contamination even when a majority of samples are affected.
 
 For each taxon, the population median and MAD are computed.  A sample
 is flagged if its modified Z-score exceeds the configured threshold
-(default: 3.5):
+(default: 3.5) **and** its value lies above the population median:
 
     modified_z = |value − median| / (MAD × 1.4826)
 
@@ -36,6 +36,11 @@ deviation for normally distributed data.  MAD is highly robust to
 extreme outliers—up to 50 % of the data can be contaminated without
 affecting the estimate.
 
+Only the **upper tail** is flagged because contamination produces
+*excess* abundance for a foreign taxon; a sample with an unusually low
+abundance for a given taxon is not informative for cross-species
+contamination detection.
+
 **Default threshold: 3.5** — corresponds to approximately 3.5 standard
 deviations for normally distributed data, offering a good balance between
 sensitivity and specificity for metagenomic contamination detection
@@ -43,9 +48,13 @@ sensitivity and specificity for metagenomic contamination detection
 
 ### IQR (Inter-Quartile Range)
 
-A fence-based method.  A value is flagged when it exceeds
-`Q3 + k × IQR`, where *k* is the configurable multiplier (default: 1.5).
-The IQR method works well with larger sample sizes (≥ 10 recommended).
+A fence-based method.  A value is flagged when it exceeds the upper
+fence `Q3 + k × IQR`, where *k* is the configurable multiplier
+(default: 1.5).  As with MAD, only the upper tail is evaluated; the
+lower fence ``Q1 − k × IQR`` is intentionally not applied because
+samples falling below it indicate undersampling rather than
+contamination.  The IQR method works well with larger sample sizes
+(≥ 10 recommended).
 
 **Default multiplier: 1.5** — the classic Tukey fence threshold that
 identifies "mild" outliers.  Increase to 3.0 to restrict flagging to
@@ -93,11 +102,18 @@ can assess concordance.
 
 ### Population-Mean Subtraction
 
-Before applying any method the per-taxon population mean can be
-subtracted (enabled by default).  This centres the data around zero so
-that detection focuses on *excess* signal rather than absolute abundance.
-Negative values after subtraction are preserved to maintain the
-distribution shape, which keeps MAD and IQR reliable.
+Before applying any method the per-taxon **arithmetic mean** across
+samples can be subtracted (enabled by default).  This centres the data
+around zero so that detection focuses on *excess* signal rather than
+absolute abundance.  Negative values after subtraction are preserved
+to keep the distribution shape intact.
+
+> **Note:** MAD and IQR are translation-invariant, so subtracting a
+> per-taxon constant does **not** change which samples are flagged by
+> those methods — it only re-centres the displayed values for
+> readability.  The GMM is *not* translation-invariant; for GMM the
+> centring re-anchors the background component near zero, which can
+> stabilise the EM initialisation.
 
 ### Kitome / Environmental Background Exclusion
 
@@ -175,6 +191,23 @@ Results for each rank are written to subdirectories
 | `deviation`        | Modified Z-score (MAD), distance above fence (IQR), or posterior probability (GMM) |
 | `method`           | Detection method that produced this flag (`mad`, `iqr`, or `gmm`) |
 
+### qc_summary.json fields
+
+In addition to overall counts (`total_samples`, `total_taxa_analysed`,
+`flagged_count`, `flagged_samples`, `kitome_taxa_excluded`,
+`background_subtracted`), `qc_summary.json` also reports diagnostic
+counters when the relevant method is run:
+
+| Field                     | Description                                                              |
+|---------------------------|--------------------------------------------------------------------------|
+| `taxa_skipped_mad_zero`   | Taxa skipped by the MAD method because MAD = 0 (≥ 50 % identical values) |
+| `taxa_skipped_iqr_zero`   | Taxa skipped by the IQR method because IQR = 0                            |
+
+These counters help users interpret apparently low flag counts: a
+detection run on a sparse matrix will frequently see most taxa
+skipped, and that information is now visible in the QC output rather
+than silently absorbed.
+
 ## Python API
 
 ```python
@@ -215,10 +248,13 @@ reports = generate_report(result, "results/detect/")
   still benefits from larger cohorts.  The GMM requires at least 2
   contaminated samples to form a reliable contamination component.
 
-- **MAD = 0 handling:** When MAD equals zero (more than half the values
-  are identical), no outliers are flagged for that taxon.  This is
-  statistically conservative but avoids false positives on taxa with
-  no measurable variance.
+- **MAD / IQR = 0 handling:** When MAD equals zero (more than half the
+  values are identical) the modified Z-score is undefined; similarly
+  when IQR equals zero the upper fence collapses onto Q3.  In both
+  cases the affected taxon is skipped (no flags raised) and counted in
+  `qc_summary.json` under `taxa_skipped_mad_zero` /
+  `taxa_skipped_iqr_zero`.  This is statistically conservative but
+  avoids false positives on taxa with no measurable variance.
 
 - **GMM model selection:** The GMM uses BIC (Bayesian Information
   Criterion) to decide whether two components are warranted.  On

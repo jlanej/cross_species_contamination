@@ -114,6 +114,22 @@ class TestBuildCommand:
         assert "-f" in cmd
         assert "4" in cmd
 
+    def test_unmapped_only_excludes_secondary_dup_supplementary(
+        self, test_bam: Path
+    ) -> None:
+        # Simple mode must reject secondary (256), duplicate (1024) and
+        # supplementary (2048) records so contamination counts cannot be
+        # inflated by alternate alignment records or PCR duplicates.
+        from csc.extract.extract import EXCLUDE_FLAGS
+
+        assert EXCLUDE_FLAGS == 0x100 | 0x400 | 0x800
+        cmds = build_extract_command(test_bam)
+        cmd = cmds[0]
+        # ``-F`` must appear with the combined exclusion bitmask.
+        assert "-F" in cmd
+        f_idx = cmd.index("-F")
+        assert cmd[f_idx + 1] == str(EXCLUDE_FLAGS)
+
     def test_mapq_filter_produces_pipeline(self, test_bam: Path) -> None:
         cmds = build_extract_command(test_bam, mapq_threshold=10)
         assert len(cmds) == 2
@@ -123,6 +139,19 @@ class TestBuildCommand:
         # Second command is samtools fastq reading from stdin
         assert "fastq" in cmds[1]
         assert "-" in cmds[1]
+
+    def test_mapq_filter_excludes_secondary_dup_supplementary(
+        self, test_bam: Path
+    ) -> None:
+        # MAPQ-mode view stage must use the same combined exclusion
+        # bitmask as simple mode for consistent semantics.
+        from csc.extract.extract import EXCLUDE_FLAGS
+
+        cmds = build_extract_command(test_bam, mapq_threshold=10)
+        view_cmd = cmds[0]
+        assert "-F" in view_cmd
+        f_idx = view_cmd.index("-F")
+        assert view_cmd[f_idx + 1] == str(EXCLUDE_FLAGS)
 
 
 # ---------------------------------------------------------------------------

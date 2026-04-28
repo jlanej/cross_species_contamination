@@ -189,7 +189,17 @@ approximately 1,000,000.
 > **CPM denominator**: The CPM denominator uses the sum of all classified
 > direct reads *before* any `min_reads` filtering.  This ensures CPM
 > values are comparable across samples even when different `min_reads`
-> thresholds are used, avoiding compositional bias.
+> thresholds are used, avoiding compositional bias.  In the
+> recommended unmapped-read workflow this denominator is dominated by
+> contaminant reads, but it is **not** strictly contaminant-only — any
+> reads that Kraken2 classifies as host (e.g. *Homo sapiens*, taxid
+> 9606) are also included.  Because Kraken2 is run on
+> already-unmapped reads, host-classified counts are usually small,
+> but for samples with substantial host k-mer leakage CPM values for
+> non-host taxa will be slightly diluted.  Use `taxa_matrix_abs.tsv`
+> (see below) for an unambiguous absolute-burden metric, or filter
+> host taxids from the raw matrix before recomputing CPM downstream
+> if a strictly contaminant-only normalisation is required.
 
 > **CPM limitations**: CPM normalisation accounts for sequencing depth
 > but **not** genome size or gene length.  Species with larger genomes
@@ -240,7 +250,7 @@ downstream reports can flag them clearly.
 > | Matrix | Cell value | Denominator | Interpretation |
 > |---|---|---|---|
 > | `taxa_matrix_raw.tsv` | `direct_reads` (or `clade_reads` for G/F) | – | Integer counts |
-> | `taxa_matrix_cpm.tsv` | `raw / classified_total * 1e6` | Sum of classified direct reads (pre-filter) | Composition **among contaminants** |
+> | `taxa_matrix_cpm.tsv` | `raw / classified_total * 1e6` | Sum of classified direct reads (pre-filter, includes host) | Composition among classified reads (≈ contaminants in unmapped-read workflow) |
 > | `taxa_matrix_abs.tsv` | `raw / total_reads * 1e6` | `total_mapped + total_unmapped` at extract | **Absolute burden** per million sequenced |
 
 Per-rank absolute matrices (`taxa_matrix_abs_S.tsv`,

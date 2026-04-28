@@ -260,6 +260,41 @@ class TestDetectOutliersMAD:
         with pytest.raises(ValueError, match="Unknown detection method"):
             detect_outliers(clean_matrix, method="banana")
 
+    def test_zero_variance_taxa_counted(self, tmp_path: Path) -> None:
+        """Taxa with MAD=0 must be counted in qc_summary, not silently dropped."""
+        # All-zero row triggers MAD=0; a second taxon with sufficient
+        # spread (≥ half the values differ from the median) keeps the
+        # run productive so we can assert the counter behaviour.
+        matrix = tmp_path / "zero_mad.tsv"
+        matrix.write_text(
+            "tax_id\tname\tsA\tsB\tsC\tsD\tsE\n"
+            "100\tflat_taxon\t0\t0\t0\t0\t0\n"
+            "200\tvariable_taxon\t1\t2\t3\t4\t100\n"
+        )
+        result = detect_outliers(matrix, method="mad")
+        assert result["summary"]["taxa_skipped_mad_zero"] == 1
+        # The high-variance taxon is processed normally.
+        assert result["summary"]["total_taxa_analysed"] == 2
+
+    def test_iqr_zero_variance_taxa_counted(self, tmp_path: Path) -> None:
+        """Taxa with IQR=0 must be reported under taxa_skipped_iqr_zero."""
+        matrix = tmp_path / "zero_iqr.tsv"
+        matrix.write_text(
+            "tax_id\tname\tsA\tsB\tsC\tsD\tsE\n"
+            "100\tflat_taxon\t5\t5\t5\t5\t5\n"
+            "200\tvariable_taxon\t1\t2\t3\t4\t100\n"
+        )
+        result = detect_outliers(matrix, method="iqr")
+        assert result["summary"]["taxa_skipped_iqr_zero"] == 1
+
+    def test_diagnostic_counters_only_for_run_methods(
+        self, contaminated_matrix: Path
+    ) -> None:
+        """When --method gmm is selected MAD/IQR counters must be absent."""
+        result = detect_outliers(contaminated_matrix, method="gmm")
+        assert "taxa_skipped_mad_zero" not in result["summary"]
+        assert "taxa_skipped_iqr_zero" not in result["summary"]
+
 
 # ---------------------------------------------------------------------------
 # Unit tests — outlier detection (IQR)
