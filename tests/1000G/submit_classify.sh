@@ -79,6 +79,16 @@
 #   --agg-cpus      N      CPUs for aggregate/detect job [default: 4]
 #   --agg-mem       STR    Memory for aggregate/detect job [default: 16G]
 #   --agg-time      STR    Wall-clock time for aggregate/detect [default: 02:00:00]
+#   --skip-report          Skip HTML report generation (default: off)
+#   --report-title  STR    Title shown in the HTML report
+#                          [default: "Cross-Species Contamination Summary Report"]
+#   --report-top-n  N      Number of top taxa shown in the report [default: 10]
+#   --variant-impact-threshold-ppm FLOAT
+#                          Absolute-burden threshold (ppm) for the Variant-Calling
+#                          Impact section of the report [default: 1000]
+#   --report-cpus   N      CPUs for the report job [default: 2]
+#   --report-mem    STR    Memory for the report job [default: 8G]
+#   --report-time   STR    Wall-clock time for the report job [default: 00:30:00]
 #   --container     FILE   Path to the Apptainer SIF image
 #                          [default: <outdir>/csc.sif; auto-pulled if absent]
 #   --image         URI    Docker URI to pull the container from
@@ -121,12 +131,19 @@ SKIP_IDXSTATS_METRICS=0
 AGG_CPUS=4
 AGG_MEM="16G"
 AGG_WALLTIME="02:00:00"
+SKIP_REPORT=0
+REPORT_TITLE="Cross-Species Contamination Summary Report"
+REPORT_TOP_N=10
+VARIANT_IMPACT_THRESHOLD_PPM=""
+REPORT_CPUS=2
+REPORT_MEM="8G"
+REPORT_WALLTIME="00:30:00"
 CONTAINER_SIF=""          # resolved later to an absolute path under OUTDIR
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 DB_PATH=""                # defaults to DB after argument parsing
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
-USAGE_LINES=98
+USAGE_LINES=110
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 usage() {
@@ -162,6 +179,13 @@ while [[ $# -gt 0 ]]; do
         --agg-cpus)       AGG_CPUS="$2";       shift 2 ;;
         --agg-mem)        AGG_MEM="$2";        shift 2 ;;
         --agg-time)       AGG_WALLTIME="$2";   shift 2 ;;
+        --skip-report)    SKIP_REPORT=1;       shift ;;
+        --report-title)   REPORT_TITLE="$2";   shift 2 ;;
+        --report-top-n)   REPORT_TOP_N="$2";   shift 2 ;;
+        --variant-impact-threshold-ppm) VARIANT_IMPACT_THRESHOLD_PPM="$2"; shift 2 ;;
+        --report-cpus)    REPORT_CPUS="$2";    shift 2 ;;
+        --report-mem)     REPORT_MEM="$2";     shift 2 ;;
+        --report-time)    REPORT_WALLTIME="$2"; shift 2 ;;
         --container)      CONTAINER_SIF="$2";  shift 2 ;;
         --image)          CONTAINER_IMAGE="$2"; shift 2 ;;
         --dry-run)        DRY_RUN=1;           shift ;;
@@ -204,6 +228,7 @@ fi
 CLASSIFY_OUTDIR="${OUTDIR}/classify"
 AGG_OUTDIR="${OUTDIR}/aggregate"
 DETECT_OUTDIR="${OUTDIR}/detect"
+REPORT_OUTDIR="${OUTDIR}/report"
 CLASSIFY_MANIFEST="${OUTDIR}/classify_manifest.tsv"
 LOG_DIR="${OUTDIR}/logs"
 
@@ -573,6 +598,7 @@ echo ""
 
 if [[ "${DRY_RUN}" -eq 1 ]]; then
     echo "(Dry-run: aggregate/detect job not submitted)"
+    AGG_JOB_ID="<dry-run>"
 else
     AGG_JOB_OUTPUT="$("${SBATCH_AGG[@]}")"
     echo "${AGG_JOB_OUTPUT}"
@@ -586,4 +612,74 @@ else
         echo ""
         echo "Monitor with: squeue -j ${CLASSIFY_JOB_ID},${AGG_JOB_ID}"
     fi
+fi
+
+# ── Submit report job (with dependency on aggregate/detect) ──────────────────
+if [[ "${SKIP_REPORT}" -eq 1 ]]; then
+    echo "Skipping report generation (--skip-report)."
+    exit 0
+fi
+
+mkdir -p "${REPORT_OUTDIR}"
+
+REPORT_EXPORTS=(
+    "AGG_OUTDIR=${AGG_OUTDIR}"
+    "DETECT_OUTDIR=${DETECT_OUTDIR}"
+    "REPORT_OUTDIR=${REPORT_OUTDIR}"
+    "REPORT_TITLE=${REPORT_TITLE}"
+    "TOP_N=${REPORT_TOP_N}"
+    "SKIP_DETECT_IN_REPORT=${SKIP_DETECT}"
+    "CONTAINER_SIF=${CONTAINER_SIF}"
+    "CONTAINER_IMAGE=${CONTAINER_IMAGE}"
+)
+if [[ -n "${VARIANT_IMPACT_THRESHOLD_PPM}" ]]; then
+    REPORT_EXPORTS+=("VARIANT_IMPACT_THRESHOLD_PPM=${VARIANT_IMPACT_THRESHOLD_PPM}")
+fi
+REPORT_EXPORT_STR="ALL,$(IFS=,; echo "${REPORT_EXPORTS[*]}")"
+
+SBATCH_REPORT=(
+    sbatch
+    --job-name=csc_report
+    --cpus-per-task="${REPORT_CPUS}"
+    --mem="${REPORT_MEM}"
+    --time="${REPORT_WALLTIME}"
+    --partition="${PARTITION}"
+    --output="${LOG_DIR}/generate_report_%j.out"
+    --error="${LOG_DIR}/generate_report_%j.err"
+    --export="${REPORT_EXPORT_STR}"
+    "${SCRIPT_DIR}/generate_report.sh"
+)
+
+# Add dependency on aggregate/detect job when we have a real job ID
+if [[ -n "${AGG_JOB_ID}" && "${AGG_JOB_ID}" != "<dry-run>" ]]; then
+    SBATCH_REPORT=("${SBATCH_REPORT[0]}" "--dependency=afterok:${AGG_JOB_ID}" "${SBATCH_REPORT[@]:1}")
+elif [[ "${DRY_RUN}" -eq 1 && -n "${AGG_JOB_ID}" ]]; then
+    SBATCH_REPORT=("${SBATCH_REPORT[0]}" "--dependency=afterok:${AGG_JOB_ID}" "${SBATCH_REPORT[@]:1}")
+fi
+
+echo ""
+echo "Report sbatch command:"
+printf '  %s \\\n' "${SBATCH_REPORT[@]}"
+echo ""
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "(Dry-run: report job not submitted)"
+else
+    REPORT_JOB_OUTPUT="$("${SBATCH_REPORT[@]}")"
+    echo "${REPORT_JOB_OUTPUT}"
+    REPORT_JOB_ID="$(echo "${REPORT_JOB_OUTPUT}" | grep -oE '[0-9]+$')"
+    echo "Report job submitted: ${REPORT_JOB_ID}"
+    echo ""
+    echo "Pipeline submitted:"
+    if [[ -n "${CLASSIFY_JOB_ID}" ]]; then
+        echo "  Classify (array):  job ${CLASSIFY_JOB_ID}  [${#PENDING_INDICES[@]} task(s)]"
+        echo "  Aggregate/detect:  job ${AGG_JOB_ID}  [depends on ${CLASSIFY_JOB_ID}]"
+    else
+        echo "  Aggregate/detect:  job ${AGG_JOB_ID}"
+    fi
+    echo "  Report:            job ${REPORT_JOB_ID}  [depends on ${AGG_JOB_ID}]"
+    echo ""
+    all_jobs="${AGG_JOB_ID},${REPORT_JOB_ID}"
+    [[ -n "${CLASSIFY_JOB_ID}" ]] && all_jobs="${CLASSIFY_JOB_ID},${all_jobs}"
+    echo "Monitor with: squeue -j ${all_jobs}"
 fi
