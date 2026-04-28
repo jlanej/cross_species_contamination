@@ -110,6 +110,34 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--kraken2-output",
+        nargs="+",
+        type=Path,
+        default=None,
+        metavar="OUT",
+        help=(
+            "Paths to per-read Kraken2 output files "
+            "(*.kraken2.output.txt).  Required when --confidence-threshold "
+            "is used with any value > 0.0; ignored otherwise.  Files are "
+            "matched to samples by filename (e.g. <sample_id>.kraken2.output.txt)."
+        ),
+    )
+    parser.add_argument(
+        "--confidence-threshold",
+        nargs="+",
+        type=float,
+        default=None,
+        metavar="T",
+        help=(
+            "Kraken2 confidence cutoff(s) in [0.0, 1.0].  For each "
+            "threshold T > 0.0, a parallel 'high-confidence' matrix "
+            "set is written with filenames suffixed _conf{T} (e.g. "
+            "taxa_matrix_raw_conf0p50.tsv).  Requires --kraken2-output "
+            "and --db-path.  Multiple values yield multiple tiers (e.g. "
+            "--confidence-threshold 0.1 0.5)."
+        ),
+    )
+    parser.add_argument(
         "--json-log",
         action="store_true",
         help="Emit structured JSON log lines instead of human-readable text.",
@@ -153,6 +181,28 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
+        # Validate confidence-tier dependencies fail-early.
+        if args.confidence_threshold:
+            high_thresholds = [t for t in args.confidence_threshold if t > 0.0]
+            if high_thresholds and not args.kraken2_output:
+                log.error(
+                    "--confidence-threshold > 0.0 requires --kraken2-output"
+                )
+                return 1
+            if high_thresholds and args.db_path is None:
+                log.error(
+                    "--confidence-threshold > 0.0 requires --db-path "
+                    "(needs taxonomy/nodes.dmp for confidence calculation)"
+                )
+                return 1
+            missing_outputs = [
+                p for p in (args.kraken2_output or []) if not p.exists()
+            ]
+            if missing_outputs:
+                for p in missing_outputs:
+                    log.error("Kraken2 output file not found: %s", p)
+                return 1
+
         result = aggregate_reports(
             args.input,
             args.output_dir,
@@ -161,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
             rank_filter=tuple(args.rank_filter),
             db_path=args.db_path,
             idxstats_paths=args.idxstats,
+            confidence_thresholds=args.confidence_threshold,
+            kraken2_output_paths=args.kraken2_output,
         )
         print(f"  matrix (raw): {result['matrix_raw_path']}")
         print(f"  matrix (cpm): {result['matrix_cpm_path']}")
@@ -179,6 +231,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  rank {rank} matrix (cpm): {rpath}")
         for rank, rpath in sorted((result.get("rank_matrices_abs") or {}).items()):
             print(f"  rank {rank} matrix (abs): {rpath}")
+        for tier_suffix, tier in sorted(
+            (result.get("confidence_tiers") or {}).items()
+        ):
+            print(
+                f"  confidence tier {tier_suffix} "
+                f"(threshold={tier['threshold']}):"
+            )
+            print(f"    matrix (raw): {tier['matrix_raw_path']}")
+            print(f"    matrix (cpm): {tier['matrix_cpm_path']}")
+            if tier.get("matrix_abs_path"):
+                print(f"    matrix (abs): {tier['matrix_abs_path']}")
         return 0
     except Exception as exc:
         log.error("Aggregation failed: %s", exc)
