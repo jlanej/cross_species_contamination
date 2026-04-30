@@ -488,7 +488,10 @@ def hclust(
             else:  # average / UPGMA
                 d_new = (ni * d_ik + nj * d_jk) / (ni + nj)
             new_row[k] = d_new
-            D[k][i] = D[k][j] = 0.0  # placeholder
+            # Drop the now-merged entries from D[k] and replace them with
+            # a single entry under the new cluster id.  The two `del`s
+            # do not depend on the values previously stored at D[k][i] /
+            # D[k][j], so we can drop straight away.
             del D[k][i]
             del D[k][j]
             D[k][new_id] = d_new

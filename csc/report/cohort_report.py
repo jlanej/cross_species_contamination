@@ -691,12 +691,8 @@ def _render_heatmap(
         D_samp = _bray_from_value_matrix(values)
     sample_clust = _cohort.hclust(D_samp, method=cluster_method)
 
-    # Cluster species via Bray–Curtis transposed.
-    values_t = list(map(list, zip(*values))) if values else []
-    if values_t:
-        D_taxa = _bray_from_value_matrix(list(map(list, zip(*values_t))))
-        # Above is the same matrix; do it on the species axis instead.
-    D_taxa = _bray_from_rows(values)  # rows = species
+    # Cluster species via Bray–Curtis on rows (species axis).
+    D_taxa = _bray_from_rows(values)
     taxa_clust = _cohort.hclust(D_taxa, method=cluster_method)
 
     row_labels = [str(r["name"]) for r in species_rows]
