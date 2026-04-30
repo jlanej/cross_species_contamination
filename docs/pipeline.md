@@ -76,6 +76,7 @@ SAMPLE_B,/data/crams/sample_b.cram,/data/refs/GRCh38.fa
 | `--gmm_threshold`           | `0.5`   | GMM posterior probability threshold        |
 | `--kitome_taxa`             | `null`  | Space-separated NCBI tax IDs               |
 | `--no_subtract_background`  | `false` | Skip background subtraction                |
+| `--no_abs_detection`        | `false` | Disable the absolute-burden side pass that csc-detect runs by default when `taxa_matrix_abs.tsv` is available (see `docs/detect.md`). |
 | `--detect_cpus`             | `2`     | CPUs for detection                         |
 | `--detect_memory`           | `4 GB`  | Memory for detection                       |
 | `--detect_time`             | `1h`    | Wall-time limit for detection              |
@@ -129,13 +130,19 @@ results/
 ├── aggregate/
 │   ├── taxa_matrix_raw.tsv
 │   ├── taxa_matrix_cpm.tsv
+│   ├── taxa_matrix_abs.tsv          # absolute-burden (idxstats-based)
 │   ├── taxa_matrix_raw_S.tsv
 │   ├── taxa_matrix_cpm_S.tsv
+│   ├── taxa_matrix_abs_S.tsv
 │   └── aggregation_metadata.json
 ├── detect/
 │   ├── flagged_samples.tsv
 │   ├── qc_summary.json
-│   └── quarantine_list.txt
+│   ├── quarantine_list.txt
+│   └── abs/                          # absolute-burden side pass
+│       ├── flagged_samples.tsv
+│       ├── qc_summary.json
+│       └── quarantine_list.txt
 ├── pipeline_report.html
 ├── csc_pipeline_mqc.yaml
 └── pipeline_info/

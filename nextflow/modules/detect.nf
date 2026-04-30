@@ -24,6 +24,9 @@ process DETECT_OUTLIERS {
     path(matrix)
     path(rank_matrices)
     path(tier_matrices)
+    path(abs_matrix)
+    path(abs_rank_matrices)
+    path(abs_tier_matrices)
 
     output:
     path("flagged_samples.tsv"),                  emit: flagged
@@ -40,6 +43,14 @@ process DETECT_OUTLIERS {
     path("conf*/qc_summary.json"),                emit: tier_qc,         optional: true
     path("conf*/quarantine_list.txt"),            emit: tier_quarantine, optional: true
     path("conf*/*/flagged_samples.tsv"),          emit: tier_rank_flagged, optional: true
+    // Absolute-burden side pass (default: enabled when an abs matrix
+    // sibling is staged).  Mirrors the primary structure under abs/.
+    path("abs/flagged_samples.tsv"),              emit: abs_flagged,     optional: true
+    path("abs/qc_summary.json"),                  emit: abs_qc_summary,  optional: true
+    path("abs/quarantine_list.txt"),              emit: abs_quarantine,  optional: true
+    path("abs/*/flagged_samples.tsv"),            emit: abs_rank_flagged, optional: true
+    path("abs/conf*/flagged_samples.tsv"),        emit: abs_tier_flagged, optional: true
+    path("abs/conf*/*/flagged_samples.tsv"),      emit: abs_tier_rank_flagged, optional: true
 
     script:
     def method_arg    = params.detect_method ? "--method ${params.detect_method}" : ''
@@ -49,6 +60,7 @@ process DETECT_OUTLIERS {
     def kitome_arg    = params.kitome_taxa ? "--kitome-taxa ${params.kitome_taxa}" : ''
     def bg_arg        = params.no_subtract_background ? '--no-subtract-background' : ''
     def rank_arg      = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
+    def no_abs_arg    = params.no_abs_detection ? '--no-abs-detection' : ''
     """
     csc-detect \\
         ${matrix} \\
@@ -59,6 +71,7 @@ process DETECT_OUTLIERS {
         ${gmm_arg} \\
         ${kitome_arg} \\
         ${bg_arg} \\
-        ${rank_arg}
+        ${rank_arg} \\
+        ${no_abs_arg}
     """
 }

@@ -352,3 +352,84 @@ class TestCLI:
     def test_default_threshold_constant(self) -> None:
         # Guard against silent changes to the default.
         assert DEFAULT_VARIANT_IMPACT_THRESHOLD_PPM == 1000.0
+
+
+# ---------------------------------------------------------------------------
+# Absolute-burden detection side-pass tests
+# ---------------------------------------------------------------------------
+
+
+class TestAbsDetectInReport:
+    """Reports must surface the abs side-pass results when present."""
+
+    def _run_detect_and_load(
+        self, aggregate_outputs: dict, no_abs: bool = False
+    ) -> tuple:
+        from csc.detect.cli import main as detect_main
+
+        agg_dir = aggregate_outputs["aggregate_dir"]
+        detect_out = aggregate_outputs["tmp_path"] / "detect_out"
+        argv = [
+            str(agg_dir / "taxa_matrix_cpm.tsv"),
+            "-o", str(detect_out),
+        ]
+        if no_abs:
+            argv.append("--no-abs-detection")
+        rc = detect_main(argv)
+        assert rc == 0
+        inputs = load_inputs(agg_dir, detect_dir=detect_out)
+        return detect_out, inputs
+
+    def test_load_inputs_picks_up_abs_detect(
+        self, aggregate_outputs: dict
+    ) -> None:
+        detect_out, inputs = self._run_detect_and_load(aggregate_outputs)
+        assert inputs.detect_summary is not None
+        assert inputs.abs_detect_summary is not None
+        # qc_summary records the matrix_type for both passes
+        assert inputs.detect_summary.get("matrix_type") == "cpm"
+        assert inputs.abs_detect_summary["matrix_type"] == "abs"
+        assert inputs.abs_detect_dir == detect_out / "abs"
+
+    def test_report_renders_abs_detect_section(
+        self, aggregate_outputs: dict
+    ) -> None:
+        _, inputs = self._run_detect_and_load(aggregate_outputs)
+        out = aggregate_outputs["tmp_path"] / "report.html"
+        generate_html_report(inputs, out)
+        text = out.read_text()
+        # §2.5 + §3.3 should be present and self-explanatory
+        assert "Absolute-burden side pass" in text
+        assert "Outlier-detection results" in text
+        assert "absolute-burden" in text.lower()
+        # The comparison table headings appear
+        assert "Flagged by both passes" in text
+        assert "Flagged only by absolute-burden pass" in text
+
+        manifest = json.loads(
+            out.with_name("report_manifest.json").read_text()
+        )
+        assert manifest["abs_detection_enabled"] is True
+        assert manifest["primary_matrix_type"] == "cpm"
+        assert "samples_flagged_abs_detect" in manifest
+        assert "samples_flagged_primary_detect" in manifest
+
+    def test_report_no_abs_detect_callout(
+        self, aggregate_outputs: dict
+    ) -> None:
+        """When --no-abs-detection was used, §2.5 explains the gap."""
+        _, inputs = self._run_detect_and_load(
+            aggregate_outputs, no_abs=True
+        )
+        assert inputs.abs_detect_summary is None
+        out = aggregate_outputs["tmp_path"] / "report.html"
+        generate_html_report(inputs, out)
+        text = out.read_text()
+        # Methods §2.5 still appears with an explanatory callout
+        assert "Absolute-burden side pass" in text
+        assert "was <strong>not run</strong>" in text
+        manifest = json.loads(
+            out.with_name("report_manifest.json").read_text()
+        )
+        assert manifest["abs_detection_enabled"] is False
+        assert manifest["samples_flagged_abs_detect"] == []

@@ -86,10 +86,21 @@ class ReportInputs:
     matrix_abs: Matrix | None = None
     detect_summary: dict[str, Any] | None = None
     flagged_samples: list[dict[str, Any]] = field(default_factory=list)
+    # Optional parallel detection pass on the absolute-burden matrix.
+    # Populated when ``<detect_dir>/abs/qc_summary.json`` exists,
+    # i.e. csc-detect ran its abs side pass (the default when an
+    # absolute-burden sibling matrix is available).  This pass uses
+    # 'reads per million total sequenced reads' as its denominator and
+    # therefore highlights contamination episodes that compositional
+    # CPM detection can mask when host-depletion rates differ between
+    # samples.
+    abs_detect_summary: dict[str, Any] | None = None
+    abs_flagged_samples: list[dict[str, Any]] = field(default_factory=list)
     # Source paths (preserved for the transparency checklist and for
     # the relative download links that appear in the rendered HTML).
     aggregate_dir: Path | None = None
     detect_dir: Path | None = None
+    abs_detect_dir: Path | None = None
 
 
 def _parse_matrix(path: Path) -> Matrix:
@@ -188,7 +199,11 @@ def load_inputs(
         (and optionally ``taxa_matrix_abs.tsv``).
     detect_dir:
         Optional directory containing ``flagged_samples.tsv`` and
-        ``qc_summary.json`` from :mod:`csc.detect`.
+        ``qc_summary.json`` from :mod:`csc.detect`.  When the directory
+        also contains an ``abs/`` subdirectory (written by
+        ``csc-detect``'s absolute-burden side pass), its
+        ``qc_summary.json`` and ``flagged_samples.tsv`` are loaded as
+        well so the report can summarise both passes.
 
     Raises
     ------
@@ -220,6 +235,9 @@ def load_inputs(
     detect_summary: dict[str, Any] | None = None
     flagged: list[dict[str, Any]] = []
     detect_dir_path: Path | None = None
+    abs_detect_summary: dict[str, Any] | None = None
+    abs_flagged: list[dict[str, Any]] = []
+    abs_detect_dir_path: Path | None = None
     if detect_dir is not None:
         detect_dir_path = Path(detect_dir)
         qc_path = detect_dir_path / "qc_summary.json"
@@ -228,6 +246,17 @@ def load_inputs(
                 detect_summary = json.load(fh)
         flagged = _parse_flagged(detect_dir_path / "flagged_samples.tsv")
 
+        # csc-detect writes its abs side-pass results to <detect_dir>/abs/.
+        # Pick them up automatically so the report can compare CPM-based
+        # and absolute-burden-based flag sets side-by-side.
+        abs_dir = detect_dir_path / "abs"
+        abs_qc_path = abs_dir / "qc_summary.json"
+        if abs_qc_path.exists():
+            abs_detect_dir_path = abs_dir
+            with open(abs_qc_path) as fh:
+                abs_detect_summary = json.load(fh)
+            abs_flagged = _parse_flagged(abs_dir / "flagged_samples.tsv")
+
     return ReportInputs(
         aggregate_metadata=aggregate_metadata,
         matrix_raw=matrix_raw,
@@ -235,8 +264,11 @@ def load_inputs(
         matrix_abs=matrix_abs,
         detect_summary=detect_summary,
         flagged_samples=flagged,
+        abs_detect_summary=abs_detect_summary,
+        abs_flagged_samples=abs_flagged,
         aggregate_dir=aggregate_dir,
         detect_dir=detect_dir_path,
+        abs_detect_dir=abs_detect_dir_path,
     )
 
 
@@ -621,9 +653,21 @@ def _render_executive_summary(
     )
     if inputs.detect_summary is not None:
         n_flag = len(inputs.detect_summary.get("flagged_samples", []))
+        cpm_label = (
+            inputs.detect_summary.get("matrix_type") or "primary"
+        )
         items.append(
             f"<li><span class='meta-key'>Samples flagged by "
-            f"<code>csc-detect</code>:</span> {n_flag}</li>"
+            f"<code>csc-detect</code> (<em>{html.escape(str(cpm_label))}"
+            f"</em> matrix):</span> {n_flag}</li>"
+        )
+    if inputs.abs_detect_summary is not None:
+        abs_flag = len(inputs.abs_detect_summary.get("flagged_samples", []))
+        items.append(
+            "<li><span class='meta-key'>Samples flagged by "
+            "<code>csc-detect</code> (<em>absolute-burden</em> "
+            "side pass &mdash; ppm of total sequenced reads):</span> "
+            f"{abs_flag}</li>"
         )
     items.append(
         f"<li><span class='meta-key'>Samples exceeding variant-calling "
@@ -769,9 +813,21 @@ def _render_methods(inputs: ReportInputs) -> str:
     if inputs.detect_summary is not None:
         ds = inputs.detect_summary
         parts.append("<h3>2.4 Outlier-detection parameters</h3>")
-        parts.append("<table><tbody>")
+        parts.append(
+            "<p><code>csc-detect</code> applies statistical outlier "
+            "detection (MAD, IQR, and/or a two-component GMM) per "
+            "taxon, flagging samples whose abundance exceeds the "
+            "cohort distribution.  The detector identifies "
+            "<em>upper-tail</em> outliers only; under-representation "
+            "is not informative for contamination.  The same "
+            "parameters are applied to every matrix variant analysed "
+            "(rank-filtered matrices, confidence-tier matrices, and "
+            "the absolute-burden side pass).</p>"
+            "<table><tbody>"
+        )
         for k in (
             "method",
+            "matrix_type",
             "min_reads",
             "mad_multiplier",
             "iqr_multiplier",
@@ -785,6 +841,42 @@ def _render_methods(inputs: ReportInputs) -> str:
                     f"<td><code>{html.escape(json.dumps(ds[k]))}</code></td></tr>"
                 )
         parts.append("</tbody></table>")
+
+        if inputs.abs_detect_summary is not None:
+            parts.append(
+                "<h3>2.5 Absolute-burden side pass</h3>"
+                "<p>In addition to the primary detection pass, "
+                "<code>csc-detect</code> automatically ran a parallel "
+                "pass on <code>taxa_matrix_abs.tsv</code> "
+                "(reads per million <em>total sequenced reads</em>, "
+                "from <code>samtools idxstats</code>).  The "
+                "compositional CPM denominator is invariant to how "
+                "many reads were classified, so two libraries with "
+                "very different host-depletion efficiencies can "
+                "produce indistinguishable CPM profiles even when "
+                "their absolute non-human burdens differ by orders of "
+                "magnitude.  The absolute-burden pass uses a "
+                "denominator that is independent of host depletion and "
+                "therefore catches contamination episodes the CPM "
+                "pass can mask.  Results are written to "
+                "<code>detect/abs/</code> and are summarised "
+                "side-by-side with the primary pass in §3.3.</p>"
+            )
+        else:
+            parts.append(
+                "<h3>2.5 Absolute-burden side pass</h3>"
+                "<div class='callout'>The absolute-burden side pass "
+                "was <strong>not run</strong> for this report (either "
+                "no <code>taxa_matrix_abs.tsv</code> was available, "
+                "or detection was invoked with "
+                "<code>--no-abs-detection</code>).  Re-run "
+                "<code>csc-aggregate</code> with the per-sample "
+                "<code>reads_summary.json</code> sidecars and re-run "
+                "<code>csc-detect</code> to enable.  Without it, "
+                "outlier detection is purely compositional and may "
+                "miss contamination episodes that are masked by "
+                "host-depletion-rate differences.</div>"
+            )
 
     return "\n".join(parts)
 
@@ -1034,7 +1126,138 @@ def _render_results(
             normalize=False,
         )
 
-    return summary_table + cohort_table + fig_cpm + fig_abs
+    detect_block = _render_detection_comparison(inputs)
+
+    return summary_table + cohort_table + fig_cpm + fig_abs + detect_block
+
+
+def _flagged_taxon_breakdown(
+    flagged: list[dict[str, Any]], top_n: int = 5
+) -> list[tuple[str, int]]:
+    """Return the *top_n* most frequently flagged taxa.
+
+    Each entry is ``(taxon_name, count)`` where ``count`` is the
+    number of distinct ``(sample_id, taxon)`` flag rows for that taxon.
+    """
+    counts: dict[str, int] = {}
+    for row in flagged:
+        name = row.get("taxon_name") or row.get("tax_id") or "(unknown)"
+        counts[name] = counts.get(name, 0) + 1
+    return sorted(counts.items(), key=lambda kv: -kv[1])[:top_n]
+
+
+def _render_detection_comparison(inputs: ReportInputs) -> str:
+    """Render §3.3 outlier-detection summary (CPM + abs side-by-side).
+
+    Returns an empty string when no detection results are available.
+    """
+    primary = inputs.detect_summary
+    abs_d = inputs.abs_detect_summary
+    if primary is None and abs_d is None:
+        return ""
+
+    sections: list[str] = ["<h3>3.3 Outlier-detection results</h3>"]
+    sections.append(
+        "<p>The table below summarises every <code>csc-detect</code> "
+        "pass that contributed to this report.  When both the primary "
+        "(usually CPM, compositional) and the absolute-burden side "
+        "passes are available, comparing their flagged-sample sets "
+        "is highly informative: samples flagged by <em>both</em> are "
+        "high-confidence contamination calls, while samples flagged "
+        "by only one expose how the choice of denominator changes "
+        "the answer.</p>"
+    )
+
+    rows: list[str] = []
+
+    def _row(label: str, summary: dict[str, Any] | None) -> None:
+        if summary is None:
+            return
+        flagged_samples = summary.get("flagged_samples") or []
+        total_taxa = summary.get("total_taxa_analysed", "—")
+        method = summary.get("method", "—")
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(label)}</td>"
+            f"<td><code>{html.escape(str(method))}</code></td>"
+            f"<td>{_fmt_int(total_taxa) if isinstance(total_taxa, int) else html.escape(str(total_taxa))}</td>"
+            f"<td>{_fmt_int(int(summary.get('flagged_count', 0)))}</td>"
+            f"<td>{_fmt_int(len(flagged_samples))}</td>"
+            "</tr>"
+        )
+
+    if primary is not None:
+        primary_label = (
+            "Primary "
+            f"({primary.get('matrix_type', 'compositional')})"
+        )
+        _row(primary_label, primary)
+    if abs_d is not None:
+        _row("Absolute-burden side pass (abs)", abs_d)
+
+    sections.append(
+        "<table><thead><tr>"
+        "<th>Pass</th>"
+        "<th>Method</th>"
+        "<th>Taxa analysed</th>"
+        "<th>Flag rows<span class='denom'>(sample, taxon) pairs</span></th>"
+        "<th>Distinct flagged samples</th>"
+        "</tr></thead><tbody>"
+        + "\n".join(rows)
+        + "</tbody></table>"
+    )
+
+    # Set comparison – samples flagged by primary, by abs, by both.
+    if primary is not None and abs_d is not None:
+        primary_set = set(primary.get("flagged_samples") or [])
+        abs_set = set(abs_d.get("flagged_samples") or [])
+        both = primary_set & abs_set
+        only_primary = primary_set - abs_set
+        only_abs = abs_set - primary_set
+        sections.append(
+            "<table><thead><tr><th>Set</th><th>Count</th>"
+            "<th>Sample IDs</th></tr></thead><tbody>"
+            f"<tr><td>Flagged by both passes</td><td>{len(both)}</td>"
+            f"<td><code>{html.escape(', '.join(sorted(both)) or '—')}</code></td></tr>"
+            f"<tr><td>Flagged only by primary "
+            f"({html.escape(str(primary.get('matrix_type', 'compositional')))})"
+            f"</td><td>{len(only_primary)}</td>"
+            f"<td><code>{html.escape(', '.join(sorted(only_primary)) or '—')}</code></td></tr>"
+            f"<tr><td>Flagged only by absolute-burden pass</td>"
+            f"<td>{len(only_abs)}</td>"
+            f"<td><code>{html.escape(', '.join(sorted(only_abs)) or '—')}</code></td></tr>"
+            "</tbody></table>"
+            "<p class='fig-caption'>Samples appearing in both sets "
+            "are robust contamination calls (independent of denominator). "
+            "A sample flagged only by the absolute-burden pass typically "
+            "indicates <em>more</em> total contaminating reads than the "
+            "cohort but whose composition does not deviate &mdash; "
+            "common when host-depletion efficiency varies.  A sample "
+            "flagged only by the primary pass has unusual "
+            "<em>composition</em> within its non-human reads.</p>"
+        )
+
+    # Top flagged taxa per pass (helps reviewers spot whether one pass
+    # is dominated by a different organism than the other).
+    primary_top = _flagged_taxon_breakdown(inputs.flagged_samples)
+    abs_top = _flagged_taxon_breakdown(inputs.abs_flagged_samples)
+    if primary_top or abs_top:
+
+        def _fmt_top(items: list[tuple[str, int]]) -> str:
+            if not items:
+                return "—"
+            return "; ".join(f"{html.escape(n)} ({c})" for n, c in items)
+
+        sections.append(
+            "<table><thead><tr><th>Pass</th>"
+            "<th>Top flagged taxa<span class='denom'>"
+            "(name → flag count)</span></th></tr></thead><tbody>"
+            f"<tr><td>Primary</td><td>{_fmt_top(primary_top)}</td></tr>"
+            f"<tr><td>Absolute-burden</td><td>{_fmt_top(abs_top)}</td></tr>"
+            "</tbody></table>"
+        )
+
+    return "\n".join(sections)
 
 
 def _render_variant_impact(
@@ -1129,7 +1352,8 @@ def _render_discussion(
         "but are invariant to the size of that fraction.  Two samples "
         "with identical stacked bars can have vastly different "
         "downstream impact.  Always pair CPM with absolute burden "
-        "(§4).</li>",
+        "(§4) and, when available, with the absolute-burden detection "
+        "side pass (§3.3).</li>",
         "<li>Laboratory and reagent contaminants ('kitome') can "
         "dominate low-input samples; consider excluding known kitome "
         "taxa in <code>csc-detect</code> via <code>--kitome-taxa</code>.</li>",
@@ -1137,13 +1361,30 @@ def _render_discussion(
         "spike-ins to benchmark sensitivity and specificity before "
         "drawing biological conclusions from contaminant signal.</li>",
     ]
+    if inputs.abs_detect_summary is not None and inputs.detect_summary is not None:
+        primary_set = set(inputs.detect_summary.get("flagged_samples") or [])
+        abs_set = set(inputs.abs_detect_summary.get("flagged_samples") or [])
+        only_abs = abs_set - primary_set
+        if only_abs:
+            parts.append(
+                f"<li>{len(only_abs)} sample(s) were flagged "
+                "<strong>only</strong> by the absolute-burden side "
+                "pass (§3.3).  Such samples typically have unusually "
+                "high <em>total</em> non-human read counts but a "
+                "composition that resembles the cohort &mdash; a "
+                "pattern consistent with poor host depletion rather "
+                "than a single-organism contaminant.  Investigate the "
+                "library prep / extraction conditions.</li>"
+            )
     if not abs_enabled:
         parts.append(
             "<li><strong>No absolute-burden denominator was available "
             "for this cohort.</strong>  Any claim about the magnitude of "
             "contamination (as opposed to its composition) should be "
             "deferred until <code>reads_summary.json</code> sidecars are "
-            "supplied to <code>csc-aggregate</code>.</li>"
+            "supplied to <code>csc-aggregate</code>.  This also "
+            "disables the absolute-burden detection side pass; "
+            "outlier flags reported here are compositional only.</li>"
         )
     if variant_flagged:
         parts.append(
@@ -1205,6 +1446,18 @@ def _render_transparency_checklist(
             p = inputs.detect_dir / name
             if p.exists():
                 downloads.append((str(p), label))
+    if inputs.abs_detect_dir is not None:
+        for name, label in [
+            (
+                "flagged_samples.tsv",
+                "Detect (abs): flagged pairs from absolute-burden pass",
+            ),
+            ("qc_summary.json", "Detect (abs): QC summary"),
+            ("quarantine_list.txt", "Detect (abs): quarantine list"),
+        ]:
+            p = inputs.abs_detect_dir / name
+            if p.exists():
+                downloads.append((str(p), label))
 
     # Rank matrices
     for rank in agg_meta.get("rank_filter", []):
@@ -1230,6 +1483,7 @@ def _render_transparency_checklist(
         f"Rank filter: <code>{html.escape(', '.join(agg_meta.get('rank_filter', [])) or 'none')}</code>",
         f"Lineage-aware domain annotation: <code>{'enabled' if agg_meta.get('domain_annotated') else 'disabled'}</code>",
         f"Absolute-burden matrix: <code>{'present' if inputs.matrix_abs is not None else 'absent'}</code>",
+        f"Absolute-burden detection side pass: <code>{'present' if inputs.abs_detect_summary is not None else 'absent'}</code>",
         f"Variant-calling impact threshold (ppm): <code>{args_echo.get('threshold_ppm')}</code>",
         f"Samples missing idxstats sidecars: <code>{len(agg_meta.get('samples_without_idxstats', []))}</code>",
         "Every figure caption explicitly names its denominator.",
@@ -1361,9 +1615,25 @@ def generate_html_report(
         "sample_count": len(inputs.matrix_raw.sample_ids),
         "taxon_count": len(inputs.matrix_raw.tax_ids),
         "absolute_burden_enabled": inputs.matrix_abs is not None,
+        "abs_detection_enabled": inputs.abs_detect_summary is not None,
         "samples_flagged_variant_impact": [
             s["sample_id"] for s in variant_flagged
         ],
+        "samples_flagged_primary_detect": (
+            list(inputs.detect_summary.get("flagged_samples", []))
+            if inputs.detect_summary is not None
+            else []
+        ),
+        "samples_flagged_abs_detect": (
+            list(inputs.abs_detect_summary.get("flagged_samples", []))
+            if inputs.abs_detect_summary is not None
+            else []
+        ),
+        "primary_matrix_type": (
+            inputs.detect_summary.get("matrix_type")
+            if inputs.detect_summary is not None
+            else None
+        ),
         "aggregate_metadata_schema_version": inputs.aggregate_metadata.get(
             "schema_version"
         ),

@@ -27,13 +27,16 @@ from pathlib import Path
 from csc import __version__
 from csc.aggregate.aggregate import (
     DEFAULT_RANK_FILTER,
+    typed_matrix_filename,
     typed_rank_matrix_filename,
 )
 from csc.detect.detect import detect_outliers
 from csc.detect.report import generate_report
 from csc.utils import setup_logging
 
-TYPED_BASE_MATRIX_PATTERN = re.compile(r"taxa_matrix_(raw|cpm)(?:_(conf\d+p\d+))?\.tsv")
+TYPED_BASE_MATRIX_PATTERN = re.compile(
+    r"taxa_matrix_(raw|cpm|abs)(?:_(conf\d+p\d+))?\.tsv"
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -127,6 +130,22 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-abs-detection",
+        action="store_true",
+        help=(
+            "Disable automatic detection on the sibling "
+            "absolute-burden matrix (taxa_matrix_abs.tsv).  By default, "
+            "when the input matrix is the canonical CPM or raw matrix "
+            "and a sibling absolute-burden matrix exists, detection "
+            "also runs on it and is written to <output>/abs/.  The "
+            "absolute-burden matrix uses 'reads per million total "
+            "sequenced reads' as its denominator (from samtools "
+            "idxstats), which is robust to differences in host-"
+            "depletion efficiency between samples and provides a "
+            "complementary view to compositional CPM detection."
+        ),
+    )
+    parser.add_argument(
         "--rank-filter",
         nargs="+",
         default=list(DEFAULT_RANK_FILTER),
@@ -208,6 +227,31 @@ def _discover_confidence_tier_matrices(matrix: Path) -> list[Path]:
     )
 
 
+def _discover_abs_matrix(matrix: Path) -> Path | None:
+    """Find the sibling absolute-burden matrix matching *matrix*.
+
+    When *matrix* is ``taxa_matrix_cpm.tsv`` or
+    ``taxa_matrix_raw.tsv``, returns the sibling
+    ``taxa_matrix_abs.tsv`` if it exists.  When *matrix* is a
+    confidence-tier matrix (``taxa_matrix_cpm_conf0p50.tsv``), returns
+    the matching tier's ``taxa_matrix_abs_conf0p50.tsv`` if it exists.
+    Returns ``None`` when *matrix* is itself an absolute-burden
+    matrix (no further side-pass needed) or when its name does not
+    match the canonical typed-matrix pattern, or when the abs sibling
+    is absent (idxstats sidecars were not supplied to
+    ``csc-aggregate``).
+    """
+    typed_match = TYPED_BASE_MATRIX_PATTERN.fullmatch(matrix.name)
+    if not typed_match:
+        return None
+    matrix_type = typed_match.group(1)
+    if matrix_type == "abs":
+        return None
+    tier_suffix = typed_match.group(2) or ""
+    candidate = matrix.parent / typed_matrix_filename("abs", tier_suffix)
+    return candidate if candidate.exists() else None
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point.  Returns 0 on success, 1 on failure."""
     parser = _build_parser()
@@ -231,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         _run_detection_for_matrix(args.matrix, args.output_dir, args, log)
 
         # Discover sibling confidence-tier matrices and run detection for each.
+        tier_matrices: list[Path] = []
         if not args.no_confidence_tiers:
             tier_matrices = _discover_confidence_tier_matrices(args.matrix)
             for tier_matrix in tier_matrices:
@@ -244,11 +289,78 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  confidence tier {tier_suffix}:")
                 _run_detection_for_matrix(tier_matrix, tier_out, args, log)
 
+        # Run a parallel side pass on the absolute-burden sibling matrix
+        # (and its confidence-tier siblings, if any).  The abs matrix uses
+        # 'reads per million total sequenced reads' as its denominator,
+        # making detection on it robust to host-depletion-rate differences
+        # that confound the compositional CPM matrix.  Output goes to
+        # <output_dir>/abs/ (and <output_dir>/abs/<tier>/ when tiers exist).
+        if not args.no_abs_detection:
+            abs_matrix = _discover_abs_matrix(args.matrix)
+            if abs_matrix is not None:
+                abs_out = args.output_dir / "abs"
+                log.info(
+                    "Absolute-burden side pass: running detection on %s",
+                    abs_matrix,
+                )
+                print("  absolute-burden side pass:")
+                _run_detection_for_matrix(abs_matrix, abs_out, args, log)
+
+                # Per-tier abs siblings parallel to the primary tier passes.
+                if not args.no_confidence_tiers:
+                    abs_tier_matrices = _discover_confidence_tier_matrices(
+                        abs_matrix
+                    )
+                    for tier_matrix in abs_tier_matrices:
+                        tier_match = TYPED_BASE_MATRIX_PATTERN.fullmatch(
+                            tier_matrix.name
+                        )
+                        tier_suffix = (
+                            tier_match.group(2) if tier_match
+                            else tier_matrix.stem
+                        )
+                        tier_out = abs_out / tier_suffix
+                        log.info(
+                            "Absolute-burden tier '%s': running detection "
+                            "on %s",
+                            tier_suffix, tier_matrix,
+                        )
+                        print(f"    abs / confidence tier {tier_suffix}:")
+                        _run_detection_for_matrix(
+                            tier_matrix, tier_out, args, log
+                        )
+            else:
+                log.info(
+                    "No sibling absolute-burden matrix found for %s; "
+                    "skipping abs side pass.  Re-run csc-aggregate with "
+                    "--idxstats to enable.",
+                    args.matrix,
+                )
+
         return 0
 
     except Exception as exc:
         log.error("Detection failed: %s", exc)
         return 1
+
+
+def _matrix_type_from_path(path: Path) -> str | None:
+    """Return ``"raw"``/``"cpm"``/``"abs"`` from a typed matrix filename.
+
+    Returns ``None`` if the filename does not match the canonical
+    typed-matrix pattern (e.g. legacy ``taxa_matrix.tsv``).
+    """
+    typed_match = TYPED_BASE_MATRIX_PATTERN.fullmatch(path.name)
+    if typed_match:
+        return typed_match.group(1)
+    # Rank-filtered typed names: taxa_matrix_<type>_<rank>[_conf...].tsv
+    rank_match = re.fullmatch(
+        r"taxa_matrix_(raw|cpm|abs)_[A-Z](?:_conf\d+p\d+)?\.tsv",
+        path.name,
+    )
+    if rank_match:
+        return rank_match.group(1)
+    return None
 
 
 def _run_detection_for_matrix(
@@ -258,6 +370,7 @@ def _run_detection_for_matrix(
     log: logging.Logger,
 ) -> None:
     """Run detection on a single matrix (and its per-rank siblings)."""
+    matrix_type = _matrix_type_from_path(matrix)
     result = detect_outliers(
         matrix,
         method=args.method,
@@ -266,12 +379,15 @@ def _run_detection_for_matrix(
         gmm_threshold=args.gmm_threshold,
         kitome_taxa=args.kitome_taxa,
         subtract_background=not args.no_subtract_background,
+        matrix_type=matrix_type,
     )
 
     reports = generate_report(result, output_dir)
 
     summary = result["summary"]
     print(f"  method: {summary['method']}")
+    if matrix_type is not None:
+        print(f"  matrix type: {matrix_type}")
     print(f"  samples analysed: {summary['total_samples']}")
     print(f"  taxa analysed: {summary['total_taxa_analysed']}")
     print(f"  flags raised: {summary['flagged_count']}")
@@ -301,6 +417,7 @@ def _run_detection_for_matrix(
             gmm_threshold=args.gmm_threshold,
             kitome_taxa=args.kitome_taxa,
             subtract_background=not args.no_subtract_background,
+            matrix_type=matrix_type,
         )
 
         rank_out = output_dir / rank

@@ -665,6 +665,7 @@ def detect_outliers(
     gmm_threshold: float = 0.5,
     kitome_taxa: list[int] | None = None,
     subtract_background: bool = True,
+    matrix_type: str | None = None,
 ) -> DetectionResult:
     """Run outlier detection on a sample-by-taxon matrix.
 
@@ -709,6 +710,13 @@ def detect_outliers(
     subtract_background:
         If ``True``, subtract the population mean per taxon before
         testing.
+    matrix_type:
+        Optional label identifying which type of input matrix this is
+        (``"raw"``, ``"cpm"``, ``"abs"``, or any caller-defined value).
+        Stored verbatim in the ``summary`` dict so downstream tooling
+        (e.g. the HTML report) can disambiguate flag sets that were
+        produced from different denominators.  When ``None`` the
+        ``matrix_type`` key is omitted from the summary.
 
     Returns
     -------
@@ -768,6 +776,8 @@ def detect_outliers(
         "kitome_taxa_excluded": len(kitome_taxa) if kitome_taxa else 0,
         "background_subtracted": subtract_background,
     }
+    if matrix_type is not None:
+        summary["matrix_type"] = matrix_type
     # Diagnostic counters: surface taxa skipped by MAD/IQR due to zero
     # dispersion so users can interpret apparent low flag counts.  Only
     # included for methods that were actually run.

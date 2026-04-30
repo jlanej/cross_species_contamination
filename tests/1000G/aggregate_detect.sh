@@ -52,6 +52,9 @@
 #   IQR_MULTIPLIER  – IQR multiplier (default: 1.5)
 #   GMM_THRESHOLD   – GMM posterior probability threshold (default: 0.5)
 #   SKIP_DETECT     – set to "1" to skip outlier detection (default: 0)
+#   NO_ABS_DETECTION – set to "1" to disable the absolute-burden side
+#                     pass that csc-detect runs by default when
+#                     `taxa_matrix_abs.tsv` is available (default: 0)
 #   SKIP_IDXSTATS_METRICS – set to "1" to skip idxstats-based absolute burden
 #                     metrics in aggregation/reporting (default: 0)
 #   DB_PATH         – path to the Kraken2 database directory (must contain
@@ -101,6 +104,7 @@ MAD_THRESHOLD="${MAD_THRESHOLD:-3.5}"
 IQR_MULTIPLIER="${IQR_MULTIPLIER:-1.5}"
 GMM_THRESHOLD="${GMM_THRESHOLD:-0.5}"
 SKIP_DETECT="${SKIP_DETECT:-0}"
+NO_ABS_DETECTION="${NO_ABS_DETECTION:-0}"
 SKIP_IDXSTATS_METRICS="${SKIP_IDXSTATS_METRICS:-0}"
 DB_PATH="${DB_PATH:-}"
 # Colon-separated thresholds; empty = sensitive tier only.
@@ -369,6 +373,9 @@ DETECT_ARGS=(
     --gmm-threshold "${GMM_THRESHOLD}"
     --rank-filter  "${RANK_CODES[@]}"
 )
+if [[ "${NO_ABS_DETECTION}" == "1" ]]; then
+    DETECT_ARGS+=(--no-abs-detection)
+fi
 
 echo ""
 echo "=== Step 2: Detecting outliers ==="
