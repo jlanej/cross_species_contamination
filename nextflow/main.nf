@@ -73,6 +73,7 @@ params.iqr_multiplier         = 1.5
 params.gmm_threshold          = 0.5
 params.kitome_taxa            = null
 params.no_subtract_background = false
+params.no_abs_detection       = false
 params.detect_cpus   = 2
 params.detect_memory = '4 GB'
 params.detect_time   = '1h'
@@ -145,7 +146,28 @@ workflow {
         .collect()
         .ifEmpty([])
 
-    DETECT_OUTLIERS(detect_input_ch, rank_matrices_ch, tier_matrices_ch)
+    // Stage the absolute-burden matrix and its rank/tier siblings so
+    // that csc-detect can run its absolute-burden side pass when an
+    // abs sibling is present.  The abs matrix is optional (only
+    // emitted when csc-aggregate received --idxstats sidecars); when
+    // absent, csc-detect simply skips the side pass.
+    def abs_matrix_ch = AGGREGATE_REPORTS.out.matrix_abs
+        .ifEmpty([])
+    // The rank- and tier-channels above already include any abs
+    // siblings (their globs match taxa_matrix_*_?.tsv and
+    // taxa_matrix_*_conf*.tsv).  We pass empty placeholder channels
+    // here so the DETECT_OUTLIERS process declaration matches.
+    def abs_rank_matrices_ch = Channel.value([])
+    def abs_tier_matrices_ch = Channel.value([])
+
+    DETECT_OUTLIERS(
+        detect_input_ch,
+        rank_matrices_ch,
+        tier_matrices_ch,
+        abs_matrix_ch,
+        abs_rank_matrices_ch,
+        abs_tier_matrices_ch,
+    )
 
     // --- 6. Pipeline summary report ------------------------------------------
     PIPELINE_SUMMARY(

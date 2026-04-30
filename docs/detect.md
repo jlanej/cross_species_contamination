@@ -121,7 +121,64 @@ Taxa known to be laboratory or environmental contaminants (so-called
 "kitome" taxa) can be excluded by providing their NCBI taxonomy IDs.
 This prevents reagent-derived sequences from triggering false positives.
 
-## Configuration
+## Input matrix types
+
+`csc-aggregate` writes three taxa-by-sample matrices that differ only
+in their **denominator**, and the choice of which one to feed to
+`csc-detect` determines what kind of contamination it can see.  All
+three are written to the aggregate output directory side-by-side:
+
+| Matrix | Filename | Denominator | What an outlier means |
+|--------|----------|-------------|-----------------------|
+| **Raw counts** | `taxa_matrix_raw.tsv` | None (integer reads) | A sample has unusually many reads assigned to a taxon — but library size effects (sequencing depth, host-depletion efficiency) confound interpretation. |
+| **CPM** (compositional) | `taxa_matrix_cpm.tsv` | Sum of *classified direct reads* (pre-`min_reads`-filter) per sample | A sample has an unusually large *fraction* of its non-human content from a taxon.  Robust to differences in sequencing depth and to differences in *how much* host material was depleted; sensitive to changes in *composition*. |
+| **Absolute burden** | `taxa_matrix_abs.tsv` | *Total sequenced reads* per sample (from `samtools idxstats`, captured at extract time) | A sample has an unusually large *fraction of its whole sequencing run* from a taxon.  Robust to host-depletion-rate differences; sensitive to absolute contamination magnitude. |
+
+> The `abs` matrix is only emitted when `csc-aggregate` is invoked
+> with `--idxstats` and per-sample `reads_summary.json` sidecars.
+> Without those sidecars, only `raw` and `cpm` are written.
+
+### Why the default is CPM
+
+The CPM matrix is **compositional** and therefore invariant to
+sequencing depth and host-depletion efficiency.  It directly answers
+the question "what fraction of the non-human content in this sample
+is *Salmonella*?" and is the appropriate denominator when a reviewer
+asks "which samples have an unusual contaminant *profile*?".  This is
+the most common QC question in cohort studies and is the reason
+`csc-detect` ships with `taxa_matrix_cpm.tsv` as the documented
+input.
+
+### Why CPM alone is not enough — the abs side pass
+
+CPM has a critical blind spot: because it is compositional, a sample
+that retains *much* more host than the cohort norm (e.g. due to a
+failed depletion step) can carry orders of magnitude more
+contaminating reads than its peers and still look perfectly normal in
+CPM space, because the *shape* of its non-human content is unchanged.
+
+To plug this gap, `csc-detect` automatically runs a parallel
+**absolute-burden side pass** on `taxa_matrix_abs.tsv` whenever:
+
+1. the input matrix is the canonical CPM or raw matrix
+   (`taxa_matrix_cpm.tsv` / `taxa_matrix_raw.tsv`); and
+2. a sibling `taxa_matrix_abs.tsv` exists in the same directory.
+
+Outputs are written to `<output>/abs/` (and to
+`<output>/abs/<rank>/`, `<output>/abs/<tier>/`, etc. when
+`--rank-filter` and confidence tiers are also in play), mirroring the
+primary directory structure exactly.  Each abs `qc_summary.json`
+records `"matrix_type": "abs"` so the HTML report can render the two
+flag sets side-by-side and highlight samples that only one pass
+catches.
+
+The cost is a single extra detection pass over the same cohort —
+trivially cheap relative to extraction or classification — and the
+benefit is a contamination call that is independent of host-depletion
+variation.  Disable with `--no-abs-detection` if you need the
+compositional view alone.
+
+
 
 ```yaml
 detect:
@@ -136,8 +193,18 @@ detect:
 ## CLI Usage
 
 ```bash
-# Default: run all three methods together (recommended)
+# Default: run all three methods together (recommended).  When a
+# sibling taxa_matrix_abs.tsv exists in the same directory the
+# absolute-burden side pass is run automatically; results land in
+# results/detect/abs/ alongside the primary outputs.
 csc-detect results/taxa_matrix_cpm.tsv -o results/detect/
+
+# Disable the absolute-burden side pass (compositional CPM only)
+csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --no-abs-detection
+
+# Run detection directly on the absolute-burden matrix instead of
+# CPM.  No further side pass is triggered (the input is already abs).
+csc-detect results/taxa_matrix_abs.tsv -o results/detect_abs/
 
 # MAD only
 csc-detect results/taxa_matrix_cpm.tsv -o results/detect/ --method mad
@@ -178,6 +245,9 @@ Results for each rank are written to subdirectories
 | `flagged_samples.tsv`   | TSV    | One row per (sample, taxon) outlier flag          |
 | `qc_summary.json`       | JSON   | Aggregate QC statistics and detection parameters  |
 | `quarantine_list.txt`   | Text   | Plain list of sample IDs recommended for review   |
+| `<rank>/…`              | dir    | Per-rank-filtered results (when `--rank-filter` is active) |
+| `conf<T>/…`             | dir    | Per-confidence-tier results (auto-discovered)     |
+| `abs/…`                 | dir    | Absolute-burden side-pass results, with the same `flagged_samples.tsv` / `qc_summary.json` / `quarantine_list.txt` triple plus any `abs/<rank>/`, `abs/conf<T>/` sub-directories.  `qc_summary.json` records `"matrix_type": "abs"` to disambiguate from the primary pass. |
 
 ### flagged_samples.tsv columns
 
@@ -200,6 +270,7 @@ counters when the relevant method is run:
 
 | Field                     | Description                                                              |
 |---------------------------|--------------------------------------------------------------------------|
+| `matrix_type`             | Which input matrix this summary corresponds to: `raw`, `cpm`, or `abs` (omitted if the input filename does not match the canonical typed pattern). |
 | `taxa_skipped_mad_zero`   | Taxa skipped by the MAD method because MAD = 0 (≥ 50 % identical values) |
 | `taxa_skipped_iqr_zero`   | Taxa skipped by the IQR method because IQR = 0                            |
 

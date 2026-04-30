@@ -997,3 +997,201 @@ class TestRankFilterDetect:
             qc = json.load(fh)
         # Species matrix should only have S-rank taxa
         assert qc["total_taxa_analysed"] == 2  # E. coli + S. aureus
+
+
+# ---------------------------------------------------------------------------
+# Absolute-burden side-pass tests
+# ---------------------------------------------------------------------------
+
+
+class TestAbsDetectSidePass:
+    """Tests for the automatic abs-matrix side pass in csc-detect."""
+
+    @staticmethod
+    def _write_typed_pair(matrix_dir: Path) -> tuple[Path, Path]:
+        """Write a CPM matrix and a complementary abs matrix.
+
+        The two matrices flag *different* samples to make the
+        side-pass behaviour observable: in CPM space sample sC stands
+        out (composition shifted), while in abs space samples sA, sB,
+        sD and sE stand out together (sC has low absolute burden but
+        a deviant composition).
+        """
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        cpm_rows = [
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+            ["1280", "Staphylococcus aureus",
+             "100", "105", "98", "102", "101"],
+        ]
+        abs_rows = [
+            # Cohort with one sample (sC) at low absolute burden and four
+            # at much higher burdens.  The MAD/IQR detectors flag the
+            # upper-tail samples relative to the median.
+            ["562", "Escherichia coli", "500", "400", "5", "450", "550"],
+            ["1280", "Staphylococcus aureus",
+             "100", "105", "9", "102", "101"],
+        ]
+        cpm_path = _write_matrix(
+            matrix_dir / "taxa_matrix_cpm.tsv", header, cpm_rows
+        )
+        abs_path = _write_matrix(
+            matrix_dir / "taxa_matrix_abs.tsv", header, abs_rows
+        )
+        return cpm_path, abs_path
+
+    def test_discover_abs_matrix(self, tmp_path: Path) -> None:
+        from csc.detect.cli import _discover_abs_matrix
+
+        for name in (
+            "taxa_matrix_cpm.tsv", "taxa_matrix_raw.tsv",
+            "taxa_matrix_abs.tsv",
+            "taxa_matrix_cpm_conf0p50.tsv", "taxa_matrix_abs_conf0p50.tsv",
+        ):
+            (tmp_path / name).write_text("")
+
+        # CPM input → abs sibling discovered
+        cpm = tmp_path / "taxa_matrix_cpm.tsv"
+        assert _discover_abs_matrix(cpm) == tmp_path / "taxa_matrix_abs.tsv"
+
+        # Raw input → abs sibling discovered
+        raw = tmp_path / "taxa_matrix_raw.tsv"
+        assert _discover_abs_matrix(raw) == tmp_path / "taxa_matrix_abs.tsv"
+
+        # Confidence-tier CPM input → tier-suffixed abs sibling
+        tier = tmp_path / "taxa_matrix_cpm_conf0p50.tsv"
+        assert (
+            _discover_abs_matrix(tier)
+            == tmp_path / "taxa_matrix_abs_conf0p50.tsv"
+        )
+
+        # Abs input → no further side pass
+        abs_m = tmp_path / "taxa_matrix_abs.tsv"
+        assert _discover_abs_matrix(abs_m) is None
+
+        # Legacy / non-typed filename → no side pass
+        (tmp_path / "taxa_matrix.tsv").write_text("")
+        assert _discover_abs_matrix(tmp_path / "taxa_matrix.tsv") is None
+
+    def test_discover_abs_matrix_missing_sibling(self, tmp_path: Path) -> None:
+        """If only the CPM matrix exists, no abs sibling is found."""
+        from csc.detect.cli import _discover_abs_matrix
+
+        (tmp_path / "taxa_matrix_cpm.tsv").write_text("")
+        assert _discover_abs_matrix(tmp_path / "taxa_matrix_cpm.tsv") is None
+
+    def test_cli_runs_abs_side_pass_by_default(self, tmp_path: Path) -> None:
+        """When taxa_matrix_abs.tsv is a sibling, abs/ outputs appear."""
+        from csc.detect.cli import main
+
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        cpm_path, _ = self._write_typed_pair(matrix_dir)
+
+        out = tmp_path / "detect_out"
+        rc = main([str(cpm_path), "-o", str(out)])
+        assert rc == 0
+
+        # Primary outputs
+        assert (out / "qc_summary.json").exists()
+        primary_qc = json.loads((out / "qc_summary.json").read_text())
+        assert primary_qc.get("matrix_type") == "cpm"
+
+        # Abs side-pass outputs
+        assert (out / "abs" / "qc_summary.json").exists()
+        abs_qc = json.loads((out / "abs" / "qc_summary.json").read_text())
+        assert abs_qc["matrix_type"] == "abs"
+        # Abs flag set should differ from primary flag set – the whole
+        # point of running both passes.
+        assert (
+            set(abs_qc["flagged_samples"])
+            != set(primary_qc["flagged_samples"])
+        )
+
+    def test_cli_no_abs_detection_disables_pass(self, tmp_path: Path) -> None:
+        from csc.detect.cli import main
+
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        cpm_path, _ = self._write_typed_pair(matrix_dir)
+
+        out = tmp_path / "detect_out"
+        rc = main([str(cpm_path), "-o", str(out), "--no-abs-detection"])
+        assert rc == 0
+        assert (out / "qc_summary.json").exists()
+        assert not (out / "abs").exists()
+
+    def test_cli_abs_pass_skipped_when_sibling_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """No abs sibling → primary pass runs, no abs/ subdir written."""
+        from csc.detect.cli import main
+
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        rows = [
+            ["562", "Escherichia coli", "50", "48", "5000", "49", "51"],
+        ]
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        cpm_path = _write_matrix(
+            matrix_dir / "taxa_matrix_cpm.tsv", header, rows
+        )
+
+        out = tmp_path / "detect_out"
+        rc = main([str(cpm_path), "-o", str(out)])
+        assert rc == 0
+        assert (out / "qc_summary.json").exists()
+        assert not (out / "abs").exists()
+
+    def test_cli_abs_input_does_not_recurse(self, tmp_path: Path) -> None:
+        """Running detect directly on the abs matrix triggers no further side pass."""
+        from csc.detect.cli import main
+
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        _, abs_path = self._write_typed_pair(matrix_dir)
+
+        out = tmp_path / "detect_out"
+        rc = main([str(abs_path), "-o", str(out)])
+        assert rc == 0
+        # Direct abs run – qc_summary records matrix_type='abs', no abs/ subdir
+        qc = json.loads((out / "qc_summary.json").read_text())
+        assert qc["matrix_type"] == "abs"
+        assert not (out / "abs").exists()
+
+    def test_cli_abs_pass_picks_up_tier_siblings(self, tmp_path: Path) -> None:
+        """Per-tier abs matrices are discovered and processed."""
+        from csc.detect.cli import main
+
+        matrix_dir = tmp_path / "agg_out"
+        matrix_dir.mkdir()
+        cpm_path, _ = self._write_typed_pair(matrix_dir)
+
+        # Add tier siblings on both CPM and abs sides
+        header = ["tax_id", "name", "sA", "sB", "sC", "sD", "sE"]
+        tier_cpm = [
+            ["562", "Escherichia coli", "10", "11", "1000", "12", "9"],
+        ]
+        tier_abs = [
+            ["562", "Escherichia coli", "100", "90", "5", "110", "120"],
+        ]
+        _write_matrix(
+            matrix_dir / "taxa_matrix_cpm_conf0p50.tsv", header, tier_cpm
+        )
+        _write_matrix(
+            matrix_dir / "taxa_matrix_abs_conf0p50.tsv", header, tier_abs
+        )
+
+        out = tmp_path / "detect_out"
+        rc = main([str(cpm_path), "-o", str(out)])
+        assert rc == 0
+
+        # Primary tier
+        assert (out / "conf0p50" / "qc_summary.json").exists()
+        # Abs primary
+        assert (out / "abs" / "qc_summary.json").exists()
+        # Abs tier
+        assert (out / "abs" / "conf0p50" / "qc_summary.json").exists()
+        abs_tier_qc = json.loads(
+            (out / "abs" / "conf0p50" / "qc_summary.json").read_text()
+        )
+        assert abs_tier_qc["matrix_type"] == "abs"

@@ -80,6 +80,10 @@
 #   --iqr-multiplier FLOAT IQR multiplier for outlier detection [default: 1.5]
 #   --skip-aggregate       Skip aggregate and detect steps entirely
 #   --skip-detect          Run aggregate but skip the detect step
+#   --no-abs-detection     Disable the absolute-burden side pass that
+#                          csc-detect runs by default when an
+#                          absolute-burden sibling matrix is available
+#                          (see docs/detect.md)
 #   --skip-idxstats-metrics  Skip idxstats-based absolute burden metrics in
 #                          aggregate/reporting (default: off; required)
 #   --agg-cpus      N      CPUs for aggregate/detect job [default: 4]
@@ -133,6 +137,7 @@ IQR_MULTIPLIER=1.5
 GMM_THRESHOLD=0.5
 SKIP_AGGREGATE=0
 SKIP_DETECT=0
+NO_ABS_DETECTION=0
 SKIP_IDXSTATS_METRICS=0
 AGG_CPUS=4
 AGG_MEM="16G"
@@ -150,7 +155,7 @@ DB_PATH=""                # defaults to DB after argument parsing
 CONFIDENCE_THRESHOLDS=""  # colon-separated; empty = sensitive tier only
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
-USAGE_LINES=110
+USAGE_LINES=115
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 usage() {
@@ -183,6 +188,7 @@ while [[ $# -gt 0 ]]; do
         --iqr-multiplier) IQR_MULTIPLIER="$2"; shift 2 ;;
         --skip-aggregate) SKIP_AGGREGATE=1;    shift ;;
         --skip-detect)    SKIP_DETECT=1;       shift ;;
+        --no-abs-detection) NO_ABS_DETECTION=1; shift ;;
         --skip-idxstats-metrics) SKIP_IDXSTATS_METRICS=1; shift ;;
         --agg-cpus)       AGG_CPUS="$2";       shift 2 ;;
         --agg-mem)        AGG_MEM="$2";        shift 2 ;;
@@ -570,6 +576,7 @@ AGG_EXPORTS=(
     "IQR_MULTIPLIER=${IQR_MULTIPLIER}"
     "GMM_THRESHOLD=${GMM_THRESHOLD}"
     "SKIP_DETECT=${SKIP_DETECT}"
+    "NO_ABS_DETECTION=${NO_ABS_DETECTION}"
     "SKIP_IDXSTATS_METRICS=${SKIP_IDXSTATS_METRICS}"
     "DB_PATH=${DB_PATH}"
     "CONFIDENCE_THRESHOLDS=${CONFIDENCE_THRESHOLDS}"

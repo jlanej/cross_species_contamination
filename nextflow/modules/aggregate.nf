@@ -22,6 +22,7 @@ process AGGREGATE_REPORTS {
     output:
     path("taxa_matrix_cpm.tsv"),                  emit: matrix_cpm
     path("taxa_matrix_raw.tsv"),                  emit: matrix_raw
+    path("taxa_matrix_abs.tsv"),                  emit: matrix_abs,        optional: true
     path("taxa_matrix_*_?.tsv"),                  emit: rank_matrices,    optional: true
     path("taxa_matrix_*_conf*.tsv"),              emit: tier_matrices,    optional: true
     path("aggregation_metadata.json"),            emit: metadata
