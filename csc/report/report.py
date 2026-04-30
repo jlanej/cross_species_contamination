@@ -1,29 +1,47 @@
 """Core rendering logic for the CSC static HTML contamination report.
 
-The report is organised into the following sections, in the order
-requested by the upstream issue:
+The report's default layout (``--layout cohort``, schema 2.0) treats
+**species** as the unit of analysis, so cohorts of 3K+ samples remain
+interpretable in seconds rather than tens of pages of scrollable
+tables.  The eight top-level sections are:
 
-1. **Executive Summary** – cohort-level headline metrics.
+1. **Executive Summary** – cohort-level headline metrics (sample /
+   taxon counts, top species by burden / prevalence, partition counts,
+   median composition / absolute burden).
 2. **Methods** – sample processing, classification, aggregation and
    outlier-detection procedures, plus a clear statement distinguishing
    (a) reads extracted, (b) reads classified by Kraken2, and
    (c) total sequenced reads.
-3. **Results** – summary tables (both CPM *and* absolute burden, with
-   explicit denominators in column headers and figure captions) plus
-   inline SVG visualisations.
-4. **Variant-Calling Impact** – flags samples whose *absolute* non-human
-   burden exceeds a configurable threshold.  Absolute burden (per
-   million total sequenced reads) is the scientifically appropriate
-   denominator when judging downstream impact on variant calling,
-   assembly, or expression quantitation.  See Natarajan et al.,
-   *Nat. Biotechnol.* 41, 1520–1530 (2023).
-5. **Discussion** – interpretation caveats.
-6. **Methods Transparency Checklist** – versioned references, filter
+3. **Cohort species landscape** – §3.1 species summary table
+   (paginated / sortable / filterable, with sparklines), §3.2
+   prevalence × abundance map, §3.3 rank-abundance, §3.4 core /
+   accessory / rare partition, §3.5 cohort-wide distribution figures,
+   §3.6 hierarchical-cluster heatmap, §3.7 PCoA β-diversity ordination,
+   §3.8 per-species drill-down.
+4. **Variant-Calling Impact** – histogram of cohort burden + species
+   attribution stacked bar + paginated flagged-samples table.  Uses
+   absolute burden (per million total sequenced reads), the
+   scientifically appropriate denominator when judging downstream
+   impact on variant calling, assembly, or expression quantitation.
+   See Natarajan et al., *Nat. Biotechnol.* 41, 1520–1530 (2023).
+5. **Detection summary** – relocated from the legacy §3.3, with an
+   UpSet-style 2-set tile diagram for primary ∩ abs flag overlap.
+6. **Per-sample appendix** – paginated, sortable, filterable.  Default
+   25 rows / page.  A sibling ``per_sample_summary.tsv`` is written
+   for offline analysis.
+7. **Discussion** – interpretation caveats, with auto-generated
+   species-keyed paragraphs from the §3.4 partition.
+8. **Methods Transparency Checklist** – versioned references, filter
    settings, and download links for every input matrix so the report
    is fully reproducible and review-proof.
 
+The previous per-sample manuscript layout is preserved for one release
+window behind ``--layout legacy`` for byte-level diffing.
+
 The rendering uses only the Python standard library and emits one
-self-contained HTML file with inline CSS and inline SVG plots.
+self-contained HTML file with inline CSS, inline SVG figures, and a
+small inline-JS module (``csc/report/interactive.py``) that powers
+client-side pagination, sort, and filter.
 
 AI assistance acknowledgment: This module was developed with AI
 assistance.  Best practices in the bioinformatics field should always
@@ -46,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 # Schema version for the HTML report output.  Bump on breaking changes
 # to the structure of ``report_manifest.json``.
-REPORT_SCHEMA_VERSION = "1.0"
+REPORT_SCHEMA_VERSION = "2.0"
 
 # Default absolute-burden threshold (reads per million total sequenced
 # reads) above which a sample is flagged as potentially impacting
@@ -1516,6 +1534,16 @@ def generate_html_report(
     top_n: int = 10,
     threshold_ppm: float = DEFAULT_VARIANT_IMPACT_THRESHOLD_PPM,
     title: str = "Cross-Species Contamination Summary Report",
+    layout: str = "cohort",
+    page_size: int = 25,
+    top_species: int = 50,
+    drilldown_top: int = 25,
+    cluster_method: str = "average",
+    cluster_distance: str = "bray",
+    prevalence_core: float = 0.5,
+    prevalence_rare: float = 0.1,
+    max_samples_cluster: int = 2000,
+    min_reads_for_prevalence: int = 5,
 ) -> Path:
     """Render the static HTML report.
 
@@ -1526,78 +1554,144 @@ def generate_html_report(
     output_path:
         Destination HTML file.
     top_n:
-        Number of taxa to include in the cohort-wide summary table
-        (default 10).
+        Legacy parameter retained for backward compatibility.  Used by
+        the ``layout="legacy"`` path as the number of taxa to include
+        in the cohort-wide summary table.
     threshold_ppm:
         Absolute-burden threshold, in reads per million total sequenced
         reads, above which a sample is flagged in §4 Variant-Calling
         Impact.  Defaults to
         :data:`DEFAULT_VARIANT_IMPACT_THRESHOLD_PPM` (= 1,000 ppm,
-        i.e. 0.1% of total sequencing).  Document your chosen value in
-        the manuscript methods.
+        i.e. 0.1% of total sequencing).
+    layout:
+        Either ``"cohort"`` (the new species-centric default) or
+        ``"legacy"`` (the original per-sample layout, kept for one
+        release window for byte-level diffing).
+    page_size:
+        Default rows per page for paginated tables in cohort layout.
+    top_species:
+        Top-K species (by cohort burden) to feed §3.6 heatmap and
+        §3.7 PCoA.
+    drilldown_top:
+        Top-N species for the §3.8 drill-down expandable cards.
+    cluster_method, cluster_distance:
+        Hierarchical-clustering controls for §3.6 / §3.7.
+    prevalence_core, prevalence_rare:
+        Fraction-of-cohort thresholds defining the core / accessory /
+        rare prevalence bands.
+    max_samples_cluster:
+        Cap on the number of samples included in pairwise-distance
+        computations (heatmap + PCoA).  Sub-samples deterministically
+        when exceeded.
+    min_reads_for_prevalence:
+        Per-taxon minimum-read cut for the second prevalence column in
+        the §3.1 species summary table.
 
     Returns
     -------
     pathlib.Path
         Path of the written HTML file.  A sibling
         ``report_manifest.json`` is also written so downstream tooling
-        can introspect the inputs without re-parsing the HTML.
+        can introspect the inputs without re-parsing the HTML.  In
+        cohort layout, a ``per_sample_summary.tsv`` sibling is also
+        written for the §6 appendix.
     """
     if top_n < 1:
         raise ValueError("top_n must be >= 1")
     if threshold_ppm < 0:
         raise ValueError("threshold_ppm must be >= 0")
+    if layout not in {"cohort", "legacy"}:
+        raise ValueError(
+            f"layout must be 'cohort' or 'legacy', got {layout!r}"
+        )
+    if not (0.0 < prevalence_rare <= prevalence_core <= 1.0):
+        raise ValueError(
+            "Need 0 < prevalence_rare <= prevalence_core <= 1, got "
+            f"{prevalence_rare} / {prevalence_core}"
+        )
+    if page_size < 1:
+        raise ValueError("page_size must be >= 1")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     per_sample = _per_sample_stats(inputs)
-    variant_section, variant_flagged = _render_variant_impact(
-        per_sample,
-        threshold_ppm=threshold_ppm,
-        abs_enabled=inputs.matrix_abs is not None,
-    )
-    exec_section = _render_executive_summary(
-        inputs, per_sample, variant_flagged, threshold_ppm
-    )
-    methods_section = _render_methods(inputs)
-    results_section = "<h2>3. Results</h2>" + _render_results(
-        inputs, per_sample, top_n=top_n
-    )
-    discussion_section = _render_discussion(inputs, variant_flagged)
-    checklist_section = _render_transparency_checklist(
-        inputs, {"threshold_ppm": threshold_ppm, "top_n": top_n}
-    )
-
     generated_at = datetime.now(tz=timezone.utc).isoformat(
         timespec="seconds"
     )
     footer = (
         f"<p class='footer'>Generated by <code>csc-report</code> "
-        f"(schema {REPORT_SCHEMA_VERSION}) at {generated_at}.  "
-        f"This report is static and self-contained – no external "
-        f"resources are required to view it.</p>"
+        f"(schema {REPORT_SCHEMA_VERSION}, layout <code>{html.escape(layout)}</code>) "
+        f"at {generated_at}.  This report is static and self-contained – "
+        f"no external resources are required to view it.</p>"
     )
 
-    body = (
-        f"<h1>{html.escape(title)}</h1>"
-        + exec_section
-        + methods_section
-        + results_section
-        + variant_section
-        + discussion_section
-        + checklist_section
-        + footer
-    )
+    if layout == "cohort":
+        body, manifest_extra = _render_cohort_layout(
+            inputs,
+            per_sample,
+            output_path=output_path,
+            threshold_ppm=threshold_ppm,
+            page_size=page_size,
+            top_species=top_species,
+            drilldown_top=drilldown_top,
+            cluster_method=cluster_method,
+            cluster_distance=cluster_distance,
+            prevalence_core=prevalence_core,
+            prevalence_rare=prevalence_rare,
+            max_samples_cluster=max_samples_cluster,
+            min_reads_for_prevalence=min_reads_for_prevalence,
+        )
+        variant_flagged = manifest_extra["variant_flagged"]
+        full_body = (
+            f"<h1>{html.escape(title)}</h1>"
+            + body
+            + footer
+        )
+        from csc.report.interactive import COHORT_CSS, COHORT_JS
+        extra_style = "\n" + COHORT_CSS
+        extra_script = f"\n<script>{COHORT_JS}</script>"
+    else:
+        variant_section, variant_flagged = _render_variant_impact(
+            per_sample,
+            threshold_ppm=threshold_ppm,
+            abs_enabled=inputs.matrix_abs is not None,
+        )
+        exec_section = _render_executive_summary(
+            inputs, per_sample, variant_flagged, threshold_ppm
+        )
+        methods_section = _render_methods(inputs)
+        results_section = "<h2>3. Results</h2>" + _render_results(
+            inputs, per_sample, top_n=top_n
+        )
+        discussion_section = _render_discussion(inputs, variant_flagged)
+        checklist_section = _render_transparency_checklist(
+            inputs, {"threshold_ppm": threshold_ppm, "top_n": top_n,
+                     "layout": layout}
+        )
+        full_body = (
+            f"<h1>{html.escape(title)}</h1>"
+            + exec_section
+            + methods_section
+            + results_section
+            + variant_section
+            + discussion_section
+            + checklist_section
+            + footer
+        )
+        manifest_extra = {}
+        extra_style = ""
+        extra_script = ""
 
     doc = (
         "<!DOCTYPE html>\n"
         "<html lang=\"en\">\n<head>\n"
         "<meta charset=\"utf-8\" />\n"
         f"<title>{html.escape(title)}</title>\n"
-        f"<style>{_PAGE_STYLE}</style>\n"
+        f"<style>{_PAGE_STYLE}{extra_style}</style>\n"
         "</head>\n<body>\n"
-        + body
+        + full_body
+        + extra_script
         + "\n</body>\n</html>\n"
     )
 
@@ -1606,12 +1700,21 @@ def generate_html_report(
 
     # Sidecar manifest – useful for machine-readable introspection and
     # golden-file diffing.
-    manifest = {
+    manifest: dict[str, Any] = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": generated_at,
         "title": title,
+        "layout": layout,
         "variant_impact_threshold_ppm": threshold_ppm,
         "top_n": top_n,
+        "page_size": page_size,
+        "top_species": top_species,
+        "cluster_method": cluster_method,
+        "cluster_distance": cluster_distance,
+        "prevalence_core": prevalence_core,
+        "prevalence_rare": prevalence_rare,
+        "max_samples_cluster": max_samples_cluster,
+        "min_reads_for_prevalence": min_reads_for_prevalence,
         "sample_count": len(inputs.matrix_raw.sample_ids),
         "taxon_count": len(inputs.matrix_raw.tax_ids),
         "absolute_burden_enabled": inputs.matrix_abs is not None,
@@ -1638,9 +1741,159 @@ def generate_html_report(
             "schema_version"
         ),
     }
+    # Cohort-specific keys from manifest_extra.
+    for key in ("species_summary", "partition_counts",
+                "top_species_by_burden", "top_species_by_prevalence",
+                "per_sample_tsv"):
+        if key in manifest_extra:
+            manifest[key] = manifest_extra[key]
     manifest_path = output_path.with_name("report_manifest.json")
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh, indent=2, default=str)
     logger.info("Wrote report manifest to %s", manifest_path)
 
     return output_path
+
+
+def _render_cohort_layout(
+    inputs: ReportInputs,
+    per_sample: list[dict[str, Any]],
+    *,
+    output_path: Path,
+    threshold_ppm: float,
+    page_size: int,
+    top_species: int,
+    drilldown_top: int,
+    cluster_method: str,
+    cluster_distance: str,
+    prevalence_core: float,
+    prevalence_rare: float,
+    max_samples_cluster: int,
+    min_reads_for_prevalence: int,
+) -> tuple[str, dict[str, Any]]:
+    """Assemble §1–§8 for the cohort layout and return (body, manifest_extra)."""
+    from csc.report import cohort as _cohort
+    from csc.report import cohort_report as _cr
+
+    # Flagged-taxon → distinct-sample counts (used for the §3.1 columns).
+    primary_taxa = _cohort.flagged_taxon_counts(inputs.flagged_samples)
+    abs_taxa = _cohort.flagged_taxon_counts(inputs.abs_flagged_samples)
+
+    species_rows = _cohort.species_summary_rows(
+        inputs.matrix_raw,
+        inputs.matrix_cpm,
+        inputs.matrix_abs,
+        flagged_taxa_primary=primary_taxa,
+        flagged_taxa_abs=abs_taxa,
+        min_reads_for_prevalence=min_reads_for_prevalence,
+    )
+    partition = _cohort.prevalence_partition(
+        species_rows,
+        core_threshold=prevalence_core,
+        rare_threshold=prevalence_rare,
+    )
+
+    variant_section, variant_flagged = _cr.render_variant_impact_v2(
+        inputs, per_sample, species_rows, threshold_ppm,
+        page_size=page_size,
+    )
+    exec_section = _cr.render_executive_summary_v2(
+        inputs, per_sample, species_rows, partition,
+        variant_flagged, threshold_ppm,
+    )
+    methods_section = _render_methods(inputs)
+    landscape_section = _cr.render_cohort_landscape(
+        inputs,
+        species_rows,
+        partition,
+        page_size=page_size,
+        cluster_method=cluster_method,
+        cluster_distance=cluster_distance,
+        max_samples_cluster=max_samples_cluster,
+        top_species_heatmap=top_species,
+        drilldown_top=drilldown_top,
+    )
+    detection_section = _cr.render_detection_section_v2(inputs)
+    appendix_tsv = output_path.with_name("per_sample_summary.tsv")
+    appendix_section = _cr.render_per_sample_appendix(
+        inputs, per_sample, page_size=page_size, tsv_path=appendix_tsv,
+    )
+    discussion_section = _cr.render_discussion_v2(
+        inputs, species_rows, partition, variant_flagged,
+    )
+    checklist_section = _render_transparency_checklist(
+        inputs,
+        {
+            "threshold_ppm": threshold_ppm,
+            "top_n": page_size,
+            "layout": "cohort",
+            "page_size": page_size,
+            "top_species": top_species,
+            "cluster_method": cluster_method,
+            "cluster_distance": cluster_distance,
+            "prevalence_core": prevalence_core,
+            "prevalence_rare": prevalence_rare,
+        },
+    )
+    # Renumber the transparency checklist heading from §6 to §8.
+    checklist_section = checklist_section.replace(
+        "<h2>6. Methods Transparency Checklist</h2>",
+        "<h2>8. Methods Transparency Checklist</h2>",
+    )
+
+    body = (
+        exec_section
+        + methods_section
+        + landscape_section
+        + variant_section
+        + detection_section
+        + appendix_section
+        + discussion_section
+        + checklist_section
+    )
+
+    # Compact species summary for the manifest (top 200 only).
+    summary_compact = []
+    for r in species_rows[:200]:
+        summary_compact.append({
+            "tax_id": r["tax_id"],
+            "name": r["name"],
+            "domain": r["domain"],
+            "prevalence": r["prevalence"],
+            "prevalence_at_min": r["prevalence_at_min"],
+            "cpm_median_pos": _safe_json(r["cpm_median_pos"]),
+            "abs_median_pos": _safe_json(r["abs_median_pos"]),
+            "cohort_burden_ppm": _safe_json(r["cohort_burden_ppm"]),
+            "cohort_raw_total": r["cohort_raw_total"],
+            "n_flagged_primary": r["n_flagged_primary"],
+            "n_flagged_abs": r["n_flagged_abs"],
+            "cv_robust": _safe_json(r["cv_robust"]),
+        })
+    top_burden = species_rows[0]["name"] if species_rows else None
+    top_prev = (
+        max(species_rows, key=lambda r: r["prevalence"])["name"]
+        if species_rows else None
+    )
+
+    manifest_extra = {
+        "species_summary": summary_compact,
+        "partition_counts": {
+            "core": partition["core_count"],
+            "accessory": partition["accessory_count"],
+            "rare": partition["rare_count"],
+            "core_threshold": partition["core_threshold"],
+            "rare_threshold": partition["rare_threshold"],
+        },
+        "top_species_by_burden": top_burden,
+        "top_species_by_prevalence": top_prev,
+        "per_sample_tsv": appendix_tsv.name,
+        "variant_flagged": variant_flagged,
+    }
+    return body, manifest_extra
+
+
+def _safe_json(v: Any) -> Any:
+    """Return ``None`` for NaN so json.dump can serialise it."""
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    return v
