@@ -76,8 +76,8 @@
 #SBATCH --output=logs/aggregate_detect_%j.out
 #SBATCH --error=logs/aggregate_detect_%j.err
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
-#SBATCH --time=02:00:00
+#SBATCH --mem=240G
+#SBATCH --time=08:00:00
 #SBATCH --partition=normal
 
 set -euo pipefail
