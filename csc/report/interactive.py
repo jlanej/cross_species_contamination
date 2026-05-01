@@ -239,4 +239,54 @@ COHORT_JS = r"""
 """
 
 
-__all__ = ["COHORT_CSS", "COHORT_JS"]
+__all__ = ["COHORT_CSS", "COHORT_JS", "TIER_PICKER_CSS", "TIER_PICKER_JS"]
+
+
+# ---------------------------------------------------------------------------
+# Confidence-tier picker (inline radio/select toggle)
+# ---------------------------------------------------------------------------
+# Renders a small selector at the top of the cohort body that swaps the
+# visible <section.csc-tier> block on change.  Both sections (sensitive
+# + high-confidence) remain in the DOM so the user can flip back and
+# forth without losing scroll position; we just toggle their `display`
+# style.  Falls back gracefully when JS is disabled (the first section
+# is visible by default; subsequent ones are hidden via inline style
+# applied at first-render).
+
+TIER_PICKER_CSS = r"""
+.tier-picker { background: #f1f6ff; border: 1px solid #c2d4f0;
+               border-radius: 4px; padding: 0.5em 0.8em;
+               margin: 0.6em 0 0.8em; font-size: 13px;
+               position: sticky; top: 0; z-index: 5; }
+.tier-picker label { font-size: 13px; }
+.tier-picker select { margin-left: 0.4em; font-size: 13px; padding: 2px 6px; }
+.tier-picker .tier-picker-help { color: #444; font-size: 12px;
+                                  margin-left: 0.6em; }
+section.csc-tier { display: none; }
+section.csc-tier.csc-tier-active { display: block; }
+.tier-banner { background: #fffbe6; border-left: 3px solid #d9b300;
+               padding: 0.3em 0.6em; margin: 0 0 0.6em;
+               font-size: 12.5px; color: #5a4500; }
+h2.confidence-concordance { border-top: 2px solid #888;
+                             padding-top: 0.4em; margin-top: 1.2em; }
+"""
+
+TIER_PICKER_JS = r"""
+(function () {
+  var sel = document.getElementById('csc-tier-select');
+  if (!sel) return;
+  var sections = document.querySelectorAll('section.csc-tier');
+  function activate(value) {
+    sections.forEach(function (s) {
+      var match = s.dataset.tier === value;
+      s.classList.toggle('csc-tier-active', match);
+    });
+  }
+  // Activate the first option on load (sensitive tier).
+  if (sections.length > 0) {
+    activate(sections[0].dataset.tier);
+    sel.value = sections[0].dataset.tier;
+  }
+  sel.addEventListener('change', function () { activate(sel.value); });
+})();
+"""

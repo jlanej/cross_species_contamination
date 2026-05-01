@@ -32,8 +32,12 @@ process AGGREGATE_REPORTS {
     def min_reads_arg     = params.min_reads ? "--min-reads ${params.min_reads}" : ''
     def rank_arg          = params.rank_filter ? "--rank-filter ${params.rank_filter}" : ''
     def db_path_arg       = params.db_path    ? "--db-path ${params.db_path}"         : ''
-    // Confidence-tier inputs (only attached when configured + DB available)
-    def has_conf = params.confidence_thresholds && kraken2_outputs && (kraken2_outputs as List).size() > 0
+    // Confidence-tier inputs (only attached when configured + DB and per-read
+    // outputs are available).  Confidence recomputation requires
+    // taxonomy/nodes.dmp from the Kraken2 DB.
+    def has_conf = params.confidence_thresholds && \
+                   params.db_path && \
+                   kraken2_outputs && (kraken2_outputs as List).size() > 0
     def conf_arg          = has_conf ? "--confidence-threshold ${params.confidence_thresholds}" : ''
     def kraken_output_arg = has_conf ? "--kraken2-output ${kraken2_outputs}"                   : ''
     """

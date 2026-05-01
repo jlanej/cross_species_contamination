@@ -342,7 +342,7 @@ class TestRenderedCohortReport:
         out = aggregate_outputs["tmp_path"] / "report.html"
         generate_html_report(inputs, out, threshold_ppm=100.0)
         m = json.loads(out.with_name("report_manifest.json").read_text())
-        assert m["schema_version"] == "2.0"
+        assert m["schema_version"] == "2.1"
         assert m["layout"] == "cohort"
         assert "species_summary" in m
         assert "partition_counts" in m
@@ -404,4 +404,4 @@ class TestCohortCLI:
 
 class TestSchemaVersion:
     def test_schema_version_bumped(self) -> None:
-        assert REPORT_SCHEMA_VERSION == "2.0"
+        assert REPORT_SCHEMA_VERSION == "2.1"

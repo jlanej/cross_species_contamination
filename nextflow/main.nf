@@ -61,7 +61,12 @@ params.detect_matrix   = 'cpm'    // 'cpm' or 'raw'
 // Multiple values can be supplied space-separated (e.g. '0.1 0.5'); each
 // produces a parallel matrix set with suffix _conf{T}.  An empty string
 // disables high-confidence aggregation (only the sensitive tier is built).
-params.confidence_thresholds = ''
+//
+// Default '0.1' enables dual-tier reporting (sensitive + high-confidence)
+// end-to-end.  Citations: Wood et al. Genome Biol. 20:257 (2019);
+// Marcelino et al. Genome Med. 12:103 (2020); Lu & Salzberg, PeerJ
+// Comput. Sci. (2020).  Set to '' to disable.
+params.confidence_thresholds = '0.1'
 params.aggregate_cpus   = 2
 params.aggregate_memory = '4 GB'
 params.aggregate_time   = '1h'

@@ -66,8 +66,9 @@
 #                     matrix set with suffix _conf{T} (e.g.
 #                     taxa_matrix_raw_conf0p50.tsv) using per-read
 #                     `*.kraken2.output.txt` files from CLASSIFY_OUTDIR.
-#                     Requires DB_PATH (taxonomy/nodes.dmp). (default: unset
-#                     → only the canonical sensitive tier is built.)
+#                     Requires DB_PATH (taxonomy/nodes.dmp).
+#                     (default: "0.1" → dual-tier reporting; set
+#                      CONFIDENCE_THRESHOLDS="" to disable.)
 #   CONTAINER_SIF   – path to the Apptainer SIF image
 #   CONTAINER_IMAGE – Docker URI for auto-pull
 #                     (default: ghcr.io/jlanej/cross_species_contamination:latest)
@@ -108,7 +109,7 @@ NO_ABS_DETECTION="${NO_ABS_DETECTION:-0}"
 SKIP_IDXSTATS_METRICS="${SKIP_IDXSTATS_METRICS:-0}"
 DB_PATH="${DB_PATH:-}"
 # Colon-separated thresholds; empty = sensitive tier only.
-CONFIDENCE_THRESHOLDS="${CONFIDENCE_THRESHOLDS:-}"
+CONFIDENCE_THRESHOLDS="${CONFIDENCE_THRESHOLDS-0.1}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
 CONTAINER_SIF="${CONTAINER_SIF:-${AGG_OUTDIR}/csc.sif}"
@@ -298,14 +299,21 @@ if [[ "${SKIP_IDXSTATS_METRICS}" != "1" ]]; then
     AGGREGATE_ARGS+=("--idxstats" "${IDXSTATS_PATHS[@]}")
 fi
 
-# Optional: high-confidence tier(s).  Re-uses the per-read kraken2
-# output files emitted by classify (sample.kraken2.output.txt) so we
-# do NOT have to re-run Kraken2.
+# High-confidence tier(s).  Re-uses the per-read kraken2 output files
+# emitted by classify (sample.kraken2.output.txt) so we do NOT have to
+# re-run Kraken2.  Default is 0.1 (dual-tier reporting); if DB_PATH is
+# not set we log a warning and skip the tier rather than fail, so that
+# minimal demo invocations without a DB stay turn-key.
 if [[ -n "${CONFIDENCE_THRESHOLDS}" ]]; then
     if [[ -z "${DB_PATH}" ]]; then
-        echo "ERROR: CONFIDENCE_THRESHOLDS requires DB_PATH (taxonomy/nodes.dmp)." >&2
-        exit 1
+        echo "WARNING: CONFIDENCE_THRESHOLDS=${CONFIDENCE_THRESHOLDS} requires" >&2
+        echo "         DB_PATH (taxonomy/nodes.dmp); skipping high-confidence" >&2
+        echo "         tier and producing only the sensitive tier.  Set" >&2
+        echo "         DB_PATH=/path/to/kraken2_db to enable dual-tier reporting." >&2
+        CONFIDENCE_THRESHOLDS=""
     fi
+fi
+if [[ -n "${CONFIDENCE_THRESHOLDS}" ]]; then
     IFS=':' read -ra CONF_THRESHOLDS <<< "${CONFIDENCE_THRESHOLDS}"
     KRAKEN_OUTPUTS=()
     for report in "${REPORTS[@]}"; do

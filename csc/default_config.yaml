@@ -29,13 +29,23 @@ aggregate:
     - "S"                    # species
     - "G"                    # genus
     - "F"                    # family
-  # Optional high-confidence tier(s).  For each value > 0.0,
-  # csc-aggregate recomputes per-read Kraken2 confidence from the
-  # existing *.kraken2.output.txt files and writes a parallel matrix
-  # set with suffix _conf{T} (e.g. taxa_matrix_raw_conf0p50.tsv).
-  # Requires db_path (taxonomy/nodes.dmp).  Empty list = sensitive
-  # tier only.
-  confidence_thresholds: []  # e.g. [0.1, 0.5]
+  # High-confidence tier(s).  For each value > 0.0, csc-aggregate
+  # recomputes per-read Kraken2 confidence from the existing
+  # *.kraken2.output.txt files and writes a parallel matrix set with
+  # suffix _conf{T} (e.g. taxa_matrix_raw_conf0p10.tsv).  Requires
+  # db_path (taxonomy/nodes.dmp) and per-read kraken2 outputs.
+  #
+  # Default = [0.1] enables dual-tier reporting end-to-end:
+  #   • sensitive tier (confidence 0.0, no suffix)
+  #   • high-confidence tier (confidence 0.1, suffix _conf0p10).
+  # 0.1 is the canonical "modest stringency" point shown in the
+  # Kraken2 paper (Wood et al., Genome Biol. 20:257, 2019) and used
+  # in low-biomass / contamination evaluations (Marcelino et al.,
+  # Genome Med. 12:103, 2020; Lu & Salzberg, PeerJ Comput. Sci.,
+  # 2020).  csc-detect and csc-report automatically discover the
+  # tier outputs and integrate them into the analysis and HTML.
+  # Set to [] to disable the high-confidence tier (sensitive only).
+  confidence_thresholds: [0.1]
 
 detect:
   method: "mad"              # outlier detection method: "mad" or "iqr"

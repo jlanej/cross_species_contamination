@@ -64,7 +64,15 @@ logger = logging.getLogger(__name__)
 
 # Schema version for the HTML report output.  Bump on breaking changes
 # to the structure of ``report_manifest.json``.
-REPORT_SCHEMA_VERSION = "2.0"
+#
+# Version history:
+#   2.0  initial cohort-layout schema (species-centric).
+#   2.1  added confidence_tiers integration: when csc-aggregate emits
+#        sibling taxa_matrix_*_conf{T}.tsv matrices the report renders
+#        every tier-sensitive section twice (once per tier) under a
+#        client-side toggle, plus a "sensitive vs high-confidence
+#        concordance" subsection comparing the flag sets.
+REPORT_SCHEMA_VERSION = "2.1"
 
 # Default absolute-burden threshold (reads per million total sequenced
 # reads) above which a sample is flagged as potentially impacting
@@ -119,6 +127,21 @@ class ReportInputs:
     aggregate_dir: Path | None = None
     detect_dir: Path | None = None
     abs_detect_dir: Path | None = None
+    # Confidence-tier suffix that this bundle represents.  Empty string
+    # for the canonical "sensitive" tier (Kraken2 confidence 0.0); a
+    # value like "conf0p10" for a high-confidence tier whose matrices
+    # are written by csc-aggregate as ``taxa_matrix_*_conf0p10.tsv``
+    # alongside the sensitive ones.
+    tier_suffix: str = ""
+    tier_threshold: float = 0.0
+    # Sibling high-confidence tier bundles, keyed by their tier suffix
+    # (e.g. ``"conf0p10"``).  Populated by :func:`load_inputs` when it
+    # discovers ``taxa_matrix_*_conf*.tsv`` files in *aggregate_dir*
+    # (and, when *detect_dir* is supplied, the corresponding
+    # ``<detect_dir>/<tier_suffix>/`` subdirectories produced by
+    # ``csc-detect``).  Empty when only the sensitive tier is present
+    # (legacy outputs, or ``confidence_thresholds: []`` in the config).
+    confidence_tiers: dict[str, "ReportInputs"] = field(default_factory=dict)
 
 
 def _parse_matrix(path: Path) -> Matrix:
@@ -203,6 +226,126 @@ def _parse_flagged(path: Path) -> list[dict[str, Any]]:
     return flagged
 
 
+def _parse_tier_suffix(stem: str) -> tuple[str, float] | None:
+    """Extract ``("conf0p10", 0.10)`` from filenames like ``taxa_matrix_raw_conf0p10``.
+
+    Returns ``None`` if no ``conf<int>p<int>`` token is present in the
+    stem.  Used by :func:`load_inputs` to enumerate sibling
+    confidence-tier matrices.
+    """
+    # Match the *last* conf<digits>p<digits> token in the stem.  We
+    # search for the substring rather than a strict regex so we tolerate
+    # rank-suffixed filenames (taxa_matrix_cpm_S_conf0p10).
+    import re
+    m = re.search(r"conf(\d+)p(\d+)$", stem)
+    if not m:
+        return None
+    integer_part, frac_part = m.group(1), m.group(2)
+    suffix = f"conf{integer_part}p{frac_part}"
+    try:
+        threshold = float(f"{integer_part}.{frac_part}")
+    except ValueError:  # pragma: no cover - defensive
+        return None
+    return suffix, threshold
+
+
+def _discover_tier_suffixes(aggregate_dir: Path) -> list[tuple[str, float]]:
+    """Find all confidence-tier suffixes present in *aggregate_dir*.
+
+    Looks for ``taxa_matrix_raw_conf*.tsv`` and ``taxa_matrix_cpm_conf*.tsv``
+    (a tier is only useful if both the raw and CPM matrices are
+    available).  Returns a list of ``(suffix, threshold)`` pairs sorted
+    by threshold ascending.
+    """
+    raw_tiers: dict[str, float] = {}
+    cpm_tiers: dict[str, float] = {}
+    for path in aggregate_dir.glob("taxa_matrix_raw_conf*.tsv"):
+        # Skip rank-filtered ones (taxa_matrix_raw_S_conf0p10.tsv) – we
+        # only need the unfiltered matrix to detect tier presence.
+        stem = path.stem
+        if stem.count("_") != 3:  # taxa_matrix_raw_conf0p10 has 3 underscores
+            continue
+        parsed = _parse_tier_suffix(stem)
+        if parsed is not None:
+            raw_tiers[parsed[0]] = parsed[1]
+    for path in aggregate_dir.glob("taxa_matrix_cpm_conf*.tsv"):
+        stem = path.stem
+        if stem.count("_") != 3:
+            continue
+        parsed = _parse_tier_suffix(stem)
+        if parsed is not None:
+            cpm_tiers[parsed[0]] = parsed[1]
+    common = sorted(
+        (s, raw_tiers[s]) for s in raw_tiers.keys() & cpm_tiers.keys()
+    )
+    return [(s, t) for s, t in sorted(common, key=lambda kv: kv[1])]
+
+
+def _load_single_tier(
+    aggregate_dir: Path,
+    aggregate_metadata: dict[str, Any],
+    detect_dir: Path | None,
+    *,
+    tier_suffix: str,
+    tier_threshold: float,
+) -> "ReportInputs":
+    """Load a single confidence-tier bundle (matrices + detect outputs).
+
+    For the sensitive tier (``tier_suffix=""``) this loads the canonical
+    ``taxa_matrix_{raw,cpm,abs}.tsv`` files and the *detect_dir* root.
+    For a high-confidence tier this loads the suffixed siblings and the
+    ``<detect_dir>/<tier_suffix>/`` subdirectory written by
+    ``csc-detect`` when it auto-discovered the tier matrices.
+    """
+    suffix = f"_{tier_suffix}" if tier_suffix else ""
+    matrix_raw = _parse_matrix(aggregate_dir / f"taxa_matrix_raw{suffix}.tsv")
+    matrix_cpm = _parse_matrix(aggregate_dir / f"taxa_matrix_cpm{suffix}.tsv")
+    abs_path = aggregate_dir / f"taxa_matrix_abs{suffix}.tsv"
+    matrix_abs: Matrix | None = None
+    if abs_path.exists():
+        matrix_abs = _parse_matrix(abs_path)
+
+    detect_summary: dict[str, Any] | None = None
+    flagged: list[dict[str, Any]] = []
+    detect_dir_path: Path | None = None
+    abs_detect_summary: dict[str, Any] | None = None
+    abs_flagged: list[dict[str, Any]] = []
+    abs_detect_dir_path: Path | None = None
+    if detect_dir is not None:
+        # csc-detect places tier outputs in <detect_dir>/<tier_suffix>/.
+        tier_detect = detect_dir / tier_suffix if tier_suffix else detect_dir
+        if tier_detect.is_dir():
+            detect_dir_path = tier_detect
+            qc_path = tier_detect / "qc_summary.json"
+            if qc_path.exists():
+                with open(qc_path) as fh:
+                    detect_summary = json.load(fh)
+            flagged = _parse_flagged(tier_detect / "flagged_samples.tsv")
+            abs_dir = tier_detect / "abs"
+            abs_qc_path = abs_dir / "qc_summary.json"
+            if abs_qc_path.exists():
+                abs_detect_dir_path = abs_dir
+                with open(abs_qc_path) as fh:
+                    abs_detect_summary = json.load(fh)
+                abs_flagged = _parse_flagged(abs_dir / "flagged_samples.tsv")
+
+    return ReportInputs(
+        aggregate_metadata=aggregate_metadata,
+        matrix_raw=matrix_raw,
+        matrix_cpm=matrix_cpm,
+        matrix_abs=matrix_abs,
+        detect_summary=detect_summary,
+        flagged_samples=flagged,
+        abs_detect_summary=abs_detect_summary,
+        abs_flagged_samples=abs_flagged,
+        aggregate_dir=aggregate_dir,
+        detect_dir=detect_dir_path,
+        abs_detect_dir=abs_detect_dir_path,
+        tier_suffix=tier_suffix,
+        tier_threshold=tier_threshold,
+    )
+
+
 def load_inputs(
     aggregate_dir: str | Path,
     detect_dir: str | Path | None = None,
@@ -214,14 +357,22 @@ def load_inputs(
     aggregate_dir:
         Directory containing ``taxa_matrix_raw.tsv``,
         ``taxa_matrix_cpm.tsv`` and ``aggregation_metadata.json``
-        (and optionally ``taxa_matrix_abs.tsv``).
+        (and optionally ``taxa_matrix_abs.tsv``).  When sibling
+        ``taxa_matrix_{raw,cpm}_conf*.tsv`` matrices are present (the
+        default for pipelines using
+        ``aggregate.confidence_thresholds: [0.1]``), they are also
+        loaded as additional confidence-tier bundles attached to
+        ``ReportInputs.confidence_tiers``.
     detect_dir:
         Optional directory containing ``flagged_samples.tsv`` and
         ``qc_summary.json`` from :mod:`csc.detect`.  When the directory
         also contains an ``abs/`` subdirectory (written by
         ``csc-detect``'s absolute-burden side pass), its
         ``qc_summary.json`` and ``flagged_samples.tsv`` are loaded as
-        well so the report can summarise both passes.
+        well so the report can summarise both passes.  When tier
+        subdirectories ``conf*/`` are present (auto-discovered by
+        ``csc-detect``), they are loaded into the corresponding tier
+        bundles.
 
     Raises
     ------
@@ -242,52 +393,34 @@ def load_inputs(
     with open(meta_path) as fh:
         aggregate_metadata = json.load(fh)
 
-    matrix_raw = _parse_matrix(aggregate_dir / "taxa_matrix_raw.tsv")
-    matrix_cpm = _parse_matrix(aggregate_dir / "taxa_matrix_cpm.tsv")
+    detect_dir_path = Path(detect_dir) if detect_dir is not None else None
 
-    abs_path = aggregate_dir / "taxa_matrix_abs.tsv"
-    matrix_abs: Matrix | None = None
-    if abs_path.exists():
-        matrix_abs = _parse_matrix(abs_path)
-
-    detect_summary: dict[str, Any] | None = None
-    flagged: list[dict[str, Any]] = []
-    detect_dir_path: Path | None = None
-    abs_detect_summary: dict[str, Any] | None = None
-    abs_flagged: list[dict[str, Any]] = []
-    abs_detect_dir_path: Path | None = None
-    if detect_dir is not None:
-        detect_dir_path = Path(detect_dir)
-        qc_path = detect_dir_path / "qc_summary.json"
-        if qc_path.exists():
-            with open(qc_path) as fh:
-                detect_summary = json.load(fh)
-        flagged = _parse_flagged(detect_dir_path / "flagged_samples.tsv")
-
-        # csc-detect writes its abs side-pass results to <detect_dir>/abs/.
-        # Pick them up automatically so the report can compare CPM-based
-        # and absolute-burden-based flag sets side-by-side.
-        abs_dir = detect_dir_path / "abs"
-        abs_qc_path = abs_dir / "qc_summary.json"
-        if abs_qc_path.exists():
-            abs_detect_dir_path = abs_dir
-            with open(abs_qc_path) as fh:
-                abs_detect_summary = json.load(fh)
-            abs_flagged = _parse_flagged(abs_dir / "flagged_samples.tsv")
-
-    return ReportInputs(
-        aggregate_metadata=aggregate_metadata,
-        matrix_raw=matrix_raw,
-        matrix_cpm=matrix_cpm,
-        matrix_abs=matrix_abs,
-        detect_summary=detect_summary,
-        flagged_samples=flagged,
-        abs_detect_summary=abs_detect_summary,
-        abs_flagged_samples=abs_flagged,
-        aggregate_dir=aggregate_dir,
-        detect_dir=detect_dir_path,
-        abs_detect_dir=abs_detect_dir_path,
+    sensitive = _load_single_tier(
+        aggregate_dir,
+        aggregate_metadata,
+        detect_dir_path,
+        tier_suffix="",
+        tier_threshold=0.0,
     )
+
+    # Discover and attach sibling high-confidence tier bundles.
+    for tier_suffix, tier_threshold in _discover_tier_suffixes(aggregate_dir):
+        try:
+            tier_bundle = _load_single_tier(
+                aggregate_dir,
+                aggregate_metadata,
+                detect_dir_path,
+                tier_suffix=tier_suffix,
+                tier_threshold=tier_threshold,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            logger.warning(
+                "Skipping confidence tier %s: %s", tier_suffix, exc,
+            )
+            continue
+        sensitive.confidence_tiers[tier_suffix] = tier_bundle
+
+    return sensitive
 
 
 # ---------------------------------------------------------------------------
@@ -895,6 +1028,72 @@ def _render_methods(inputs: ReportInputs) -> str:
                 "miss contamination episodes that are masked by "
                 "host-depletion-rate differences.</div>"
             )
+
+    # ── §2.6 Confidence-tier reporting ───────────────────────────────
+    # Rendered whenever the input bundle carries sibling
+    # high-confidence tiers (the new default), or when the loaded
+    # aggregation_metadata exposes a confidence_tiers block (so the
+    # methods text is correct even for legacy reports rebuilt from
+    # current aggregations).
+    has_tiers = bool(
+        getattr(inputs, "confidence_tiers", None)
+        or (meta.get("confidence_tiers") or {})
+    )
+    if has_tiers:
+        # Build a one-line description of every tier thresh present.
+        tier_descs: list[str] = []
+        for tinp in (inputs.confidence_tiers or {}).values():
+            tier_descs.append(
+                f"<code>{html.escape(tinp.tier_suffix)}</code> "
+                f"(threshold {tinp.tier_threshold:.2f})"
+            )
+        if not tier_descs:
+            for tier_suffix, tier_meta in (meta.get("confidence_tiers") or {}).items():
+                t = tier_meta.get("threshold", "?")
+                tier_descs.append(
+                    f"<code>{html.escape(str(tier_suffix))}</code> "
+                    f"(threshold {t})"
+                )
+        tier_str = ", ".join(tier_descs) if tier_descs else "none"
+        parts.append(
+            "<h3>2.6 Sensitive vs high-confidence reporting</h3>"
+            "<p>Kraken2 was run with <code>--confidence 0.0</code> "
+            "(maximum sensitivity) at classify time; this is the "
+            "<strong>sensitive tier</strong>.  In addition, "
+            "<code>csc-aggregate</code> recomputed the per-read Kraken2 "
+            "confidence from the existing <code>*.kraken2.output.txt</code> "
+            "files and produced the following parallel "
+            "<strong>high-confidence tier(s)</strong>: "
+            f"{tier_str}.</p>"
+            "<p>The confidence definition matches Kraken2's own "
+            "algorithm:</p>"
+            "<pre>confidence(taxon) = (k-mers whose taxon ∈ clade rooted "
+            "at taxon)\n"
+            "                    -------------------------------------------\n"
+            "                    (total k-mers excluding ambiguous A:N runs)"
+            "</pre>"
+            "<p>Reads whose recomputed confidence falls below the "
+            "threshold are demoted to <em>unclassified</em> "
+            "(<code>taxid 0</code>); samples are then re-aggregated to "
+            "produce the parallel matrix set.  Detection "
+            "(<code>csc-detect</code>) and the report's per-section "
+            "renderers re-run on every tier so the user can compare the "
+            "two flag sets side-by-side via the <em>Confidence tier</em> "
+            "selector at the top of the report and the §5.1 "
+            "concordance subsection.</p>"
+            "<p>Defaults: <code>aggregate.confidence_thresholds: [0.1]</code> "
+            "in <code>default_config.yaml</code>.  0.1 is the canonical "
+            "&ldquo;modest stringency&rdquo; point in the Kraken2 paper "
+            "and is widely used in low-biomass / contamination evaluations: "
+            "Wood <em>et al.</em>, <em>Genome Biol.</em> 20:257 (2019); "
+            "Marcelino <em>et al.</em>, <em>Genome Med.</em> 12:103 "
+            "(2020); Lu &amp; Salzberg, <em>PeerJ Comput. Sci.</em> 6:e317 "
+            "(2020).  Results that survive a stricter threshold are "
+            "the most defensible contamination calls; results unique "
+            "to the sensitive tier should be inspected for "
+            "low-complexity / sparse-kmer artefacts before exclusion."
+            "</p>"
+        )
 
     return "\n".join(parts)
 
@@ -1643,14 +1842,106 @@ def generate_html_report(
             min_reads_for_prevalence=min_reads_for_prevalence,
         )
         variant_flagged = manifest_extra["variant_flagged"]
+
+        # ── Dual-tier integration ────────────────────────────────────
+        # When csc-aggregate emitted high-confidence sibling matrices
+        # (e.g. taxa_matrix_*_conf0p10.tsv), render a parallel body for
+        # each tier and wrap everything in a tier-picker selector so
+        # users can flip between sensitive (confidence 0.0) and
+        # high-confidence (e.g. 0.1) views without leaving the page.
+        # Falls back gracefully (no toggle, identical layout) when no
+        # tier siblings are present.
+        tier_bodies: list[tuple[str, str, float, str]] = [
+            ("", "Sensitive (confidence 0.0)", 0.0, body),
+        ]
+        for tier_suffix, tier_inputs in inputs.confidence_tiers.items():
+            tier_per_sample = _per_sample_stats(tier_inputs)
+            tier_body, _ = _render_cohort_layout(
+                tier_inputs,
+                tier_per_sample,
+                output_path=output_path,
+                threshold_ppm=threshold_ppm,
+                page_size=page_size,
+                top_species=top_species,
+                drilldown_top=drilldown_top,
+                cluster_method=cluster_method,
+                cluster_distance=cluster_distance,
+                prevalence_core=prevalence_core,
+                prevalence_rare=prevalence_rare,
+                max_samples_cluster=max_samples_cluster,
+                min_reads_for_prevalence=min_reads_for_prevalence,
+            )
+            tier_label = (
+                f"High-confidence (confidence ≥ "
+                f"{tier_inputs.tier_threshold:.2f})"
+            )
+            tier_bodies.append(
+                (tier_suffix, tier_label, tier_inputs.tier_threshold, tier_body)
+            )
+
+        # Always-rendered "Sensitive vs High-Confidence concordance"
+        # block – appended to the report (outside the per-tier wrappers)
+        # so it is visible regardless of which tier is currently active.
+        from csc.report import cohort_report as _cr_for_concordance
+        concordance_section = _cr_for_concordance.render_confidence_concordance(
+            inputs,
+        )
+
+        if len(tier_bodies) == 1:
+            # Backward-compatible single-tier layout: no picker, no
+            # concordance block (no second tier to compare to).
+            wrapped_body = body
+        else:
+            picker_options = "".join(
+                f"<option value='{html.escape(suffix or '_sensitive')}'>"
+                f"{html.escape(label)}</option>"
+                for suffix, label, _t, _b in tier_bodies
+            )
+            picker = (
+                "<div class='tier-picker'>"
+                "<label for='csc-tier-select'>"
+                "<strong>Confidence tier:</strong> "
+                "</label>"
+                f"<select id='csc-tier-select'>{picker_options}</select>"
+                "<span class='tier-picker-help'>"
+                " — Sensitive uses every Kraken2 hit (confidence 0.0); "
+                "high-confidence demotes reads whose recomputed Kraken2 "
+                "confidence falls below the threshold to "
+                "<em>unclassified</em>, suppressing low-complexity "
+                "false positives.  See §2 Methods and §5 Concordance "
+                "for citations.</span></div>"
+            )
+            wrapped_parts = [picker]
+            for suffix, label, _t, tier_body in tier_bodies:
+                tier_id = html.escape(suffix or "_sensitive")
+                wrapped_parts.append(
+                    f"<section class='csc-tier' "
+                    f"data-tier='{tier_id}'>"
+                    f"<p class='tier-banner'>"
+                    f"Currently viewing: <strong>{html.escape(label)}</strong>"
+                    f"</p>"
+                    + tier_body
+                    + "</section>"
+                )
+            wrapped_parts.append(concordance_section)
+            wrapped_body = "\n".join(wrapped_parts)
+
         full_body = (
             f"<h1>{html.escape(title)}</h1>"
-            + body
+            + wrapped_body
             + footer
         )
-        from csc.report.interactive import COHORT_CSS, COHORT_JS
-        extra_style = "\n" + COHORT_CSS
-        extra_script = f"\n<script>{COHORT_JS}</script>"
+        from csc.report.interactive import (
+            COHORT_CSS,
+            COHORT_JS,
+            TIER_PICKER_CSS,
+            TIER_PICKER_JS,
+        )
+        extra_style = "\n" + COHORT_CSS + "\n" + TIER_PICKER_CSS
+        extra_script = (
+            f"\n<script>{COHORT_JS}</script>"
+            f"\n<script>{TIER_PICKER_JS}</script>"
+        )
     else:
         variant_section, variant_flagged = _render_variant_impact(
             per_sample,
@@ -1740,6 +2031,35 @@ def generate_html_report(
         "aggregate_metadata_schema_version": inputs.aggregate_metadata.get(
             "schema_version"
         ),
+        # Dual-tier confidence integration (schema 2.1+).  Lists every
+        # high-confidence tier discovered alongside the canonical
+        # sensitive matrices, with its threshold, source matrices and
+        # detect-pass flagged-sample sets.  Empty list when only the
+        # sensitive tier is present.
+        "confidence_tiers": [
+            {
+                "tier_suffix": tinp.tier_suffix,
+                "threshold": tinp.tier_threshold,
+                "matrix_raw": f"taxa_matrix_raw_{tinp.tier_suffix}.tsv",
+                "matrix_cpm": f"taxa_matrix_cpm_{tinp.tier_suffix}.tsv",
+                "matrix_abs": (
+                    f"taxa_matrix_abs_{tinp.tier_suffix}.tsv"
+                    if tinp.matrix_abs is not None else None
+                ),
+                "samples_flagged_primary_detect": (
+                    list(tinp.detect_summary.get("flagged_samples", []))
+                    if tinp.detect_summary is not None else []
+                ),
+                "samples_flagged_abs_detect": (
+                    list(tinp.abs_detect_summary.get("flagged_samples", []))
+                    if tinp.abs_detect_summary is not None else []
+                ),
+                "per_sample_tsv": (
+                    f"per_sample_summary_{tinp.tier_suffix}.tsv"
+                ),
+            }
+            for tinp in inputs.confidence_tiers.values()
+        ],
     }
     # Cohort-specific keys from manifest_extra.
     for key in ("species_summary", "partition_counts",
@@ -1814,7 +2134,15 @@ def _render_cohort_layout(
         drilldown_top=drilldown_top,
     )
     detection_section = _cr.render_detection_section_v2(inputs)
-    appendix_tsv = output_path.with_name("per_sample_summary.tsv")
+    # When this is a high-confidence tier (non-empty tier_suffix) write
+    # the per-sample appendix TSV under a tier-specific filename so the
+    # sensitive-tier sidecar isn't overwritten.
+    if inputs.tier_suffix:
+        appendix_tsv = output_path.with_name(
+            f"per_sample_summary_{inputs.tier_suffix}.tsv"
+        )
+    else:
+        appendix_tsv = output_path.with_name("per_sample_summary.tsv")
     appendix_section = _cr.render_per_sample_appendix(
         inputs, per_sample, page_size=page_size, tsv_path=appendix_tsv,
     )
