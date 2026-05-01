@@ -33,6 +33,7 @@ ARRAY_SCRIPT = SCRIPTS_DIR / "extract_unmapped_array.sh"
 SUBMIT_CLASSIFY_SCRIPT = SCRIPTS_DIR / "submit_classify.sh"
 CLASSIFY_ARRAY_SCRIPT = SCRIPTS_DIR / "classify_array.sh"
 AGGREGATE_DETECT_SCRIPT = SCRIPTS_DIR / "aggregate_detect.sh"
+SUBMIT_AGG_REPORT_SCRIPT = SCRIPTS_DIR / "submit_agg_report.sh"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -79,6 +80,7 @@ def minimal_manifest(tmp_path: Path) -> Path:
     SUBMIT_CLASSIFY_SCRIPT,
     CLASSIFY_ARRAY_SCRIPT,
     AGGREGATE_DETECT_SCRIPT,
+    SUBMIT_AGG_REPORT_SCRIPT,
 ])
 def test_bash_syntax(script):
     """Both scripts must pass bash syntax checking."""
@@ -966,24 +968,8 @@ class TestSubmitClassifyDryRun:
         ])
         assert result.returncode == 0, result.stderr
         assert "All selected samples already have classification output" in result.stdout
-        # Aggregate/detect job should still be printed (for existing results)
-        assert "aggregate_detect" in result.stdout or "sbatch" in result.stdout
-
-    def test_dry_run_skip_aggregate(self, tmp_path):
-        """--skip-aggregate should suppress the aggregate/detect sbatch command."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--skip-aggregate",
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "aggregate_detect" not in result.stdout
+        # No classify array job should be submitted
+        assert "csc_classify" not in result.stdout
 
     def test_dry_run_container_sif_exported(self, tmp_path):
         """CONTAINER_SIF must appear in the classify --export string."""
@@ -999,98 +985,6 @@ class TestSubmitClassifyDryRun:
         ])
         assert result.returncode == 0, result.stderr
         assert "CONTAINER_SIF=" in result.stdout
-
-    def test_dry_run_rank_filter_colon_encoded(self, tmp_path):
-        """RANK_FILTER_CODES must use colon separator (no spaces) for safe export."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--rank-filter", "S G F",
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "RANK_FILTER_CODES=S:G:F" in result.stdout
-
-    def test_dry_run_detect_matrix_default_exported(self, tmp_path):
-        """DETECT_MATRIX should default to cpm in aggregate/detect exports."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "DETECT_MATRIX=cpm" in result.stdout
-
-    def test_dry_run_detect_matrix_raw_exported(self, tmp_path):
-        """--detect-matrix raw should be exported for aggregate/detect."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--detect-matrix", "raw",
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "DETECT_MATRIX=raw" in result.stdout
-
-    def test_dry_run_detect_method_default_exported(self, tmp_path):
-        """DETECT_METHOD should default to 'all' in the aggregate/detect exports."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "DETECT_METHOD=all" in result.stdout
-
-    def test_dry_run_mad_threshold_default_exported(self, tmp_path):
-        """MAD_THRESHOLD should default to 3.5 in the aggregate/detect exports."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "MAD_THRESHOLD=3.5" in result.stdout
-
-    def test_dry_run_iqr_multiplier_default_exported(self, tmp_path):
-        """IQR_MULTIPLIER should default to 1.5 in the aggregate/detect exports."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
-        db = _fake_db(tmp_path)
-        result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
-            "--dry-run",
-        ])
-        assert result.returncode == 0, result.stderr
-        assert "IQR_MULTIPLIER=1.5" in result.stdout
 
     def test_help_flag(self):
         """-h should print usage and exit 0."""
@@ -1152,46 +1046,281 @@ class TestSubmitClassifyDryRun:
         # R2 column should be empty
         assert cols[2] == ""
 
+    def test_dry_run_unknown_agg_flag_errors(self, tmp_path):
+        """Flags that moved to submit_agg_report.sh should produce an error."""
+        extract_out = tmp_path / "output"
+        _fake_extracted_samples(extract_out, ["NA12718"])
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "--extract-outdir", str(extract_out),
+            "--outdir", str(tmp_path / "classify_out"),
+            "--db", str(db),
+            "--agg-mem", "252G",
+            "--dry-run",
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# submit_agg_report.sh dry-run tests
+# ---------------------------------------------------------------------------
+
+class TestSubmitAggReportDryRun:
+    """Tests for submit_agg_report.sh using --dry-run."""
+
+    def test_dry_run_basic(self, tmp_path):
+        """dry-run with minimal args should succeed and mention sbatch."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "sbatch" in result.stdout
+
+    def test_dry_run_missing_outdir(self, tmp_path):
+        """Nonexistent --outdir should exit with an error (non-dry-run)."""
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(tmp_path / "nonexistent"),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+    def test_dry_run_missing_extract_outdir(self, tmp_path):
+        """Nonexistent --extract-outdir should exit with an error."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(tmp_path / "nonexistent"),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+    def test_dry_run_rank_filter_colon_encoded(self, tmp_path):
+        """RANK_FILTER_CODES must use colon separator (no spaces) for safe export."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--rank-filter", "S G F",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "RANK_FILTER_CODES=S:G:F" in result.stdout
+
+    def test_dry_run_detect_matrix_default_exported(self, tmp_path):
+        """DETECT_MATRIX should default to cpm in aggregate/detect exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "DETECT_MATRIX=cpm" in result.stdout
+
+    def test_dry_run_detect_matrix_raw_exported(self, tmp_path):
+        """--detect-matrix raw should be exported for aggregate/detect."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--detect-matrix", "raw",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "DETECT_MATRIX=raw" in result.stdout
+
+    def test_dry_run_detect_method_default_exported(self, tmp_path):
+        """DETECT_METHOD should default to 'all' in aggregate/detect exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "DETECT_METHOD=all" in result.stdout
+
+    def test_dry_run_mad_threshold_default_exported(self, tmp_path):
+        """MAD_THRESHOLD should default to 3.5 in aggregate/detect exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "MAD_THRESHOLD=3.5" in result.stdout
+
+    def test_dry_run_iqr_multiplier_default_exported(self, tmp_path):
+        """IQR_MULTIPLIER should default to 1.5 in aggregate/detect exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "IQR_MULTIPLIER=1.5" in result.stdout
+
+    def test_dry_run_gmm_threshold_default_exported(self, tmp_path):
+        """GMM_THRESHOLD should default to 0.5 in aggregate/detect exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "GMM_THRESHOLD=0.5" in result.stdout
+
+    def test_dry_run_confidence_thresholds_default_exported(self, tmp_path):
+        """CONFIDENCE_THRESHOLDS should default to '0.1' in exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "CONFIDENCE_THRESHOLDS=0.1" in result.stdout
+
+    def test_dry_run_confidence_thresholds_custom(self, tmp_path):
+        """--confidence-thresholds should be exported to aggregate/detect job."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--confidence-thresholds", "0.1:0.5",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "CONFIDENCE_THRESHOLDS=0.1:0.5" in result.stdout
+
     def test_dry_run_db_path_defaults_to_db(self, tmp_path):
         """DB_PATH should default to the --db value in the aggregate/detect exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        # DB_PATH should be exported to the aggregate/detect job with the DB value
         assert f"DB_PATH={db}" in result.stdout
 
-    def test_dry_run_extract_outdir_exported_to_aggregate_job(self, tmp_path):
-        """EXTRACT_OUTDIR should be exported to aggregate/detect job."""
+    def test_dry_run_db_path_explicit_override(self, tmp_path):
+        """--db-path should override the default DB_PATH."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
+        custom_db = tmp_path / "custom_db"
+        custom_db.mkdir()
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
+            "--db-path", str(custom_db),
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        assert f"EXTRACT_OUTDIR={extract_out}" in result.stdout
+        assert f"DB_PATH={custom_db}" in result.stdout
+        assert f"DB_PATH={db}" not in result.stdout
 
     def test_dry_run_skip_idxstats_metrics_default_exported(self, tmp_path):
         """SKIP_IDXSTATS_METRICS should default to 0."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--dry-run",
         ])
@@ -1200,39 +1329,104 @@ class TestSubmitClassifyDryRun:
 
     def test_dry_run_skip_idxstats_metrics_flag_exported(self, tmp_path):
         """--skip-idxstats-metrics should export SKIP_IDXSTATS_METRICS=1."""
-        extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
-            "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
-            "--db", str(db),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--skip-idxstats-metrics",
+            "--db", str(db),
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
         assert "SKIP_IDXSTATS_METRICS=1" in result.stdout
 
-    def test_dry_run_db_path_explicit_override(self, tmp_path):
-        """--db-path should override the default DB_PATH in aggregate/detect exports."""
+    def test_dry_run_skip_report(self, tmp_path):
+        """--skip-report should suppress the report sbatch command."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
-        custom_db = tmp_path / "custom_db"
-        custom_db.mkdir()
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
-            "--db-path", str(custom_db),
+            "--skip-report",
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        assert f"DB_PATH={custom_db}" in result.stdout
-        # Must not contain the default DB path as DB_PATH
-        assert f"DB_PATH={db}" not in result.stdout
+        assert "generate_report" not in result.stdout
+
+    def test_dry_run_dependency_flag(self, tmp_path):
+        """--dependency should inject afterok: into the aggregate/detect sbatch call."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dependency", "99999",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "afterok:99999" in result.stdout
+
+    def test_dry_run_container_sif_exported(self, tmp_path):
+        """CONTAINER_SIF must appear in the aggregate/detect --export string."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "CONTAINER_SIF=" in result.stdout
+
+    def test_dry_run_agg_mem_option(self, tmp_path):
+        """--agg-mem should be reflected in the sbatch --mem argument."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        extract_out = tmp_path / "output"
+        extract_out.mkdir()
+        db = _fake_db(tmp_path)
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(extract_out),
+            "--db", str(db),
+            "--agg-mem", "252G",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "252G" in result.stdout
+
+    def test_help_flag(self):
+        """-h should print usage and exit 0."""
+        result = run(["bash", str(SUBMIT_AGG_REPORT_SCRIPT), "-h"])
+        assert result.returncode == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout
+
+    def test_unknown_flag_errors(self, tmp_path):
+        """Unknown flags should exit non-zero with a message."""
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--this-flag-does-not-exist",
+        ])
+        assert result.returncode != 0
+        assert "ERROR" in result.stderr or "ERROR" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -1956,17 +2150,19 @@ class TestGenerateReportScript:
 
 
 class TestSubmitClassifyReportOptions:
-    """Tests for the new report-related options in submit_classify.sh."""
+    """Tests for report-related options – now in submit_agg_report.sh."""
 
     def test_dry_run_includes_report_sbatch(self, tmp_path):
         """dry-run should emit a report sbatch command after aggregate/detect."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--dry-run",
         ])
@@ -1975,13 +2171,15 @@ class TestSubmitClassifyReportOptions:
 
     def test_dry_run_skip_report(self, tmp_path):
         """--skip-report should suppress the report sbatch command."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--skip-report",
             "--dry-run",
@@ -1991,13 +2189,15 @@ class TestSubmitClassifyReportOptions:
 
     def test_dry_run_report_title_exported(self, tmp_path):
         """--report-title should appear in the report job export string."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--report-title", "My1KGReport",
             "--dry-run",
@@ -2007,13 +2207,15 @@ class TestSubmitClassifyReportOptions:
 
     def test_dry_run_report_top_n_exported(self, tmp_path):
         """--report-top-n should appear in the report job export string."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--report-top-n", "20",
             "--dry-run",
@@ -2023,13 +2225,15 @@ class TestSubmitClassifyReportOptions:
 
     def test_dry_run_variant_impact_threshold_exported(self, tmp_path):
         """--variant-impact-threshold-ppm should appear in the report job export string."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--variant-impact-threshold-ppm", "250",
             "--dry-run",
@@ -2039,30 +2243,33 @@ class TestSubmitClassifyReportOptions:
 
     def test_dry_run_report_outdir_is_sibling_of_agg(self, tmp_path):
         """Report output dir must be <outdir>/report."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
-        out = tmp_path / "classify_out"
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(out),
             "--db", str(db),
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        expected_report_dir = str(out / "report")
+        expected_report_dir = str(outdir / "report")
         assert expected_report_dir in result.stdout
 
     def test_dry_run_skip_detect_propagated_to_report(self, tmp_path):
         """SKIP_DETECT_IN_REPORT must equal SKIP_DETECT value in report exports."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
         extract_out = tmp_path / "output"
-        _fake_extracted_samples(extract_out, ["NA12718"])
+        extract_out.mkdir()
         db = _fake_db(tmp_path)
         result = run([
-            "bash", str(SUBMIT_CLASSIFY_SCRIPT),
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
             "--extract-outdir", str(extract_out),
-            "--outdir", str(tmp_path / "classify_out"),
             "--db", str(db),
             "--skip-detect",
             "--dry-run",
