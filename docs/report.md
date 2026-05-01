@@ -9,14 +9,51 @@ samples directly from the outputs of `csc-aggregate` (and optionally
 > Best practices in bioinformatics should always take precedence over
 > specific implementation details.
 
+## What changed in schema 2.1 (dual-tier confidence integration)
+
+`REPORT_SCHEMA_VERSION` is now **`2.1`** (additive only).  When
+`csc-aggregate` emits sibling high-confidence matrices
+(`taxa_matrix_*_conf*.tsv`, the new default — see
+[aggregate.md](aggregate.md#high-confidence-tier-dual-tier-reporting)),
+`csc-report` discovers them automatically and renders **both tiers in a
+single self-contained HTML** under a top-level "Confidence tier"
+selector:
+
+* The §1 executive summary, §3 cohort landscape, §4 variant-calling
+  impact, §5 detection summary and §6 per-sample appendix are all
+  rendered once per tier.  Both tier sections are present in the DOM;
+  the selector toggles their `display` style client-side, so flipping
+  between them is instantaneous and does not lose scroll state.
+* A new always-visible **§5.1 Sensitive vs High-Confidence
+  concordance** subsection summarises the flag-set agreement /
+  disagreement between the two tiers, including a 3-cell tile diagram
+  (both / sensitive-only / high-confidence-only) and the per-sample
+  `reads_demoted_to_unclassified` counts from
+  `aggregation_metadata.json`.
+* The Methods §2 gains a new **§2.6 Sensitive vs high-confidence
+  reporting** subsection that explains the Kraken2 confidence
+  recomputation and cites Wood *et al.* 2019, Marcelino *et al.* 2020
+  and Lu &amp; Salzberg 2020.
+* The Discussion §7 gains an auto-generated bullet list comparing the
+  two tiers' top species and flag overlap.
+
+`report_manifest.json` exposes a new `confidence_tiers[]` array with
+one entry per tier (`tier_suffix`, `threshold`, source matrix
+filenames, per-tier `samples_flagged_primary_detect` /
+`samples_flagged_abs_detect`, sidecar TSV filename).  When only the
+sensitive tier is present (legacy outputs or
+`confidence_thresholds: []`), the array is empty, the toggle is
+omitted, and the report is byte-compatible with the schema-2.0 single-
+tier rendering — fully backward-compatible.
+
 ## What changed in schema 2.0 (cohort layout)
 
-`REPORT_SCHEMA_VERSION` is now **`2.0`** (breaking, additive only).  The
-default report layout (`--layout cohort`) is **species-centric** rather
-than per-sample-centric so cohorts of 3K+ samples remain interpretable
-in seconds rather than tens of pages of scrollable tables.  The
-previous per-sample layout is preserved for one release window behind
-`--layout legacy` for byte-level diffing.
+`REPORT_SCHEMA_VERSION` was **`2.0`** before this release (breaking,
+additive only).  The default report layout (`--layout cohort`) is
+**species-centric** rather than per-sample-centric so cohorts of 3K+
+samples remain interpretable in seconds rather than tens of pages of
+scrollable tables.  The previous per-sample layout is preserved for
+one release window behind `--layout legacy` for byte-level diffing.
 
 | What | Old layout (`legacy`) | New layout (`cohort`, default) |
 |---|---|---|

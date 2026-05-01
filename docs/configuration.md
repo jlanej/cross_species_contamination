@@ -46,6 +46,12 @@ aggregate:
     - "S"
     - "G"
     - "F"
+  # Dual-tier confidence reporting (default): produces both the
+  # canonical sensitive matrices (Kraken2 confidence 0.0) and a
+  # high-confidence parallel matrix set with suffix _conf0p10.
+  # Set to [] to disable.  Citations: Wood 2019, Marcelino 2020,
+  # Lu & Salzberg 2020 — see docs/aggregate.md.
+  confidence_thresholds: [0.1]
 
 detect:
   method: "mad"
@@ -92,7 +98,8 @@ may differ from the config file defaults:
 | Parameter | CLI Default | Config Default | Notes |
 |-----------|-------------|----------------|-------|
 | `min_reads` | `0` | `10` | CLI default includes all taxa; config applies a filter |
-| `confidence` | `0.0` | `0.0` | Consistent between CLI and config |
+| `confidence` | `0.0` | `0.0` | Consistent between CLI and config (per-read sensitivity at classify time) |
+| `confidence_thresholds` (aggregate) | none | `[0.1]` | CLI defaults to sensitive-only unless config supplies a list and `--db-path` + `--kraken2-output` are present.  The Nextflow / 1000G drivers honour the config default automatically.  Pass `--no-confidence-tiers` to opt out. |
 
 The Nextflow pipeline reads values from the configuration file.  When running
 CLI tools standalone, pass parameters explicitly to match config behavior

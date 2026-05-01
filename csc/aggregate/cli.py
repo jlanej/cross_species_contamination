@@ -132,9 +132,20 @@ def _build_parser() -> argparse.ArgumentParser:
             "Kraken2 confidence cutoff(s) in [0.0, 1.0].  For each "
             "threshold T > 0.0, a parallel 'high-confidence' matrix "
             "set is written with filenames suffixed _conf{T} (e.g. "
-            "taxa_matrix_raw_conf0p50.tsv).  Requires --kraken2-output "
+            "taxa_matrix_raw_conf0p10.tsv).  Requires --kraken2-output "
             "and --db-path.  Multiple values yield multiple tiers (e.g. "
-            "--confidence-threshold 0.1 0.5)."
+            "--confidence-threshold 0.1 0.5).  When omitted the value "
+            "from default_config.yaml ([0.1] by default) is used; pass "
+            "--no-confidence-tiers to force sensitive-only output."
+        ),
+    )
+    parser.add_argument(
+        "--no-confidence-tiers",
+        action="store_true",
+        help=(
+            "Disable the high-confidence tier(s) configured in "
+            "default_config.yaml (aggregate.confidence_thresholds).  "
+            "Equivalent to --confidence-threshold (no value)."
         ),
     )
     parser.add_argument(
@@ -181,6 +192,40 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
+        # ── Resolve confidence-tier defaults from default_config.yaml ──
+        # If the user neither supplied --confidence-threshold nor
+        # --no-confidence-tiers, fall back to the YAML default (0.1
+        # ships as the new default).  We only honour the default when
+        # the dependencies (kraken2 outputs + db-path) are available;
+        # otherwise we log a one-line warning and proceed sensitive-only
+        # so that ad-hoc CLI invocations without those inputs continue
+        # to work without surprising failures.
+        if args.confidence_threshold is None and not args.no_confidence_tiers:
+            try:
+                from csc.config import load_config
+                cfg = load_config()
+                cfg_thresholds = (
+                    cfg.get("aggregate", {}).get("confidence_thresholds") or []
+                )
+            except Exception as cfg_exc:  # pragma: no cover - defensive
+                log.debug("Could not load config defaults: %s", cfg_exc)
+                cfg_thresholds = []
+            if cfg_thresholds:
+                if args.kraken2_output and args.db_path:
+                    args.confidence_threshold = [float(t) for t in cfg_thresholds]
+                    log.info(
+                        "Defaulting --confidence-threshold to %s from "
+                        "default_config.yaml (pass --no-confidence-tiers "
+                        "to disable).", args.confidence_threshold,
+                    )
+                else:
+                    log.warning(
+                        "Skipping default high-confidence tier %s: requires "
+                        "--db-path and --kraken2-output.  Pass "
+                        "--no-confidence-tiers to silence this warning.",
+                        cfg_thresholds,
+                    )
+
         # Validate confidence-tier dependencies fail-early.
         if args.confidence_threshold:
             high_thresholds = [t for t in args.confidence_threshold if t > 0.0]

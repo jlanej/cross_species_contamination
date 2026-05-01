@@ -73,7 +73,9 @@
 #                          Each value > 0 produces a parallel matrix set with
 #                          suffix _conf{T} using the per-read kraken2 outputs
 #                          already produced by classify.  Requires --db-path.
-#                          [default: "" – sensitive tier only]
+#                          [default: "0.1" – dual-tier (sensitive + 0.1)
+#                          high-confidence reporting per Wood et al. 2019;
+#                          set to "" to disable]
 #   --detect-matrix STR    Matrix type for detect input: cpm or raw [default: cpm]
 #   --detect-method STR    Outlier detection method: mad or iqr [default: mad]
 #   --mad-threshold FLOAT  MAD threshold for outlier detection [default: 3.5]
@@ -152,7 +154,10 @@ REPORT_WALLTIME="00:30:00"
 CONTAINER_SIF=""          # resolved later to an absolute path under OUTDIR
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 DB_PATH=""                # defaults to DB after argument parsing
-CONFIDENCE_THRESHOLDS=""  # colon-separated; empty = sensitive tier only
+CONFIDENCE_THRESHOLDS="0.1"  # colon-separated; "" = sensitive tier only.
+                             # Default 0.1 enables dual-tier reporting
+                             # (sensitive 0.0 + high-confidence 0.1) per
+                             # Wood et al. 2019 / Marcelino et al. 2020.
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
 USAGE_LINES=115

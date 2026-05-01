@@ -108,15 +108,22 @@ csc-classify reads.fastq.gz --db /data/kraken2/PlusPF -o results/ -v
 | `-v, --verbose` | Debug logging |
 | `--version` | Show version |
 
-> **Note – sensitive vs. high-confidence reporting.**  We recommend
-> running `csc-classify` with the default `--confidence 0.0` (maximum
-> sensitivity) so the per-read kraken2 output captures every k-mer
-> match, then producing a high-confidence tier downstream in
-> `csc-aggregate` via `--confidence-threshold`.  This avoids re-running
-> Kraken2: the per-read confidence is recomputed from the existing
-> `*.kraken2.output.txt` file using the same definition Kraken2 itself
+> **Note – sensitive vs. high-confidence reporting (recommended pattern).**
+> Run `csc-classify` with the default `--confidence 0.0` (maximum
+> sensitivity) so the per-read Kraken2 output captures every k-mer
+> match.  Dual-tier reporting (sensitive 0.0 + high-confidence 0.1) is
+> then produced **by default** in `csc-aggregate` from the existing
+> per-read output files; no need to re-run Kraken2.  The
+> `aggregate.confidence_thresholds: [0.1]` default in
+> `csc/default_config.yaml` is honoured automatically by the Nextflow
+> pipeline and the 1000G demos; CLI users can pass
+> `--confidence-threshold 0.1` (or rely on the config when running via
+> `CSC_CONFIG`) to opt in, or `--no-confidence-tiers` to opt out.
+> The recomputation uses the same confidence definition Kraken2 itself
 > uses (in-clade k-mers ÷ non-ambiguous k-mers).  See
-> [Aggregate – High-Confidence Tier](aggregate.md#high-confidence-tier-dual-tier-reporting).
+> [Aggregate – High-Confidence Tier](aggregate.md#high-confidence-tier-dual-tier-reporting)
+> and [Report – schema 2.1](report.md#what-changed-in-schema-21-dual-tier-confidence-integration)
+> for the dual-tier HTML toggle.
 
 ## Chaining with Extract
 

@@ -29,6 +29,13 @@ from csc.report import cohort as _cohort
 from csc.report import svg as _svg
 
 
+# Maximum number of per-sample rows to emit in the §5.1 concordance
+# "Reads demoted to unclassified" table before truncating with a
+# follow-up note pointing at aggregation_metadata.json.  Keeps very
+# large cohorts (3K+ samples) from blowing up the report's HTML size.
+_DEMOTED_TABLE_MAX_ROWS = 200
+
+
 def _esc(s: object) -> str:
     return html.escape(str(s))
 
@@ -1323,4 +1330,216 @@ def render_discussion_v2(
             )
 
     parts.append("</ul>")
+
+    # Confidence-tier auto-paragraph: when a high-confidence sibling
+    # bundle is available, append a comparison of the two flag sets
+    # (this paragraph is emitted only when both tiers exist; otherwise
+    # the section is omitted).
+    if getattr(inputs, "confidence_tiers", None):
+        parts.append(_render_discussion_confidence_paragraph(inputs))
+
+    return "\n".join(parts)
+
+
+def _render_discussion_confidence_paragraph(inputs: Any) -> str:
+    """Auto-generated paragraph comparing sensitive vs high-confidence tiers."""
+    primary_set = set((inputs.detect_summary or {}).get("flagged_samples") or [])
+    abs_set = set((inputs.abs_detect_summary or {}).get("flagged_samples") or [])
+
+    bullets: list[str] = []
+    for tier_suffix, tier_inputs in inputs.confidence_tiers.items():
+        t_primary = set(
+            (tier_inputs.detect_summary or {}).get("flagged_samples") or []
+        )
+        t_abs = set(
+            (tier_inputs.abs_detect_summary or {}).get("flagged_samples") or []
+        )
+        only_sensitive = primary_set - t_primary
+        only_high = t_primary - primary_set
+        shared = primary_set & t_primary
+        thresh = tier_inputs.tier_threshold
+        bullets.append(
+            f"<li>At Kraken2 confidence ≥ {thresh:.2f} (tier "
+            f"<code>{_esc(tier_suffix)}</code>), the primary detect pass "
+            f"shares <strong>{len(shared)}</strong> flagged sample(s) "
+            f"with the sensitive tier; <strong>{len(only_sensitive)}</strong> "
+            f"sample(s) are flagged only at sensitive confidence (likely "
+            f"low-complexity / sparse-kmer false positives) and "
+            f"<strong>{len(only_high)}</strong> sample(s) emerge only at "
+            f"high confidence (genuine, well-supported hits that the "
+            f"unfiltered tier may bury under noise).</li>"
+        )
+        if abs_set or t_abs:
+            shared_abs = abs_set & t_abs
+            bullets.append(
+                f"<li>The absolute-burden side pass concurs on "
+                f"<strong>{len(shared_abs)}</strong> sample(s) across the "
+                f"two tiers — a robust indicator of true non-human burden "
+                f"that survives both denominator and confidence "
+                f"perturbations.</li>"
+            )
+    if not bullets:
+        return ""
+    return (
+        "<h3>Sensitive vs high-confidence agreement</h3>"
+        "<p>Findings that survive a stricter Kraken2 confidence threshold "
+        "are the most defensible contamination calls.  Findings unique "
+        "to the sensitive tier should be inspected manually before "
+        "exclusion — sensitive-only flags caused by low-complexity "
+        "repeats are common in shotgun WGS and are exactly what the "
+        "high-confidence tier is designed to suppress (Wood <em>et al.</em> "
+        "2019; Marcelino <em>et al.</em> 2020).</p>"
+        "<ul>" + "\n".join(bullets) + "</ul>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sensitive vs High-Confidence concordance section
+# ---------------------------------------------------------------------------
+
+
+def render_confidence_concordance(inputs: Any) -> str:
+    """Render the §5.x "Sensitive vs High-Confidence concordance" section.
+
+    Always emits both tiers' summary data side-by-side regardless of
+    which tier the toggle is currently showing, so the user can compare
+    counts at a glance.  Returns an empty string when no high-confidence
+    tier sibling is present.
+    """
+    tiers = getattr(inputs, "confidence_tiers", None) or {}
+    if not tiers:
+        return ""
+
+    parts: list[str] = [
+        "<h2 class='confidence-concordance'>5.1 Sensitive vs "
+        "High-Confidence concordance</h2>",
+        "<p>Kraken2's sensitive setting (<code>--confidence 0.0</code>) "
+        "is required for trace-contamination detection but produces "
+        "false positives caused by low-complexity regions or sparse "
+        "k-mer matches.  The high-confidence tier(s) below were "
+        "produced by recomputing the per-read Kraken2 confidence from "
+        "the existing per-read output files and demoting reads scoring "
+        "below the threshold to <em>unclassified</em> "
+        "(see §2 Methods).  Findings that persist across tiers are the "
+        "most defensible.</p>",
+    ]
+
+    primary = inputs.detect_summary
+    abs_d = inputs.abs_detect_summary
+    primary_set = set((primary or {}).get("flagged_samples") or [])
+    abs_set = set((abs_d or {}).get("flagged_samples") or [])
+
+    # Per-tier flag-set Venn-style summary.
+    rows: list[str] = [
+        "<thead><tr>"
+        "<th>Tier</th>"
+        "<th>Threshold</th>"
+        "<th>Taxa retained</th>"
+        "<th>Samples flagged (primary)</th>"
+        "<th>… ∩ sensitive</th>"
+        "<th>… only at this tier</th>"
+        "<th>Samples flagged (abs side pass)</th>"
+        "</tr></thead><tbody>",
+        "<tr>"
+        "<td><strong>Sensitive</strong> "
+        "(<code>--confidence 0.0</code>)</td>"
+        "<td>0.00</td>"
+        f"<td>{_fmt_int(len(inputs.matrix_raw.tax_ids))}</td>"
+        f"<td>{_fmt_int(len(primary_set))}</td>"
+        "<td>—</td><td>—</td>"
+        f"<td>{_fmt_int(len(abs_set))}</td>"
+        "</tr>",
+    ]
+    for tier_suffix, tier_inputs in tiers.items():
+        t_primary = set(
+            (tier_inputs.detect_summary or {}).get("flagged_samples") or []
+        )
+        t_abs = set(
+            (tier_inputs.abs_detect_summary or {}).get("flagged_samples") or []
+        )
+        rows.append(
+            "<tr>"
+            f"<td><strong>{_esc(tier_suffix)}</strong></td>"
+            f"<td>{tier_inputs.tier_threshold:.2f}</td>"
+            f"<td>{_fmt_int(len(tier_inputs.matrix_raw.tax_ids))}</td>"
+            f"<td>{_fmt_int(len(t_primary))}</td>"
+            f"<td>{_fmt_int(len(t_primary & primary_set))}</td>"
+            f"<td>{_fmt_int(len(t_primary - primary_set))}</td>"
+            f"<td>{_fmt_int(len(t_abs))}</td>"
+            "</tr>"
+        )
+    rows.append("</tbody>")
+    parts.append("<table>" + "\n".join(rows) + "</table>")
+
+    # 2-set quadrant tile per tier (primary detect pass).
+    for tier_suffix, tier_inputs in tiers.items():
+        t_primary = set(
+            (tier_inputs.detect_summary or {}).get("flagged_samples") or []
+        )
+        both = primary_set & t_primary
+        only_sens = primary_set - t_primary
+        only_high = t_primary - primary_set
+        parts.append(
+            "<h3>Primary-pass flag overlap — "
+            f"sensitive ↔ <code>{_esc(tier_suffix)}</code> "
+            f"(threshold {tier_inputs.tier_threshold:.2f})</h3>"
+            "<div class='quadrant-grid' "
+            "style='grid-template-columns: repeat(3, 1fr);'>"
+            "<div class='quadrant'><h4>Both tiers</h4>"
+            f"<p style='font-size:22px;margin:0.2em 0'>{len(both)}</p>"
+            "<p>Robust contamination calls — flagged regardless "
+            "of confidence stringency.</p></div>"
+            "<div class='quadrant'><h4>Sensitive only</h4>"
+            f"<p style='font-size:22px;margin:0.2em 0'>{len(only_sens)}</p>"
+            "<p>Likely low-complexity / sparse-kmer false positives "
+            "the high-confidence tier filters out.</p></div>"
+            "<div class='quadrant'><h4>High-confidence only</h4>"
+            f"<p style='font-size:22px;margin:0.2em 0'>{len(only_high)}</p>"
+            "<p>Genuine signal that the sensitive tier may have "
+            "buried under noise.</p></div>"
+            "</div>"
+        )
+
+    # Per-sample reads_demoted_to_unclassified counts from
+    # aggregation_metadata.json (auditability).  Only emit this table
+    # when the metadata exposes the counters – older aggregations may
+    # lack them.
+    meta_tiers = (inputs.aggregate_metadata or {}).get("confidence_tiers") or {}
+    if meta_tiers:
+        demoted_rows: list[str] = []
+        for tier_suffix, tier_meta in meta_tiers.items():
+            demoted = tier_meta.get("reads_demoted_to_unclassified") or {}
+            if not demoted:
+                continue
+            sample_ids = sorted(demoted.keys())
+            for sid in sample_ids[:_DEMOTED_TABLE_MAX_ROWS]:
+                demoted_rows.append(
+                    f"<tr><td>{_esc(sid)}</td>"
+                    f"<td>{_esc(tier_suffix)}</td>"
+                    f"<td>{_fmt_int(int(demoted[sid]))}</td></tr>"
+                )
+            if len(sample_ids) > _DEMOTED_TABLE_MAX_ROWS:
+                demoted_rows.append(
+                    "<tr><td colspan='3'><em>… "
+                    f"{len(sample_ids) - _DEMOTED_TABLE_MAX_ROWS} additional "
+                    "sample(s) omitted; see aggregation_metadata.json for "
+                    "the full list.</em></td></tr>"
+                )
+        if demoted_rows:
+            parts.append(
+                "<h3>Reads demoted to unclassified per sample</h3>"
+                "<p>Counts from <code>aggregation_metadata.json</code> "
+                "(<code>confidence_tiers.&lt;suffix&gt;."
+                "reads_demoted_to_unclassified</code>).  These reads "
+                "passed Kraken2 but failed the high-confidence "
+                "threshold — the larger this number, the more "
+                "low-complexity content was filtered out.</p>"
+                "<table><thead><tr>"
+                "<th>Sample</th><th>Tier</th>"
+                "<th>Reads demoted</th>"
+                "</tr></thead><tbody>"
+                + "\n".join(demoted_rows)
+                + "</tbody></table>"
+            )
+
     return "\n".join(parts)
