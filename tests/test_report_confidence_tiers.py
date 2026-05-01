@@ -38,10 +38,6 @@ def _write_nodes_dmp(db: Path, tree: dict[int, int]) -> None:
     (tax / "nodes.dmp").write_text("".join(lines))
 
 
-def _make_report(text: str) -> str:
-    return text
-
-
 @pytest.fixture
 def dual_tier_aggregate_dir(tmp_path: Path) -> Path:
     """Run csc-aggregate with one high-confidence tier + return the output dir."""

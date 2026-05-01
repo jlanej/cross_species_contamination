@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
                 log.debug("Could not load config defaults: %s", cfg_exc)
                 cfg_thresholds = []
             if cfg_thresholds:
-                if args.kraken2_output and args.db_path is not None:
+                if args.kraken2_output and args.db_path:
                     args.confidence_threshold = [float(t) for t in cfg_thresholds]
                     log.info(
                         "Defaulting --confidence-threshold to %s from "

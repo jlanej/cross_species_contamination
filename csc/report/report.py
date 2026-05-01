@@ -233,9 +233,12 @@ def _parse_tier_suffix(stem: str) -> tuple[str, float] | None:
     stem.  Used by :func:`load_inputs` to enumerate sibling
     confidence-tier matrices.
     """
-    # Match the *last* conf<digits>p<digits> token in the stem.  We
-    # search for the substring rather than a strict regex so we tolerate
-    # rank-suffixed filenames (taxa_matrix_cpm_S_conf0p10).
+    # Match the conf<digits>p<digits> token at the *end* of the stem
+    # (the `$` anchor enforces this).  Aggregate writes confidence-tier
+    # filenames as taxa_matrix_<type>_conf<I>p<F> or
+    # taxa_matrix_<type>_<rank>_conf<I>p<F>; in both cases the suffix
+    # is the trailing token, so an end-anchored regex is the right
+    # match.
     import re
     m = re.search(r"conf(\d+)p(\d+)$", stem)
     if not m:

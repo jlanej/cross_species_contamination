@@ -29,6 +29,13 @@ from csc.report import cohort as _cohort
 from csc.report import svg as _svg
 
 
+# Maximum number of per-sample rows to emit in the §5.1 concordance
+# "Reads demoted to unclassified" table before truncating with a
+# follow-up note pointing at aggregation_metadata.json.  Keeps very
+# large cohorts (3K+ samples) from blowing up the report's HTML size.
+_DEMOTED_TABLE_MAX_ROWS = 200
+
+
 def _esc(s: object) -> str:
     return html.escape(str(s))
 
@@ -1505,18 +1512,18 @@ def render_confidence_concordance(inputs: Any) -> str:
             if not demoted:
                 continue
             sample_ids = sorted(demoted.keys())
-            for sid in sample_ids[:200]:  # cap for very large cohorts
+            for sid in sample_ids[:_DEMOTED_TABLE_MAX_ROWS]:
                 demoted_rows.append(
                     f"<tr><td>{_esc(sid)}</td>"
                     f"<td>{_esc(tier_suffix)}</td>"
                     f"<td>{_fmt_int(int(demoted[sid]))}</td></tr>"
                 )
-            if len(sample_ids) > 200:
+            if len(sample_ids) > _DEMOTED_TABLE_MAX_ROWS:
                 demoted_rows.append(
                     "<tr><td colspan='3'><em>… "
-                    f"{len(sample_ids) - 200} additional sample(s) omitted; "
-                    "see aggregation_metadata.json for the full list.</em>"
-                    "</td></tr>"
+                    f"{len(sample_ids) - _DEMOTED_TABLE_MAX_ROWS} additional "
+                    "sample(s) omitted; see aggregation_metadata.json for "
+                    "the full list.</em></td></tr>"
                 )
         if demoted_rows:
             parts.append(
