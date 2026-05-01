@@ -38,3 +38,39 @@ jobs:
 
       - name: Run tests with coverage
         run: pytest -v --tb=short --cov=csc --cov-report=term-missing --cov-fail-under=60 tests/
+
+  generate-demo-report:
+    name: Generate demo HTML report (docs/index.html)
+    runs-on: ubuntu-latest
+    # Only run on pushes to main (not on PRs) so the commit goes back
+    # to the default branch.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use a token with write access so the commit can be pushed.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install -e ".[test]"
+
+      - name: Generate comprehensive report test data and render docs/index.html
+        run: python tests/generate_report_test_data.py
+
+      - name: Commit updated docs/index.html
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html docs/report_manifest.json docs/per_sample_summary.tsv
+          # Only commit if there are staged changes
+          git diff --cached --quiet || \
+            git commit -m "ci: regenerate docs/index.html from latest mock cohort data [skip ci]"
+          git push
