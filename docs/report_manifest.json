@@ -1,6 +1,6 @@
 {
-  "schema_version": "2.0",
-  "generated_at": "2026-05-01T02:23:40+00:00",
+  "schema_version": "2.1",
+  "generated_at": "2026-05-01T12:26:16+00:00",
   "title": "Cross-Species Contamination \u2013 Demo Cohort Report",
   "layout": "cohort",
   "variant_impact_threshold_ppm": 1000.0,
@@ -64,6 +64,7 @@
   ],
   "primary_matrix_type": "cpm",
   "aggregate_metadata_schema_version": "1.2",
+  "confidence_tiers": [],
   "species_summary": [
     {
       "tax_id": 1,
