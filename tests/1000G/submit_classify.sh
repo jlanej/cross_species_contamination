@@ -8,11 +8,13 @@
 #   1. Scans the extraction output directory (from extract_unmapped_array.sh)
 #      and consolidates the list of samples that have extracted FASTQ files.
 #   2. Submits classify_array.sh as a SLURM array job (one task per sample).
-#   3. Submits aggregate_detect.sh as a follow-up job that depends on the array
-#      completing successfully (--dependency=afterok).
+#
+# After classification completes, run submit_agg_report.sh to aggregate,
+# detect, and generate the HTML report.  Use its --dependency option to chain
+# it automatically after this job (pass the job ID printed here).
 #
 # Quick start:
-#   # Classify all extracted samples, then aggregate and detect
+#   # Classify all extracted samples
 #   ./submit_classify.sh \
 #       --extract-outdir /scratch/me/1kg_out \
 #       --outdir         /scratch/me/1kg_classify \
@@ -32,24 +34,10 @@
 #       --db             /data/kraken2/PrackenDB \
 #       --samples        my_subset.txt
 #
-#   # Skip detect (aggregate only)
-#   ./submit_classify.sh \
-#       --extract-outdir /scratch/me/1kg_out \
-#       --outdir         /scratch/me/1kg_classify \
-#       --db             /data/kraken2/PrackenDB \
-#       --skip-detect
-#
-#   # Skip both aggregate and detect (classify only)
-#   ./submit_classify.sh \
-#       --extract-outdir /scratch/me/1kg_out \
-#       --outdir         /scratch/me/1kg_classify \
-#       --db             /data/kraken2/PrackenDB \
-#       --skip-aggregate
-#
 # Options:
 #   --extract-outdir DIR   Directory with FASTQ files from extract_unmapped_array.sh
 #                          [default: ./output]
-#   --outdir        DIR    Output base directory for classify/aggregate/detect
+#   --outdir        DIR    Output base directory for classify outputs
 #                          [default: ./classify_output]
 #   --db            DIR    Path to Kraken2 database directory (required)
 #   --samples       FILE   Text file with SAMPLE_IDs to process (one per line)
@@ -62,45 +50,6 @@
 #   --max-concurrent-jobs N  Max concurrent classify array tasks [default: 200]
 #   --confidence    FLOAT  Kraken2 confidence threshold [default: 0.0]
 #   --memory-mapping       Use memory-mapped Kraken2 DB (lower RAM, slower)
-#   --min-reads     N      Min direct reads per taxon in aggregate [default: 0]
-#   --rank-filter   STR    Space-separated rank codes for per-rank matrices
-#                          [default: "S G F"]
-#   --db-path       DIR    Kraken2 DB dir for lineage-aware domain annotation in
-#                          aggregate; defaults to the value of --db (set to ""
-#                          to disable domain annotation)
-#   --confidence-thresholds STR  Colon-separated Kraken2 confidence cutoffs
-#                          (e.g. "0.1:0.5") for the high-confidence tier.
-#                          Each value > 0 produces a parallel matrix set with
-#                          suffix _conf{T} using the per-read kraken2 outputs
-#                          already produced by classify.  Requires --db-path.
-#                          [default: "0.1" – dual-tier (sensitive + 0.1)
-#                          high-confidence reporting per Wood et al. 2019;
-#                          set to "" to disable]
-#   --detect-matrix STR    Matrix type for detect input: cpm or raw [default: cpm]
-#   --detect-method STR    Outlier detection method: mad or iqr [default: mad]
-#   --mad-threshold FLOAT  MAD threshold for outlier detection [default: 3.5]
-#   --iqr-multiplier FLOAT IQR multiplier for outlier detection [default: 1.5]
-#   --skip-aggregate       Skip aggregate and detect steps entirely
-#   --skip-detect          Run aggregate but skip the detect step
-#   --no-abs-detection     Disable the absolute-burden side pass that
-#                          csc-detect runs by default when an
-#                          absolute-burden sibling matrix is available
-#                          (see docs/detect.md)
-#   --skip-idxstats-metrics  Skip idxstats-based absolute burden metrics in
-#                          aggregate/reporting (default: off; required)
-#   --agg-cpus      N      CPUs for aggregate/detect job [default: 4]
-#   --agg-mem       STR    Memory for aggregate/detect job [default: 16G]
-#   --agg-time      STR    Wall-clock time for aggregate/detect [default: 02:00:00]
-#   --skip-report          Skip HTML report generation (default: off)
-#   --report-title  STR    Title shown in the HTML report
-#                          [default: "Cross-Species Contamination Summary Report"]
-#   --report-top-n  N      Number of top taxa shown in the report [default: 10]
-#   --variant-impact-threshold-ppm FLOAT
-#                          Absolute-burden threshold (ppm) for the Variant-Calling
-#                          Impact section of the report [default: 1000]
-#   --report-cpus   N      CPUs for the report job [default: 2]
-#   --report-mem    STR    Memory for the report job [default: 8G]
-#   --report-time   STR    Wall-clock time for the report job [default: 00:30:00]
 #   --container     FILE   Path to the Apptainer SIF image
 #                          [default: <outdir>/csc.sif; auto-pulled if absent]
 #   --image         URI    Docker URI to pull the container from
@@ -130,37 +79,11 @@ MAX_CONCURRENT_JOBS=200
 MAX_CONCURRENT_JOBS_SET=0
 CONFIDENCE=0.0
 MEMORY_MAPPING=0
-MIN_READS=0
-RANK_FILTER="S G F"
-DETECT_MATRIX="cpm"
-DETECT_METHOD="all"
-MAD_THRESHOLD=3.5
-IQR_MULTIPLIER=1.5
-GMM_THRESHOLD=0.5
-SKIP_AGGREGATE=0
-SKIP_DETECT=0
-NO_ABS_DETECTION=0
-SKIP_IDXSTATS_METRICS=0
-AGG_CPUS=4
-AGG_MEM="16G"
-AGG_WALLTIME="02:00:00"
-SKIP_REPORT=0
-REPORT_TITLE="Cross-Species Contamination Summary Report"
-REPORT_TOP_N=10
-VARIANT_IMPACT_THRESHOLD_PPM=""
-REPORT_CPUS=2
-REPORT_MEM="8G"
-REPORT_WALLTIME="00:30:00"
 CONTAINER_SIF=""          # resolved later to an absolute path under OUTDIR
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
-DB_PATH=""                # defaults to DB after argument parsing
-CONFIDENCE_THRESHOLDS="0.1"  # colon-separated; "" = sensitive tier only.
-                             # Default 0.1 enables dual-tier reporting
-                             # (sensitive 0.0 + high-confidence 0.1) per
-                             # Wood et al. 2019 / Marcelino et al. 2020.
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
-USAGE_LINES=115
+USAGE_LINES=65
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 usage() {
@@ -183,28 +106,6 @@ while [[ $# -gt 0 ]]; do
         --max-concurrent-jobs) MAX_CONCURRENT_JOBS="$2"; MAX_CONCURRENT_JOBS_SET=1; shift 2 ;;
         --confidence)     CONFIDENCE="$2";     shift 2 ;;
         --memory-mapping) MEMORY_MAPPING=1;    shift ;;
-        --min-reads)      MIN_READS="$2";      shift 2 ;;
-        --rank-filter)    RANK_FILTER="$2";    shift 2 ;;
-        --db-path)        DB_PATH="$2";        shift 2 ;;
-        --confidence-thresholds) CONFIDENCE_THRESHOLDS="$2"; shift 2 ;;
-        --detect-matrix)  DETECT_MATRIX="$2";  shift 2 ;;
-        --detect-method)  DETECT_METHOD="$2";  shift 2 ;;
-        --mad-threshold)  MAD_THRESHOLD="$2";  shift 2 ;;
-        --iqr-multiplier) IQR_MULTIPLIER="$2"; shift 2 ;;
-        --skip-aggregate) SKIP_AGGREGATE=1;    shift ;;
-        --skip-detect)    SKIP_DETECT=1;       shift ;;
-        --no-abs-detection) NO_ABS_DETECTION=1; shift ;;
-        --skip-idxstats-metrics) SKIP_IDXSTATS_METRICS=1; shift ;;
-        --agg-cpus)       AGG_CPUS="$2";       shift 2 ;;
-        --agg-mem)        AGG_MEM="$2";        shift 2 ;;
-        --agg-time)       AGG_WALLTIME="$2";   shift 2 ;;
-        --skip-report)    SKIP_REPORT=1;       shift ;;
-        --report-title)   REPORT_TITLE="$2";   shift 2 ;;
-        --report-top-n)   REPORT_TOP_N="$2";   shift 2 ;;
-        --variant-impact-threshold-ppm) VARIANT_IMPACT_THRESHOLD_PPM="$2"; shift 2 ;;
-        --report-cpus)    REPORT_CPUS="$2";    shift 2 ;;
-        --report-mem)     REPORT_MEM="$2";     shift 2 ;;
-        --report-time)    REPORT_WALLTIME="$2"; shift 2 ;;
         --container)      CONTAINER_SIF="$2";  shift 2 ;;
         --image)          CONTAINER_IMAGE="$2"; shift 2 ;;
         --dry-run)        DRY_RUN=1;           shift ;;
@@ -229,15 +130,6 @@ if ! [[ "${MAX_CONCURRENT_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
     exit 1
 fi
 
-if [[ "${DETECT_METHOD}" != "all" && "${DETECT_METHOD}" != "mad" && "${DETECT_METHOD}" != "iqr" && "${DETECT_METHOD}" != "gmm" ]]; then
-    echo "ERROR: --detect-method must be 'all', 'mad', 'iqr', or 'gmm'." >&2
-    exit 1
-fi
-if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
-    echo "ERROR: --detect-matrix must be 'cpm' or 'raw'." >&2
-    exit 1
-fi
-
 if [[ ! -d "${EXTRACT_OUTDIR}" ]]; then
     echo "ERROR: Extract output directory not found: ${EXTRACT_OUTDIR}" >&2
     exit 1
@@ -245,9 +137,6 @@ fi
 
 # ── Derived paths ─────────────────────────────────────────────────────────────
 CLASSIFY_OUTDIR="${OUTDIR}/classify"
-AGG_OUTDIR="${OUTDIR}/aggregate"
-DETECT_OUTDIR="${OUTDIR}/detect"
-REPORT_OUTDIR="${OUTDIR}/report"
 CLASSIFY_MANIFEST="${OUTDIR}/classify_manifest.tsv"
 LOG_DIR="${OUTDIR}/logs"
 
@@ -257,16 +146,6 @@ if [[ -z "${CONTAINER_SIF}" ]]; then
     CONTAINER_SIF="${OUTDIR}/csc.sif"
 fi
 CONTAINER_SIF="$(realpath -m "${CONTAINER_SIF}")"
-
-# Encode rank filter as colon-separated (no spaces) for safe export to jobs
-RANK_FILTER_CODES="${RANK_FILTER// /:}"
-
-# Default DB_PATH to the Kraken2 DB (which contains taxonomy/nodes.dmp) so
-# that csc-aggregate performs lineage-aware domain annotation automatically.
-# Pass --db-path "" explicitly to disable domain annotation.
-if [[ -z "${DB_PATH}" ]]; then
-    DB_PATH="${DB}"
-fi
 
 # ── Scan extraction output for samples with FASTQ files ──────────────────────
 echo "Scanning ${EXTRACT_OUTDIR} for extracted samples..."
@@ -459,13 +338,7 @@ done < <(expand_array_spec "${ARRAY_SPEC}")
 
 if [[ ${#PENDING_INDICES[@]} -eq 0 ]]; then
     echo "All selected samples already have classification output. Nothing to classify."
-    if [[ "${SKIP_AGGREGATE}" -eq 0 ]]; then
-        echo "Submitting aggregate/detect job on existing results..."
-        # Fall through to aggregate submission below with no classify dependency
-        CLASSIFY_JOB_ID=""
-    else
-        exit 0
-    fi
+    exit 0
 else
     if [[ "${COMPLETED_COUNT}" -gt 0 ]]; then
         echo "Skipping ${COMPLETED_COUNT} already-classified sample(s); submitting ${#PENDING_INDICES[@]} pending sample(s)."
@@ -559,148 +432,17 @@ if [[ ${#PENDING_INDICES[@]} -gt 0 ]]; then
     fi
 fi
 
-# ── Submit aggregate/detect job (with optional dependency) ───────────────────
-if [[ "${SKIP_AGGREGATE}" -eq 1 ]]; then
-    echo "Skipping aggregate/detect submission (--skip-aggregate)."
-    exit 0
-fi
-
-mkdir -p "${AGG_OUTDIR}" "${DETECT_OUTDIR}"
-
-AGG_EXPORTS=(
-    "CLASSIFY_OUTDIR=${CLASSIFY_OUTDIR}"
-    "EXTRACT_OUTDIR=${EXTRACT_OUTDIR}"
-    "AGG_OUTDIR=${AGG_OUTDIR}"
-    "DETECT_OUTDIR=${DETECT_OUTDIR}"
-    "THREADS=${AGG_CPUS}"
-    "MIN_READS=${MIN_READS}"
-    "RANK_FILTER_CODES=${RANK_FILTER_CODES}"
-    "DETECT_MATRIX=${DETECT_MATRIX}"
-    "DETECT_METHOD=${DETECT_METHOD}"
-    "MAD_THRESHOLD=${MAD_THRESHOLD}"
-    "IQR_MULTIPLIER=${IQR_MULTIPLIER}"
-    "GMM_THRESHOLD=${GMM_THRESHOLD}"
-    "SKIP_DETECT=${SKIP_DETECT}"
-    "NO_ABS_DETECTION=${NO_ABS_DETECTION}"
-    "SKIP_IDXSTATS_METRICS=${SKIP_IDXSTATS_METRICS}"
-    "DB_PATH=${DB_PATH}"
-    "CONFIDENCE_THRESHOLDS=${CONFIDENCE_THRESHOLDS}"
-    "CONTAINER_SIF=${CONTAINER_SIF}"
-    "CONTAINER_IMAGE=${CONTAINER_IMAGE}"
-)
-AGG_EXPORT_STR="ALL,$(IFS=,; echo "${AGG_EXPORTS[*]}")"
-
-SBATCH_AGG=(
-    sbatch
-    --job-name=csc_aggregate_detect
-    --cpus-per-task="${AGG_CPUS}"
-    --mem="${AGG_MEM}"
-    --time="${AGG_WALLTIME}"
-    --partition="${PARTITION}"
-    --output="${LOG_DIR}/aggregate_detect_%j.out"
-    --error="${LOG_DIR}/aggregate_detect_%j.err"
-    --export="${AGG_EXPORT_STR}"
-    "${SCRIPT_DIR}/aggregate_detect.sh"
-)
-
-# Add dependency only when a real classify job was submitted
-if [[ -n "${CLASSIFY_JOB_ID}" && "${CLASSIFY_JOB_ID}" != "<dry-run>" ]]; then
-    # Insert dependency after "sbatch" (at index 1)
-    SBATCH_AGG=("${SBATCH_AGG[0]}" "--dependency=afterok:${CLASSIFY_JOB_ID}" "${SBATCH_AGG[@]:1}")
-elif [[ "${DRY_RUN}" -eq 1 && -n "${CLASSIFY_JOB_ID}" ]]; then
-    # Dry-run: show what the dependency would look like
-    SBATCH_AGG=("${SBATCH_AGG[0]}" "--dependency=afterok:${CLASSIFY_JOB_ID}" "${SBATCH_AGG[@]:1}")
-fi
-
-echo ""
-echo "Aggregate/detect sbatch command:"
-printf '  %s \\\n' "${SBATCH_AGG[@]}"
-echo ""
-
-if [[ "${DRY_RUN}" -eq 1 ]]; then
-    echo "(Dry-run: aggregate/detect job not submitted)"
-    AGG_JOB_ID="<dry-run>"
-else
-    AGG_JOB_OUTPUT="$("${SBATCH_AGG[@]}")"
-    echo "${AGG_JOB_OUTPUT}"
-    AGG_JOB_ID="$(echo "${AGG_JOB_OUTPUT}" | grep -oE '[0-9]+$')"
-    echo "Aggregate/detect job submitted: ${AGG_JOB_ID}"
-    if [[ -n "${CLASSIFY_JOB_ID}" ]]; then
-        echo ""
-        echo "Pipeline submitted:"
-        echo "  Classify (array):  job ${CLASSIFY_JOB_ID}  [${#PENDING_INDICES[@]} task(s)]"
-        echo "  Aggregate/detect:  job ${AGG_JOB_ID}  [depends on ${CLASSIFY_JOB_ID}]"
-        echo ""
-        echo "Monitor with: squeue -j ${CLASSIFY_JOB_ID},${AGG_JOB_ID}"
-    fi
-fi
-
-# ── Submit report job (with dependency on aggregate/detect) ──────────────────
-if [[ "${SKIP_REPORT}" -eq 1 ]]; then
-    echo "Skipping report generation (--skip-report)."
-    exit 0
-fi
-
-mkdir -p "${REPORT_OUTDIR}"
-
-REPORT_EXPORTS=(
-    "AGG_OUTDIR=${AGG_OUTDIR}"
-    "DETECT_OUTDIR=${DETECT_OUTDIR}"
-    "REPORT_OUTDIR=${REPORT_OUTDIR}"
-    "REPORT_TITLE=${REPORT_TITLE}"
-    "TOP_N=${REPORT_TOP_N}"
-    "SKIP_DETECT_IN_REPORT=${SKIP_DETECT}"
-    "CONTAINER_SIF=${CONTAINER_SIF}"
-    "CONTAINER_IMAGE=${CONTAINER_IMAGE}"
-)
-if [[ -n "${VARIANT_IMPACT_THRESHOLD_PPM}" ]]; then
-    REPORT_EXPORTS+=("VARIANT_IMPACT_THRESHOLD_PPM=${VARIANT_IMPACT_THRESHOLD_PPM}")
-fi
-REPORT_EXPORT_STR="ALL,$(IFS=,; echo "${REPORT_EXPORTS[*]}")"
-
-SBATCH_REPORT=(
-    sbatch
-    --job-name=csc_report
-    --cpus-per-task="${REPORT_CPUS}"
-    --mem="${REPORT_MEM}"
-    --time="${REPORT_WALLTIME}"
-    --partition="${PARTITION}"
-    --output="${LOG_DIR}/generate_report_%j.out"
-    --error="${LOG_DIR}/generate_report_%j.err"
-    --export="${REPORT_EXPORT_STR}"
-    "${SCRIPT_DIR}/generate_report.sh"
-)
-
-# Add dependency on aggregate/detect job when we have a real job ID
-if [[ -n "${AGG_JOB_ID}" && "${AGG_JOB_ID}" != "<dry-run>" ]]; then
-    SBATCH_REPORT=("${SBATCH_REPORT[0]}" "--dependency=afterok:${AGG_JOB_ID}" "${SBATCH_REPORT[@]:1}")
-elif [[ "${DRY_RUN}" -eq 1 && -n "${AGG_JOB_ID}" ]]; then
-    SBATCH_REPORT=("${SBATCH_REPORT[0]}" "--dependency=afterok:${AGG_JOB_ID}" "${SBATCH_REPORT[@]:1}")
-fi
-
-echo ""
-echo "Report sbatch command:"
-printf '  %s \\\n' "${SBATCH_REPORT[@]}"
-echo ""
-
-if [[ "${DRY_RUN}" -eq 1 ]]; then
-    echo "(Dry-run: report job not submitted)"
-else
-    REPORT_JOB_OUTPUT="$("${SBATCH_REPORT[@]}")"
-    echo "${REPORT_JOB_OUTPUT}"
-    REPORT_JOB_ID="$(echo "${REPORT_JOB_OUTPUT}" | grep -oE '[0-9]+$')"
-    echo "Report job submitted: ${REPORT_JOB_ID}"
+if [[ "${DRY_RUN}" -eq 0 ]] && [[ -n "${CLASSIFY_JOB_ID:-}" ]]; then
     echo ""
-    echo "Pipeline submitted:"
-    if [[ -n "${CLASSIFY_JOB_ID}" ]]; then
-        echo "  Classify (array):  job ${CLASSIFY_JOB_ID}  [${#PENDING_INDICES[@]} task(s)]"
-        echo "  Aggregate/detect:  job ${AGG_JOB_ID}  [depends on ${CLASSIFY_JOB_ID}]"
-    else
-        echo "  Aggregate/detect:  job ${AGG_JOB_ID}"
-    fi
-    echo "  Report:            job ${REPORT_JOB_ID}  [depends on ${AGG_JOB_ID}]"
+    echo "Classification job submitted: ${CLASSIFY_JOB_ID}"
+    echo "  Classify (array):  job ${CLASSIFY_JOB_ID}  [${#PENDING_INDICES[@]} task(s)]"
     echo ""
-    all_jobs="${AGG_JOB_ID},${REPORT_JOB_ID}"
-    [[ -n "${CLASSIFY_JOB_ID}" ]] && all_jobs="${CLASSIFY_JOB_ID},${all_jobs}"
-    echo "Monitor with: squeue -j ${all_jobs}"
+    echo "To aggregate, detect, and generate a report, run:"
+    echo "  ./submit_agg_report.sh \\"
+    echo "      --outdir ${OUTDIR} \\"
+    echo "      --extract-outdir ${EXTRACT_OUTDIR} \\"
+    echo "      --db ${DB} \\"
+    echo "      --dependency ${CLASSIFY_JOB_ID}"
+    echo ""
+    echo "Monitor classify with: squeue -j ${CLASSIFY_JOB_ID}"
 fi
