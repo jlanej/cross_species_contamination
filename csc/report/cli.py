@@ -81,6 +81,105 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of taxa to show in the cohort-wide top table (default: 10).",
     )
     parser.add_argument(
+        "--layout",
+        choices=("cohort", "legacy"),
+        default="cohort",
+        help=(
+            "Report layout.  'cohort' (default) is the species-centric "
+            "layout suitable for cohorts of 3K+ samples.  'legacy' "
+            "preserves the per-sample manuscript layout for one release "
+            "window for byte-level diffing."
+        ),
+    )
+    parser.add_argument(
+        "--page-size",
+        type=int,
+        default=25,
+        help=(
+            "Default page size for paginated tables (species summary, "
+            "variant-impact flagged samples, per-sample appendix).  Cohort "
+            "layout only.  Default: 25."
+        ),
+    )
+    parser.add_argument(
+        "--top-species",
+        type=int,
+        default=50,
+        help=(
+            "Top-K species (by cohort burden) shown in the heatmap "
+            "and used for PCoA distance computation.  Cohort layout "
+            "only.  Default: 50."
+        ),
+    )
+    parser.add_argument(
+        "--drilldown-top",
+        type=int,
+        default=25,
+        help=(
+            "Number of species expanded as drill-down details in §3.8.  "
+            "Cohort layout only.  Default: 25."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-method",
+        choices=("average", "single", "ward"),
+        default="average",
+        help=(
+            "Hierarchical-clustering linkage method for §3.6 / §3.7.  "
+            "Default: average (UPGMA)."
+        ),
+    )
+    parser.add_argument(
+        "--cluster-distance",
+        choices=("bray", "jaccard"),
+        default="bray",
+        help=(
+            "Pairwise distance for hierarchical clustering and PCoA.  "
+            "'bray' (Bray–Curtis on log1p-CPM, default) is the standard "
+            "metagenomic choice; 'jaccard' is presence/absence based."
+        ),
+    )
+    parser.add_argument(
+        "--prevalence-core",
+        type=float,
+        default=0.5,
+        help=(
+            "Minimum prevalence (fraction of samples) for a species to "
+            "be classified as 'core' in §3.4.  Default: 0.5."
+        ),
+    )
+    parser.add_argument(
+        "--prevalence-rare",
+        type=float,
+        default=0.1,
+        help=(
+            "Maximum prevalence (fraction of samples) for a species to "
+            "be classified as 'rare' in §3.4 (species below this and "
+            "above 0 are 'rare', between this and --prevalence-core are "
+            "'accessory').  Default: 0.1."
+        ),
+    )
+    parser.add_argument(
+        "--max-samples-cluster",
+        type=int,
+        default=2000,
+        help=(
+            "Cap on samples included in O(n²) pairwise-distance "
+            "calculations (heatmap + PCoA).  When the cohort exceeds "
+            "this cap a deterministic every-k-th sub-sample is taken.  "
+            "Default: 2000."
+        ),
+    )
+    parser.add_argument(
+        "--min-reads-for-prevalence",
+        type=int,
+        default=5,
+        help=(
+            "Per-taxon minimum read count for the second prevalence "
+            "column in §3.1.  Default: 5."
+        ),
+    )
+    parser.add_argument(
         "--variant-impact-threshold-ppm",
         type=float,
         default=DEFAULT_VARIANT_IMPACT_THRESHOLD_PPM,
@@ -132,6 +231,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.top_n < 1:
         log.error("--top-n must be >= 1, got %d", args.top_n)
         return 1
+    if args.page_size < 1:
+        log.error("--page-size must be >= 1, got %d", args.page_size)
+        return 1
+    if args.top_species < 1:
+        log.error("--top-species must be >= 1, got %d", args.top_species)
+        return 1
+    if args.max_samples_cluster < 3:
+        log.error(
+            "--max-samples-cluster must be >= 3, got %d",
+            args.max_samples_cluster,
+        )
+        return 1
+    if not (0 < args.prevalence_rare <= args.prevalence_core <= 1):
+        log.error(
+            "Need 0 < --prevalence-rare <= --prevalence-core <= 1, got "
+            "%s / %s", args.prevalence_rare, args.prevalence_core,
+        )
+        return 1
     if args.variant_impact_threshold_ppm < 0:
         log.error(
             "--variant-impact-threshold-ppm must be >= 0, got %s",
@@ -152,6 +269,16 @@ def main(argv: list[str] | None = None) -> int:
             top_n=args.top_n,
             threshold_ppm=args.variant_impact_threshold_ppm,
             title=args.title,
+            layout=args.layout,
+            page_size=args.page_size,
+            top_species=args.top_species,
+            drilldown_top=args.drilldown_top,
+            cluster_method=args.cluster_method,
+            cluster_distance=args.cluster_distance,
+            prevalence_core=args.prevalence_core,
+            prevalence_rare=args.prevalence_rare,
+            max_samples_cluster=args.max_samples_cluster,
+            min_reads_for_prevalence=args.min_reads_for_prevalence,
         )
     except (ValueError, OSError) as exc:
         log.error("Failed to generate report: %s", exc)

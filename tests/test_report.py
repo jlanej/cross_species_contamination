@@ -178,13 +178,15 @@ class TestGenerateReport:
         # Structural sanity
         assert "<!DOCTYPE html>" in text
         assert "<title>Cross-Species Contamination Summary Report</title>" in text
-        # All six required sections
+        # All eight required sections (cohort layout, default).
         assert "1. Executive Summary" in text
         assert "2. Methods" in text
-        assert "3. Results" in text
+        assert "3. Cohort species landscape" in text
         assert "4. Variant-Calling Impact" in text
-        assert "5. Discussion" in text
-        assert "6. Methods Transparency Checklist" in text
+        assert "5. Detection summary" in text
+        assert "6. Per-sample appendix" in text
+        assert "7. Discussion" in text
+        assert "8. Methods Transparency Checklist" in text
         # Denominator labelling – CPM denominator on tables/figures
         assert "per million classified reads" in text
         assert "ppm of total sequenced reads" in text
@@ -192,14 +194,23 @@ class TestGenerateReport:
         assert "Total sequenced reads" in text
         assert "Reads extracted for classification" in text
         assert "Reads classified by Kraken2" in text
-        # Diversity indices
+        # Diversity indices appear in the per-sample appendix
         assert "Shannon" in text
         assert "Simpson" in text
+        # Cohort-layout artefacts: paginated tables + sidecar TSV
+        assert 'class="paginated"' in text
+        assert (out.with_name("per_sample_summary.tsv")).exists()
         # Manifest schema sanity
         m = json.loads(manifest_path.read_text())
         assert m["schema_version"] == REPORT_SCHEMA_VERSION
         assert m["absolute_burden_enabled"] is True
         assert m["sample_count"] == 3
+        assert m["layout"] == "cohort"
+        # Cohort-layout manifest keys
+        assert "species_summary" in m
+        assert "partition_counts" in m
+        assert "top_species_by_burden" in m
+        assert "top_species_by_prevalence" in m
 
     def test_variant_impact_flags_expected_samples(
         self, aggregate_outputs: dict
@@ -398,11 +409,12 @@ class TestAbsDetectInReport:
         out = aggregate_outputs["tmp_path"] / "report.html"
         generate_html_report(inputs, out)
         text = out.read_text()
-        # §2.5 + §3.3 should be present and self-explanatory
+        # §2.5 + §5 should be present and self-explanatory
         assert "Absolute-burden side pass" in text
-        assert "Outlier-detection results" in text
+        assert "5. Detection summary" in text
         assert "absolute-burden" in text.lower()
-        # The comparison table headings appear
+        # The comparison table headings appear (carried over from legacy
+        # detection comparison renderer)
         assert "Flagged by both passes" in text
         assert "Flagged only by absolute-burden pass" in text
 

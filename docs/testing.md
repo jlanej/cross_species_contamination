@@ -164,3 +164,32 @@ Key fields in `qc_summary.json`:
 `quarantine_list.txt` contains one sample ID per line, sorted
 alphabetically.  These samples are recommended for further investigation
 or exclusion from downstream analyses.
+
+## Regenerating the cohort-report golden snapshots
+
+The cohort-oriented HTML report (`csc-report --layout cohort`,
+introduced in `REPORT_SCHEMA_VERSION = 2.0`) is exercised by
+`tests/test_report_cohort.py` and `tests/test_report.py`.  These tests
+rebuild a tiny three-sample fixture inline (no on-disk goldens), so no
+manual regeneration step is required.
+
+If you change the cohort report's HTML structure (new section markers,
+renamed manifest keys, etc.) you must update the assertions in:
+
+- `tests/test_report.py::TestGenerateReport::test_report_generated_with_abs`
+  – matches all eight section headings and the schema version.
+- `tests/test_report_cohort.py::TestRenderedCohortReport` – matches
+  sub-section markers and the per-sample sidecar TSV.
+
+To verify a real cohort manually:
+
+```bash
+csc-report aggregate_out/ -o /tmp/cohort.html --layout cohort
+csc-report aggregate_out/ -o /tmp/legacy.html --layout legacy
+ls /tmp/cohort.html /tmp/per_sample_summary.tsv /tmp/report_manifest.json
+```
+
+The cohort-layout report should produce one HTML file plus the
+`per_sample_summary.tsv` sidecar and an updated
+`report_manifest.json` with the new keys
+(`species_summary`, `partition_counts`, `top_species_by_burden`, …).
