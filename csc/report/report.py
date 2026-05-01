@@ -1937,11 +1937,15 @@ def generate_html_report(
             TIER_PICKER_CSS,
             TIER_PICKER_JS,
         )
-        extra_style = "\n" + COHORT_CSS + "\n" + TIER_PICKER_CSS
-        extra_script = (
-            f"\n<script>{COHORT_JS}</script>"
-            f"\n<script>{TIER_PICKER_JS}</script>"
-        )
+        if len(tier_bodies) > 1:
+            extra_style = "\n" + COHORT_CSS + "\n" + TIER_PICKER_CSS
+            extra_script = (
+                f"\n<script>{COHORT_JS}</script>"
+                f"\n<script>{TIER_PICKER_JS}</script>"
+            )
+        else:
+            extra_style = "\n" + COHORT_CSS
+            extra_script = f"\n<script>{COHORT_JS}</script>"
     else:
         variant_section, variant_flagged = _render_variant_impact(
             per_sample,

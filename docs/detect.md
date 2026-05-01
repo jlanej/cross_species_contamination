@@ -246,7 +246,7 @@ Results for each rank are written to subdirectories
 | `qc_summary.json`       | JSON   | Aggregate QC statistics and detection parameters  |
 | `quarantine_list.txt`   | Text   | Plain list of sample IDs recommended for review   |
 | `<rank>/…`              | dir    | Per-rank-filtered results (when `--rank-filter` is active) |
-| `conf<T>/…`             | dir    | Per-confidence-tier results (auto-discovered)     |
+| `conf<T>/…`             | dir    | Per-confidence-tier results (auto-discovered).  Produced by **default** since v0.3 — `csc-aggregate` ships with `confidence_thresholds: [0.1]`, so a `conf0p10/` subdirectory is normally present alongside the sensitive-tier outputs.  The directory contains the same `flagged_samples.tsv` / `qc_summary.json` triple as the primary pass, plus any `<rank>/` or `abs/` sub-directories.  See [aggregate.md](aggregate.md#high-confidence-tier-dual-tier-reporting) for the rationale. |
 | `abs/…`                 | dir    | Absolute-burden side-pass results, with the same `flagged_samples.tsv` / `qc_summary.json` / `quarantine_list.txt` triple plus any `abs/<rank>/`, `abs/conf<T>/` sub-directories.  `qc_summary.json` records `"matrix_type": "abs"` to disambiguate from the primary pass. |
 
 ### flagged_samples.tsv columns

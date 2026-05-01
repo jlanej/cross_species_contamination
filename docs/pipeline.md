@@ -4,7 +4,16 @@ The CSC pipeline runs four stages in sequence:
 
 ```
 BAM/CRAM ──► extract ──► classify ──► aggregate ──► detect ──► summary report
+                          (conf 0.0)        │
+                                            ├──► sensitive tier
+                                            └──► high-confidence tier
+                                                 (conf 0.1, default — Wood et al. 2019)
 ```
+
+Aggregate emits both tiers by default; the report module renders them
+in a single self-contained HTML under a "Confidence tier" toggle.  See
+[aggregate.md](aggregate.md#high-confidence-tier-dual-tier-reporting)
+and [report.md](report.md#what-changed-in-schema-21-dual-tier-confidence-integration).
 
 ## Quick Start
 

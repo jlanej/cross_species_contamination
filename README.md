@@ -13,9 +13,18 @@ The pipeline is organised into four modules that run sequentially:
 
 ```
 BAM/CRAM ──► extract ──► classify ──► aggregate ──► detect ──► report
-                │            │            │            │           │
-            FASTQ files   taxa labels   matrices     flags     HTML summary
+                 │            │            │            │           │
+             FASTQ files   taxa labels   matrices     flags     HTML summary
+                                       (sensitive +
+                                        high-conf 0.1
+                                        dual-tier by default)
 ```
+
+The aggregate stage produces both a **sensitive** (Kraken2 confidence
+0.0) and a **high-confidence** (recomputed at 0.1) tier by default;
+detect and report integrate both tiers automatically so you can
+compare them directly in a single self-contained HTML.  See
+[Aggregate – High-Confidence Tier](docs/aggregate.md#high-confidence-tier-dual-tier-reporting).
 
 | Module | Package | Status |
 |--------|---------|--------|

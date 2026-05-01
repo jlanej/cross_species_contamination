@@ -16,11 +16,37 @@ efficiently by processing reports in configurable chunks.
 By default Kraken2 is run with `--confidence 0.0` (maximum sensitivity).
 This is great for catching trace contamination but can produce false
 positives caused by low-complexity regions or sparse k-mer matches.
-The aggregate module supports an optional **high-confidence tier**
-that recomputes per-read confidence from the existing per-read
-output files (`*.kraken2.output.txt`) and demotes weak classifications
-to "unclassified" before building the matrices.  This avoids re-running
+The aggregate module ships a **dual-tier default** that pairs the
+sensitive tier with a high-confidence tier; the high-confidence tier
+recomputes per-read confidence from the existing per-read output
+files (`*.kraken2.output.txt`) and demotes weak classifications to
+"unclassified" before building the matrices.  This avoids re-running
 Kraken2 entirely.
+
+### Defaults
+
+`csc/default_config.yaml` ships `aggregate.confidence_thresholds:
+[0.1]` so the canonical sensitive tier (`taxa_matrix_*.tsv`) and a
+high-confidence tier (`taxa_matrix_*_conf0p10.tsv`) are produced by
+default whenever per-read kraken2 outputs and a Kraken2 DB are
+available.  This is automatic in the Nextflow pipeline and the
+1000G demos.  The default of **0.1** is the canonical "modest
+stringency" point in:
+
+* Wood DE, Lu J, Langmead B.  *Improved metagenomic analysis with
+  Kraken 2.*  Genome Biol. 20:257 (2019).
+* Marcelino VR, *et al.*  *Disentangling human-pathogen interactions
+  in low-biomass infections.*  Genome Med. 12:103 (2020).
+* Lu J, Salzberg SL.  *Removing contaminants from databases of
+  draft genomes.*  PeerJ Comput. Sci. 6:e317 (2020).
+
+Higher thresholds (e.g. 0.5) are too aggressive for low-coverage
+WGS — they suppress many genuine rare contaminants — and are
+provided as opt-in only.  Set `confidence_thresholds: []` (or pass
+`--no-confidence-tiers` on the CLI) to disable the high-confidence
+tier and reproduce the legacy sensitive-only behaviour.
+
+### Confidence definition
 
 The confidence definition matches Kraken2's own algorithm
 (`classify.cc`):
@@ -33,24 +59,33 @@ confidence(taxon) = (k-mers whose taxon ∈ clade rooted at taxon)
 
 Multiple thresholds may be supplied; each non-zero threshold produces
 a parallel matrix set with suffix `_conf{T}` (e.g.
-`taxa_matrix_raw_conf0p50.tsv`, `taxa_matrix_cpm_S_conf0p50.tsv`).
+`taxa_matrix_raw_conf0p10.tsv`, `taxa_matrix_cpm_S_conf0p50.tsv`).
 The canonical sensitive tier (no suffix) is always written.
 
 ### CLI
 
 ```bash
+# Default behaviour (sensitive + 0.1 high-confidence):
 csc-aggregate \
     sampleA.kraken2.report.txt sampleB.kraken2.report.txt \
     -o results/ \
     --db-path /path/to/kraken2_db \
-    --kraken2-output sampleA.kraken2.output.txt sampleB.kraken2.output.txt \
-    --confidence-threshold 0.1 0.5
+    --kraken2-output sampleA.kraken2.output.txt sampleB.kraken2.output.txt
+
+# Explicit override (multiple thresholds):
+csc-aggregate ... --confidence-threshold 0.1 0.5
+
+# Disable high-confidence tier:
+csc-aggregate ... --no-confidence-tiers
 ```
 
 Files supplied to `--kraken2-output` are matched to samples by
-filename (the `.kraken2.output.txt` suffix is stripped).  The flag
-requires `--db-path` (we need `taxonomy/nodes.dmp` to walk the
-clade).  `--confidence-threshold 0.0` is treated as a no-op.
+filename (the `.kraken2.output.txt` suffix is stripped).  Confidence
+recomputation requires `--db-path` (we need `taxonomy/nodes.dmp` to
+walk the clade) and the per-read kraken2 outputs; when these are
+absent the configured default is silently skipped (with a warning)
+so ad-hoc CLI use without those inputs continues to work.
+`--confidence-threshold 0.0` is treated as a no-op.
 
 ### Python API
 
@@ -75,13 +110,21 @@ auditability.
 
 `csc-detect` automatically discovers sibling confidence-tier matrices
 next to the input matrix and runs detection on each, writing results
-into `<output>/<tier_suffix>/` (e.g. `detect/conf0p50/`).  Disable with
-`--no-confidence-tiers`.  Per-rank tier matrices are picked up
-automatically as well (`<output>/<tier_suffix>/<rank>/`).
+into `<output>/<tier_suffix>/` (e.g. `detect/conf0p10/`).  Per-rank
+tier matrices are picked up automatically as well
+(`<output>/<tier_suffix>/<rank>/`).
 
-The Nextflow workflow exposes `--confidence_thresholds '0.1 0.5'`
-and the 1000G driver exposes `CONFIDENCE_THRESHOLDS=0.1:0.5`
-(colon-separated to avoid spaces in `sbatch --export`).
+`csc-report` likewise discovers tier matrices and detect outputs and
+renders **both tiers in one self-contained HTML** under a "Confidence
+tier" toggle, plus a §5.1 "Sensitive vs High-Confidence concordance"
+subsection that highlights flag-set agreement / disagreement between
+the two tiers (see [report.md](report.md)).
+
+The Nextflow workflow exposes `--confidence_thresholds '0.1'` (the
+default) and the 1000G driver exposes `CONFIDENCE_THRESHOLDS=0.1`
+(colon-separated when supplying multiple thresholds, e.g.
+`CONFIDENCE_THRESHOLDS="0.1:0.5"`).  Set the env var or param to the
+empty string to opt out.
 
 
 
