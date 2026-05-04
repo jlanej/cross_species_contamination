@@ -1419,6 +1419,12 @@ class TestSubmitAggReportDryRun:
         assert result.returncode == 0
         assert "Usage" in result.stdout or "usage" in result.stdout
 
+    def test_help_shows_report_only_option(self):
+        """-h should document --report-only in the options block."""
+        result = run(["bash", str(SUBMIT_AGG_REPORT_SCRIPT), "-h"])
+        assert result.returncode == 0
+        assert "--report-only" in result.stdout
+
     def test_unknown_flag_errors(self, tmp_path):
         """Unknown flags should exit non-zero with a message."""
         result = run([
@@ -1427,6 +1433,60 @@ class TestSubmitAggReportDryRun:
         ])
         assert result.returncode != 0
         assert "ERROR" in result.stderr or "ERROR" in result.stdout
+
+    def test_dry_run_report_only_skips_agg_detect(self, tmp_path):
+        """--report-only should suppress the aggregate/detect sbatch command."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--report-only",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "aggregate_detect.sh" not in result.stdout
+        assert "generate_report.sh" in result.stdout
+
+    def test_dry_run_report_only_no_dependency(self, tmp_path):
+        """--report-only report job must have no afterok dependency."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--report-only",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+        assert "afterok" not in result.stdout
+
+    def test_dry_run_report_only_bypasses_extract_outdir_check(self, tmp_path):
+        """--report-only must not require --extract-outdir to exist."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--extract-outdir", str(tmp_path / "nonexistent"),
+            "--report-only",
+            "--dry-run",
+        ])
+        assert result.returncode == 0, result.stderr
+
+    def test_report_only_and_skip_report_are_mutually_exclusive(self, tmp_path):
+        """--report-only and --skip-report together should exit non-zero."""
+        outdir = tmp_path / "classify_out"
+        outdir.mkdir()
+        result = run([
+            "bash", str(SUBMIT_AGG_REPORT_SCRIPT),
+            "--outdir", str(outdir),
+            "--report-only",
+            "--skip-report",
+            "--dry-run",
+        ])
+        assert result.returncode != 0
+        assert "mutually exclusive" in result.stderr or "mutually exclusive" in result.stdout
 
 
 # ---------------------------------------------------------------------------
