@@ -301,7 +301,7 @@ def render_cohort_landscape(
     parts.append(_render_species_drilldown(
         inputs, species_rows, top_n=drilldown_top, abs_enabled=abs_enabled,
     ))
-    logger.info("§3 cohort landscape complete")
+    logger.info("§3 cohort landscape complete (§3.1–§3.8)")
 
     return "\n".join(parts)
 

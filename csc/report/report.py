@@ -2160,7 +2160,7 @@ def _render_cohort_layout(
     n_samples = len(inputs.matrix_raw.sample_ids)
     n_taxa = len(inputs.matrix_raw.tax_ids)
     logger.info(
-        "render_cohort_layout%s: %d samples, %d taxa",
+        "_render_cohort_layout%s: %d samples, %d taxa",
         tier_label, n_samples, n_taxa,
     )
 
@@ -2169,7 +2169,7 @@ def _render_cohort_layout(
     abs_taxa = _cohort.flagged_taxon_counts(inputs.abs_flagged_samples)
 
     logger.info(
-        "render_cohort_layout%s: step 1/8 — computing species summary rows",
+        "_render_cohort_layout%s: step 1/8 — computing species summary rows",
         tier_label,
     )
     species_rows = _cohort.species_summary_rows(
@@ -2186,7 +2186,7 @@ def _render_cohort_layout(
         rare_threshold=prevalence_rare,
     )
     logger.info(
-        "render_cohort_layout%s: prevalence partition — "
+        "_render_cohort_layout%s: prevalence partition — "
         "core=%d accessory=%d rare=%d",
         tier_label,
         partition["core_count"],
@@ -2195,7 +2195,7 @@ def _render_cohort_layout(
     )
 
     logger.info(
-        "render_cohort_layout%s: step 2/8 — §4 variant-calling impact",
+        "_render_cohort_layout%s: step 2/8 — §4 variant-calling impact",
         tier_label,
     )
     variant_section, variant_flagged = _cr.render_variant_impact_v2(
@@ -2203,13 +2203,13 @@ def _render_cohort_layout(
         page_size=page_size,
     )
     logger.info(
-        "render_cohort_layout%s: %d samples exceed variant-impact threshold "
+        "_render_cohort_layout%s: %d samples exceed variant-impact threshold "
         "(%.0f ppm)",
         tier_label, len(variant_flagged), threshold_ppm,
     )
 
     logger.info(
-        "render_cohort_layout%s: step 3/8 — §1 executive summary", tier_label,
+        "_render_cohort_layout%s: step 3/8 — §1 executive summary", tier_label,
     )
     exec_section = _cr.render_executive_summary_v2(
         inputs, per_sample, species_rows, partition,
@@ -2217,12 +2217,12 @@ def _render_cohort_layout(
     )
 
     logger.info(
-        "render_cohort_layout%s: step 4/8 — §2 methods", tier_label,
+        "_render_cohort_layout%s: step 4/8 — §2 methods", tier_label,
     )
     methods_section = _render_methods(inputs)
 
     logger.info(
-        "render_cohort_layout%s: step 5/8 — §3 cohort landscape "
+        "_render_cohort_layout%s: step 5/8 — §3 cohort landscape "
         "(heatmap, PCoA, drilldown)", tier_label,
     )
     landscape_section = _cr.render_cohort_landscape(
@@ -2238,7 +2238,7 @@ def _render_cohort_layout(
     )
 
     logger.info(
-        "render_cohort_layout%s: step 6/8 — §5 detection summary", tier_label,
+        "_render_cohort_layout%s: step 6/8 — §5 detection summary", tier_label,
     )
     detection_section = _cr.render_detection_section_v2(inputs)
 
@@ -2252,7 +2252,7 @@ def _render_cohort_layout(
     else:
         appendix_tsv = output_path.with_name("per_sample_summary.tsv")
     logger.info(
-        "render_cohort_layout%s: step 7/8 — §6 per-sample appendix (%d rows)",
+        "_render_cohort_layout%s: step 7/8 — §6 per-sample appendix (%d rows)",
         tier_label, n_samples,
     )
     appendix_section = _cr.render_per_sample_appendix(
@@ -2260,7 +2260,7 @@ def _render_cohort_layout(
     )
 
     logger.info(
-        "render_cohort_layout%s: step 8/8 — §7 discussion + §8 checklist",
+        "_render_cohort_layout%s: step 8/8 — §7 discussion + §8 checklist",
         tier_label,
     )
     discussion_section = _cr.render_discussion_v2(
@@ -2298,7 +2298,7 @@ def _render_cohort_layout(
     )
 
     logger.info(
-        "render_cohort_layout%s: all sections assembled", tier_label,
+        "_render_cohort_layout%s: all sections assembled", tier_label,
     )
 
     # Compact species summary for the manifest (top 200 only).
