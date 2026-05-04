@@ -46,6 +46,11 @@
 #       --db             /data/kraken2/PrackenDB \
 #       --skip-detect
 #
+#   # Report only: skip agg/detect when those outputs are already complete
+#   ./submit_agg_report.sh \
+#       --outdir         /scratch/me/1kg_classify \
+#       --report-only
+#
 # Options:
 #   --outdir        DIR    Output base directory (same as submit_classify.sh
 #                          --outdir); classify/, aggregate/, detect/, and
@@ -80,6 +85,10 @@
 #   --iqr-multiplier FLOAT IQR multiplier for outlier detection [default: 1.5]
 #   --gmm-threshold FLOAT  GMM posterior probability threshold [default: 0.5]
 #   --skip-detect          Run aggregate but skip the detect step
+#   --report-only          Skip aggregate/detect; submit only the HTML report
+#                          job.  Use when agg/detect outputs are already
+#                          complete.  Mutually exclusive with --skip-report.
+#                          [default: off]
 #   --no-abs-detection     Disable the absolute-burden side pass that
 #                          csc-detect runs by default when an
 #                          absolute-burden sibling matrix is available
@@ -133,6 +142,7 @@ MAD_THRESHOLD=3.5
 IQR_MULTIPLIER=1.5
 GMM_THRESHOLD=0.5
 SKIP_DETECT=0
+REPORT_ONLY=0
 NO_ABS_DETECTION=0
 SKIP_IDXSTATS_METRICS=0
 AGG_CPUS=4
@@ -150,7 +160,7 @@ CONTAINER_SIF=""          # resolved later to an absolute path under OUTDIR
 CONTAINER_IMAGE="ghcr.io/jlanej/cross_species_contamination:latest"
 DRY_RUN=0
 # Keep usage output focused on the documented header/options block.
-USAGE_LINES=95
+USAGE_LINES=121
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 usage() {
@@ -174,6 +184,7 @@ while [[ $# -gt 0 ]]; do
         --iqr-multiplier) IQR_MULTIPLIER="$2"; shift 2 ;;
         --gmm-threshold)  GMM_THRESHOLD="$2";  shift 2 ;;
         --skip-detect)    SKIP_DETECT=1;       shift ;;
+        --report-only)    REPORT_ONLY=1;       shift ;;
         --no-abs-detection) NO_ABS_DETECTION=1; shift ;;
         --skip-idxstats-metrics) SKIP_IDXSTATS_METRICS=1; shift ;;
         --agg-cpus)       AGG_CPUS="$2";       shift 2 ;;
@@ -205,12 +216,17 @@ if [[ "${DETECT_MATRIX}" != "cpm" && "${DETECT_MATRIX}" != "raw" ]]; then
     exit 1
 fi
 
+if [[ "${REPORT_ONLY}" -eq 1 ]] && [[ "${SKIP_REPORT}" -eq 1 ]]; then
+    echo "ERROR: --report-only and --skip-report are mutually exclusive." >&2
+    exit 1
+fi
+
 if [[ "${DRY_RUN}" -eq 0 ]] && [[ ! -d "${OUTDIR}" ]]; then
     echo "ERROR: Output directory not found: ${OUTDIR}" >&2
     exit 1
 fi
 
-if [[ "${SKIP_IDXSTATS_METRICS}" -eq 0 ]]; then
+if [[ "${SKIP_IDXSTATS_METRICS}" -eq 0 ]] && [[ "${REPORT_ONLY}" -eq 0 ]]; then
     if [[ ! -d "${EXTRACT_OUTDIR}" ]]; then
         echo "ERROR: Extract output directory not found: ${EXTRACT_OUTDIR}" >&2
         echo "       Set --skip-idxstats-metrics to bypass idxstats-based metrics." >&2
@@ -277,6 +293,9 @@ fi
 echo "  Agg CPUs        : ${AGG_CPUS}"
 echo "  Agg mem         : ${AGG_MEM}"
 echo "  Agg time        : ${AGG_WALLTIME}"
+if [[ "${REPORT_ONLY}" -eq 1 ]]; then
+    echo "  Report only     : yes (skipping aggregate/detect submission)"
+fi
 if [[ -n "${DEPENDENCY}" ]]; then
     echo "  Dependency      : afterok:${DEPENDENCY}"
 fi
@@ -307,6 +326,12 @@ elif [[ "${DRY_RUN}" -eq 0 ]]; then
 fi
 
 # ── Submit aggregate/detect job ───────────────────────────────────────────────
+AGG_JOB_ID=""
+if [[ "${REPORT_ONLY}" -eq 1 ]]; then
+    echo ""
+    echo "Report-only mode: skipping aggregate/detect submission."
+    mkdir -p "${LOG_DIR}"
+else
 mkdir -p "${AGG_OUTDIR}" "${DETECT_OUTDIR}" "${LOG_DIR}"
 
 AGG_EXPORTS=(
@@ -355,7 +380,6 @@ echo "Aggregate/detect sbatch command:"
 printf '  %s \\\n' "${SBATCH_AGG[@]}"
 echo ""
 
-AGG_JOB_ID=""
 if [[ "${DRY_RUN}" -eq 1 ]]; then
     echo "(Dry-run: aggregate/detect job not submitted)"
     AGG_JOB_ID="<dry-run>"
@@ -365,6 +389,7 @@ else
     AGG_JOB_ID="$(echo "${AGG_JOB_OUTPUT}" | grep -oE '[0-9]+$')"
     echo "Aggregate/detect job submitted: ${AGG_JOB_ID}"
 fi
+fi  # end REPORT_ONLY guard
 
 # ── Submit report job (with dependency on aggregate/detect) ──────────────────
 if [[ "${SKIP_REPORT}" -eq 1 ]]; then
