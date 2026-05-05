@@ -621,11 +621,12 @@ def pcoa_2d(
     eigvals: list[float] = []
     eigvecs: list[list[float]] = []
     for k in range(n_components):
-        # Deterministic non-constant seed.  Combining a sinusoidal
-        # pattern (k+1 cycles across the index) with an alternating
-        # sign produces a different starting direction for each
-        # component, all of which are *not* in the all-ones null
-        # space.  No RNG → reproducible.
+        # Deterministic non-constant seed.  ``sin((k+1)·(i+1)·π/(n+1))``
+        # gives roughly ``(k+1)/2`` cycles across the n indices, so a
+        # different starting direction for each component, while the
+        # alternating ±1 perturbation guarantees the seed is not in
+        # the all-ones null space of B even for n=2 where the sine
+        # term alone could be small.  No RNG → reproducible.
         seed = [
             math.sin((k + 1) * (i + 1) * math.pi / (n + 1)) + (1.0 if i % 2 == 0 else -1.0)
             for i in range(n)

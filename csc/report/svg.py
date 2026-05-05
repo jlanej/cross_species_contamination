@@ -714,7 +714,7 @@ def stacked_column_bar_svg(
     if show_column_labels and column_labels:
         for i, lbl in enumerate(column_labels):
             x = pad_left + (i + 0.5) * col_w
-            y = pad_top + plot_h + 18 + (8 if flagged else 0)
+            y = pad_top + plot_h + 18 + (8 if flagged_indices else 0)
             parts.append(
                 f'<text x="{x:.2f}" y="{y:.2f}" font-size="9" '
                 f'transform="rotate(-60 {x:.2f} {y:.2f})">{_esc(lbl)}</text>'
