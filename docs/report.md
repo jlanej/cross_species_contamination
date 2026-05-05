@@ -9,6 +9,44 @@ samples directly from the outputs of `csc-aggregate` (and optionally
 > Best practices in bioinformatics should always take precedence over
 > specific implementation details.
 
+## What changed in schema 2.2 (renderable for thousand-sample cohorts)
+
+`REPORT_SCHEMA_VERSION` is now **`2.2`** (additive only).  For cohorts
+with thousands of samples the previous layout could produce >80 MB
+non-responsive HTML files because every sample and every taxon was
+materialised as a DOM row / SVG element in the HTML.  Schema 2.2
+refocuses the static report on cohort-level summaries and curated
+examples, while always writing the full per-sample / per-taxon detail
+to TSV sidecars for offline auditability:
+
+* **§6 is now *Notable samples & per-sample sidecar*.**  The literal
+  per-sample HTML table has been removed; in its place are short
+  highlight tables for the most informative samples (top by absolute
+  burden, top by composition, most diverse, and any sample(s) flagged
+  by `csc-detect`).  The complete per-sample summary remains written
+  to `per_sample_summary.tsv` (linked prominently from the section).
+* **§3.1 species summary table** is capped at the top
+  `--species-table-top` taxa (default 200) sorted by cohort burden.
+  The complete table is always written to
+  `species_summary.tsv` (and tier-suffixed siblings) regardless.
+* **§4 Variant-Calling Impact flagged-samples table** is capped at the
+  top `--variant-flagged-top` rows (default 100) sorted by burden.
+  The complete list is always written to
+  `variant_impact_flagged.tsv`.
+* **§3.6 heatmap** has its sample cap split from the clustering cap
+  (`--max-samples-heatmap`, default `min(--max-samples-cluster, 500)`)
+  because each cell adds inline-SVG markup; per-cell `<title>`
+  tooltips are also automatically suppressed when the grid exceeds
+  ~5 000 cells (sub-pixel cells cannot be hovered individually anyway).
+* `report_manifest.json` records the new caps
+  (`species_table_top`, `variant_flagged_top`, `notable_top`,
+  `max_samples_heatmap`) and the new sidecar filenames
+  (`species_summary_tsv`, `variant_impact_flagged_tsv`).
+
+These changes are backward-compatible with previous schema-2.x manifest
+consumers (additive only) and the legacy per-sample layout remains
+available behind `--layout legacy` for one release window.
+
 ## What changed in schema 2.1 (dual-tier confidence integration)
 
 `REPORT_SCHEMA_VERSION` is now **`2.1`** (additive only).  When
@@ -196,8 +234,10 @@ Optional detect-module inputs (from `csc-detect -o <detect_dir>`):
 | File | Purpose |
 |---|---|
 | `<output>.html` | Self-contained HTML report |
-| `<output-parent>/report_manifest.json` | Machine-readable manifest with the report schema version, generated timestamp, chosen threshold, the list of samples flagged by §4, the compact species summary, and the partition counts |
-| `<output-parent>/per_sample_summary.tsv` | (Cohort layout only) full per-sample table written alongside §6 for offline analysis |
+| `<output-parent>/report_manifest.json` | Machine-readable manifest with the report schema version, generated timestamp, chosen threshold, the list of samples flagged by §4, the compact species summary, the partition counts, and the names of every TSV sidecar |
+| `<output-parent>/per_sample_summary.tsv` | (Cohort layout) **Complete** per-sample table (every sample × every metric).  §6 in the HTML only renders curated highlight tables; this TSV has the full data. |
+| `<output-parent>/species_summary.tsv` | (Cohort layout) **Complete** §3.1 species summary (every non-human taxon × every metric).  The HTML §3.1 table is capped at `--species-table-top` for renderability. |
+| `<output-parent>/variant_impact_flagged.tsv` | (Cohort layout) **Complete** list of samples flagged by §4 Variant-Calling Impact.  The HTML §4 table is capped at `--variant-flagged-top`. |
 
 ## Report sections (cohort layout)
 
@@ -217,9 +257,12 @@ Optional detect-module inputs (from `csc-detect -o <detect_dir>`):
    attribution stacked bar, and a paginated table of flagged samples.
 5. **Detection summary** – relocated from the legacy §3.3.  Adds an
    UpSet-style 2-set tile diagram (primary ∩ abs).
-6. **Per-sample appendix** – paginated, sortable, filterable.  Default
-   25 rows / page.  A sidecar `per_sample_summary.tsv` is written for
-   offline use.
+6. **Notable samples & per-sample sidecar** – curated highlight
+   tables (top by absolute burden, top by composition, most diverse,
+   `csc-detect`-flagged exemplars).  The literal full per-sample table
+   is **not** rendered in the HTML for cohorts of thousands of samples
+   — the complete per-sample summary is always written to the sidecar
+   `per_sample_summary.tsv` and prominently linked from the section.
 7. **Discussion & Caveats** – kitome / outburst guidance auto-generated
    from §3.4.
 8. **Methods Transparency Checklist** – versioned references and
@@ -255,11 +298,34 @@ default.
 
 The cohort layout's expensive steps are the heatmap and PCoA, which
 need pairwise sample distances – O(n²) memory and time.  The
-`--max-samples-cluster` flag (default 2000) caps these computations and
-deterministically sub-samples (every-k-th sample) above the cap; the
-caption of the resulting figure documents the sub-sampling factor.
+`--max-samples-cluster` flag (default 2000) caps the pairwise distance
+work and deterministically sub-samples (every-k-th sample) above the
+cap; the caption of the resulting figure documents the sub-sampling
+factor.  The `--max-samples-heatmap` flag (default
+`min(--max-samples-cluster, 500)`) further caps the heatmap because
+each cell is an inline SVG element — for cohorts of 1K+ samples a
+tighter heatmap cap keeps the static HTML small without impacting the
+PCoA which renders one circle per sample.  When the heatmap grid would
+exceed ~5 000 cells the renderer also suppresses per-cell `<title>`
+tooltips automatically (sub-pixel cells cannot be hovered
+individually anyway).
+
+To control HTML size for thousand-sample cohorts the renderer caps the
+*HTML* projections of the long tables at user-controlled top-N values
+and writes the complete tables to TSV sidecars:
+
+| Flag | Defaults | Bounds |
+|---|---|---|
+| `--species-table-top` | 200 | §3.1 HTML rows |
+| `--variant-flagged-top` | 100 | §4 flagged-samples HTML rows |
+| `--notable-top` | 15 | rows per §6 highlight table |
+| `--max-samples-heatmap` | min(2000, 500) | §3.6 heatmap columns |
+
 For very large cohorts (n > 5000) start with
-`--max-samples-cluster 1500` and increase only if needed.
+`--max-samples-cluster 1500 --max-samples-heatmap 400` and increase
+only if needed.  Empirically, a synthetic 1500-sample × 400-taxon
+cohort renders to ~2.4 MB HTML under the schema-2.2 defaults compared
+to 80+ MB under the unconstrained schema-2.1 layout.
 
 ## Python API
 
@@ -279,5 +345,9 @@ generate_html_report(
     prevalence_core=0.5,
     prevalence_rare=0.1,
     max_samples_cluster=2000,
+    max_samples_heatmap=500,
+    species_table_top=200,        # §3.1 HTML rows; full table → species_summary.tsv
+    variant_flagged_top=100,      # §4 HTML rows; full list → variant_impact_flagged.tsv
+    notable_top=15,               # rows per §6 highlight table
 )
 ```

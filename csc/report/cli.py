@@ -171,12 +171,58 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--max-samples-heatmap",
+        type=int,
+        default=None,
+        help=(
+            "Cap on samples drawn in the §3.6 heatmap.  Independent of "
+            "--max-samples-cluster because each cell adds inline-SVG "
+            "markup; for cohorts of 1K+ samples a tighter cap keeps the "
+            "static HTML small.  Defaults to min(--max-samples-cluster, "
+            "500)."
+        ),
+    )
+    parser.add_argument(
         "--min-reads-for-prevalence",
         type=int,
         default=5,
         help=(
             "Per-taxon minimum read count for the second prevalence "
             "column in §3.1.  Default: 5."
+        ),
+    )
+    parser.add_argument(
+        "--species-table-top",
+        type=int,
+        default=200,
+        help=(
+            "Maximum number of species rendered in the §3.1 species "
+            "summary HTML table (sorted by cohort burden).  The full "
+            "table is always written to the species_summary.tsv "
+            "sidecar regardless of this cap.  Default: 200."
+        ),
+    )
+    parser.add_argument(
+        "--variant-flagged-top",
+        type=int,
+        default=100,
+        help=(
+            "Maximum number of flagged samples rendered in the §4 "
+            "Variant-Calling Impact HTML table (sorted by burden).  "
+            "The full list is always written to the "
+            "variant_impact_flagged.tsv sidecar.  Default: 100."
+        ),
+    )
+    parser.add_argument(
+        "--notable-top",
+        type=int,
+        default=15,
+        help=(
+            "Maximum number of samples shown in each §6 'notable "
+            "samples' highlight table (top burden, top composition, "
+            "most diverse, detect-flagged).  The complete per-sample "
+            "summary is always written to the per_sample_summary.tsv "
+            "sidecar.  Default: 15."
         ),
     )
     parser.add_argument(
@@ -243,6 +289,26 @@ def main(argv: list[str] | None = None) -> int:
             args.max_samples_cluster,
         )
         return 1
+    if args.max_samples_heatmap is not None and args.max_samples_heatmap < 3:
+        log.error(
+            "--max-samples-heatmap must be >= 3, got %d",
+            args.max_samples_heatmap,
+        )
+        return 1
+    if args.species_table_top < 1:
+        log.error(
+            "--species-table-top must be >= 1, got %d", args.species_table_top,
+        )
+        return 1
+    if args.variant_flagged_top < 1:
+        log.error(
+            "--variant-flagged-top must be >= 1, got %d",
+            args.variant_flagged_top,
+        )
+        return 1
+    if args.notable_top < 1:
+        log.error("--notable-top must be >= 1, got %d", args.notable_top)
+        return 1
     if not (0 < args.prevalence_rare <= args.prevalence_core <= 1):
         log.error(
             "Need 0 < --prevalence-rare <= --prevalence-core <= 1, got "
@@ -278,7 +344,11 @@ def main(argv: list[str] | None = None) -> int:
             prevalence_core=args.prevalence_core,
             prevalence_rare=args.prevalence_rare,
             max_samples_cluster=args.max_samples_cluster,
+            max_samples_heatmap=args.max_samples_heatmap,
             min_reads_for_prevalence=args.min_reads_for_prevalence,
+            species_table_top=args.species_table_top,
+            variant_flagged_top=args.variant_flagged_top,
+            notable_top=args.notable_top,
         )
     except (ValueError, OSError) as exc:
         log.error("Failed to generate report: %s", exc)

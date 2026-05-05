@@ -241,8 +241,11 @@ def render_cohort_landscape(
     cluster_method: str = "average",
     cluster_distance: str = "bray",
     max_samples_cluster: int = 2000,
+    max_samples_heatmap: int | None = None,
     top_species_heatmap: int = 50,
     drilldown_top: int = 25,
+    species_table_top: int = 200,
+    species_table_tsv: Path | None = None,
 ) -> str:
     """Render the new §3 — *Cohort species landscape*.
 
@@ -256,15 +259,27 @@ def render_cohort_landscape(
     * §3.6 Sample × species heatmap with hierarchical-cluster ordering.
     * §3.7 Sample β-diversity ordination (PCoA).
     * §3.8 Per-species drill-down for the top-N species.
+
+    The §3.1 species summary table is capped at ``species_table_top``
+    rows in the HTML (sorted by cohort burden); when truncated the
+    full table is written to ``species_table_tsv`` so reviewers can
+    audit every taxon offline.  The heatmap is capped independently
+    via ``max_samples_heatmap`` (defaults to ``max_samples_cluster``)
+    because every cell adds inline-SVG markup.
     """
     abs_enabled = inputs.matrix_abs is not None
     n_species = len(species_rows)
     n_samples = len(inputs.matrix_raw.sample_ids)
     parts: list[str] = ["<h2>3. Cohort species landscape</h2>"]
 
+    if max_samples_heatmap is None:
+        max_samples_heatmap = max_samples_cluster
+
     logger.info("§3.1 species summary table (%d species)", n_species)
     parts.append(_render_species_table(species_rows, page_size=page_size,
-                                        abs_enabled=abs_enabled))
+                                        abs_enabled=abs_enabled,
+                                        top_n=species_table_top,
+                                        tsv_path=species_table_tsv))
     logger.info("§3.2 prevalence–abundance map")
     parts.append(_render_prevalence_abundance_map(species_rows,
                                                    abs_enabled=abs_enabled))
@@ -275,15 +290,15 @@ def render_cohort_landscape(
     logger.info("§3.5 cohort distribution figures")
     parts.append(_render_distribution_figures(inputs, species_rows))
     logger.info(
-        "§3.6 heatmap (top %d species, %d samples, method=%s, dist=%s)",
-        top_species_heatmap, n_samples, cluster_method, cluster_distance,
+        "§3.6 heatmap (top %d species, %d samples cap, method=%s, dist=%s)",
+        top_species_heatmap, max_samples_heatmap, cluster_method, cluster_distance,
     )
     parts.append(_render_heatmap(
         inputs,
         species_rows,
         cluster_method=cluster_method,
         cluster_distance=cluster_distance,
-        max_samples_cluster=max_samples_cluster,
+        max_samples_cluster=max_samples_heatmap,
         top_species=top_species_heatmap,
     ))
     logger.info(
@@ -311,8 +326,40 @@ def _render_species_table(
     *,
     page_size: int,
     abs_enabled: bool,
+    top_n: int = 200,
+    tsv_path: Path | None = None,
 ) -> str:
+    n_total = len(species_rows)
+    truncated = n_total > top_n
+    display_rows = species_rows[:top_n] if truncated else species_rows
+
+    # Always write the full species summary as a TSV sidecar so
+    # reviewers can audit every taxon offline even when the HTML
+    # table is truncated for renderability.
+    sidecar_link = ""
+    if tsv_path is not None:
+        try:
+            _write_species_summary_tsv(species_rows, tsv_path,
+                                       abs_enabled=abs_enabled)
+            sidecar_link = (
+                f"  The full table ({_fmt_int(n_total)} taxa) is also "
+                f"written to <a class='dl-link' href='{_esc(tsv_path.name)}'>"
+                f"{_esc(tsv_path.name)}</a> for offline analysis."
+            )
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.warning("Could not write species summary TSV: %s", exc)
+
     parts: list[str] = ["<h3>3.1 Species summary table</h3>"]
+    truncation_note = ""
+    if truncated:
+        truncation_note = (
+            f"<div class='callout'>For renderability the table below "
+            f"shows the <strong>top {top_n}</strong> non-human taxa "
+            f"sorted by cohort burden; "
+            f"<strong>{_fmt_int(n_total - top_n)} additional taxa</strong> "
+            f"are omitted from the HTML and only present in the sidecar "
+            f"TSV.</div>"
+        )
     parts.append(
         "<p>One row per non-human taxon (excluding tax_id 9606).  Robust "
         "summaries: <strong>median (positives only)</strong>, <strong>IQR</strong> "
@@ -323,8 +370,9 @@ def _render_species_table(
         "positives — high values flag ‘outburst’ species, low values flag "
         "baseline / kitome-like species.  Click any column header to sort; "
         "use the search box and the domain dropdown to filter; bottom controls "
-        f"paginate at {page_size} rows per page.</p>"
+        f"paginate at {page_size} rows per page." + sidecar_link + "</p>"
     )
+    parts.append(truncation_note)
 
     headers = [
         ("Taxon", None, None),
@@ -366,7 +414,7 @@ def _render_species_table(
     # else cohort raw reads desc (column index 8).
     default_sort_col = 11 if abs_enabled else 8
     rows_html: list[str] = []
-    for r in species_rows:
+    for r in display_rows:
         cells = [
             f"<td>{_esc(r['name'])}</td>",
             f"<td>{r['tax_id']}</td>",
@@ -407,6 +455,67 @@ def _render_species_table(
         f'<tbody>{chr(10).join(rows_html)}</tbody></table>'
     )
     return "\n".join(parts)
+
+
+def _write_species_summary_tsv(
+    species_rows: Sequence[Mapping[str, Any]],
+    tsv_path: Path,
+    *,
+    abs_enabled: bool,
+) -> None:
+    """Write the full §3.1 species summary as a TSV sidecar."""
+    header = [
+        "tax_id", "name", "domain", "prevalence", "prevalence_at_min",
+        "positives_n", "cpm_median_pos", "cpm_iqr_pos", "cpm_p95_pos",
+    ]
+    if abs_enabled:
+        header += [
+            "abs_median_pos", "abs_iqr_pos", "abs_p95_pos",
+            "cohort_burden_ppm",
+        ]
+    header += [
+        "cohort_raw_total", "n_flagged_primary", "n_flagged_abs", "cv_robust",
+    ]
+
+    def _f(v: Any) -> str:
+        if v is None:
+            return "NA"
+        if isinstance(v, float) and math.isnan(v):
+            return "NA"
+        if isinstance(v, float):
+            return f"{v:.6g}"
+        return str(v)
+
+    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tsv_path, "w", newline="") as fh:
+        w = csv.writer(fh, delimiter="\t")
+        w.writerow(header)
+        for r in species_rows:
+            row = [
+                str(r["tax_id"]),
+                str(r["name"]),
+                str(r["domain"]),
+                _f(r.get("prevalence")),
+                _f(r.get("prevalence_at_min")),
+                _f(r.get("positives_n")),
+                _f(r.get("cpm_median_pos")),
+                _f(r.get("cpm_iqr_pos")),
+                _f(r.get("cpm_p95_pos")),
+            ]
+            if abs_enabled:
+                row += [
+                    _f(r.get("abs_median_pos")),
+                    _f(r.get("abs_iqr_pos")),
+                    _f(r.get("abs_p95_pos")),
+                    _f(r.get("cohort_burden_ppm")),
+                ]
+            row += [
+                _f(int(r["cohort_raw_total"])),
+                _f(int(r["n_flagged_primary"])),
+                _f(int(r["n_flagged_abs"])),
+                _f(r.get("cv_robust")),
+            ]
+            w.writerow(row)
 
 
 def _render_prevalence_abundance_map(
@@ -1009,6 +1118,9 @@ def render_variant_impact_v2(
     species_rows: Sequence[Mapping[str, Any]],
     threshold_ppm: float,
     page_size: int = 25,
+    *,
+    flagged_table_top: int = 100,
+    flagged_tsv_path: Path | None = None,
 ) -> tuple[str, list[Mapping[str, Any]]]:
     abs_enabled = inputs.matrix_abs is not None
     if not abs_enabled:
@@ -1078,8 +1190,26 @@ def render_variant_impact_v2(
             + _svg.domain_legend_html(list(comp.keys()))
         )
 
+    # Always write the full flagged-samples list to a TSV sidecar so
+    # the HTML can stay small while reviewers retain full auditability.
+    sidecar_link = ""
+    if flagged_tsv_path is not None:
+        try:
+            _write_variant_impact_tsv(flagged, flagged_tsv_path)
+            sidecar_link = (
+                f"  Full list ({_fmt_int(len(flagged))} sample(s)) is "
+                f"written to <a class='dl-link' href='{_esc(flagged_tsv_path.name)}'>"
+                f"{_esc(flagged_tsv_path.name)}</a>."
+            )
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.warning("Could not write variant-impact TSV: %s", exc)
+
+    n_flagged = len(flagged)
+    truncated = n_flagged > flagged_table_top
+    display_flagged = flagged[:flagged_table_top] if truncated else flagged
+
     rows_html = []
-    for s in flagged:
+    for s in display_flagged:
         rows_html.append(
             "<tr>"
             f"<td>{_esc(s['sample_id'])}</td>"
@@ -1093,11 +1223,21 @@ def render_variant_impact_v2(
         rows_html.append(
             "<tr><td colspan='4'><em>No samples exceed the threshold.</em></td></tr>"
         )
+    truncation_note = ""
+    if truncated:
+        truncation_note = (
+            f"<div class='callout'>Showing the top "
+            f"<strong>{flagged_table_top}</strong> flagged samples by "
+            f"absolute burden; <strong>{_fmt_int(n_flagged - flagged_table_top)}</strong> "
+            f"additional flagged sample(s) are present in the sidecar TSV "
+            f"only.</div>"
+        )
     table = (
-        "<h4>Flagged samples</h4>"
-        "<p>Paginated, sortable, and filterable.  Default sort: highest "
-        "absolute burden first.</p>"
-        f'<table class="paginated" data-page-size="{page_size}" '
+        "<h4>Flagged samples (top by burden)</h4>"
+        "<p>Sortable and filterable.  Default sort: highest absolute "
+        f"burden first.{sidecar_link}</p>"
+        + truncation_note
+        + f'<table class="paginated" data-page-size="{page_size}" '
         'data-default-sort="2|desc">'
         "<thead><tr><th>Sample</th>"
         "<th>Total sequenced reads</th>"
@@ -1107,7 +1247,7 @@ def render_variant_impact_v2(
     )
 
     msg = (
-        f"{len(flagged)} sample(s) exceed the configured threshold of "
+        f"{n_flagged} sample(s) exceed the configured threshold of "
         f"{threshold_ppm:,.0f} ppm of total sequenced reads "
         f"({threshold_ppm / 1e4:.3f}% of sequencing)."
     )
@@ -1126,6 +1266,30 @@ def render_variant_impact_v2(
         + table
     )
     return body, list(flagged)
+
+
+def _write_variant_impact_tsv(
+    flagged: Sequence[Mapping[str, Any]],
+    tsv_path: Path,
+) -> None:
+    """Write the full §4 flagged-samples list as a TSV sidecar."""
+    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tsv_path, "w", newline="") as fh:
+        w = csv.writer(fh, delimiter="\t")
+        w.writerow([
+            "sample_id",
+            "total_reads",
+            "nonhuman_abs_ppm_total",
+            "nonhuman_pct_of_sequencing",
+        ])
+        for s in flagged:
+            ppm = s["nonhuman_abs_ppm_total"]
+            w.writerow([
+                str(s["sample_id"]),
+                str(int(s["total_reads"])) if s["total_reads"] is not None else "NA",
+                f"{ppm:.6f}" if ppm is not None else "NA",
+                f"{(ppm or 0) / 1e4:.6f}" if ppm is not None else "NA",
+            ])
 
 
 # ---------------------------------------------------------------------------
@@ -1191,29 +1355,31 @@ def render_per_sample_appendix(
     *,
     page_size: int,
     tsv_path: Path,
+    notable_top: int = 15,
 ) -> str:
+    """Render §6 — *Notable samples & per-sample sidecar*.
+
+    For large cohorts (thousands of samples) emitting one HTML row per
+    sample produces a multi-megabyte, unresponsive appendix.  Instead,
+    this section:
+
+    * Always writes the **complete** per-sample table to ``tsv_path``
+      (same columns and units as before) so reviewers can audit every
+      sample offline.
+    * Renders only **curated highlight tables** in the HTML — top
+      samples by absolute burden, by composition, by richness/diversity,
+      and any sample(s) flagged by ``csc-detect`` — so the static
+      document stays focused on actionable cohort summaries and on the
+      worst / most informative individual samples.
+
+    The ``notable_top`` argument bounds each highlight table.  The
+    legacy ``page_size`` argument is retained for forward-compatibility
+    (it no longer governs an HTML table here, but is documented in the
+    sidecar caption alongside the link to the TSV).
+    """
     abs_enabled = inputs.matrix_abs is not None
 
-    headers = [
-        ("Sample", None),
-        ("Total sequenced reads<span class='denom'>idxstats</span>", None),
-        ("Classified reads<span class='denom'>Kraken2 direct</span>", None),
-        ("Non-human reads<span class='denom'>classified − Homo sapiens</span>", None),
-        ("% Non-human<span class='denom'>per million classified reads denominator</span>", None),
-    ]
-    if abs_enabled:
-        headers.append(
-            ("Non-human burden <span class='denom'>ppm of total sequenced reads</span>", None)
-        )
-    headers.extend([
-        ("Richness<span class='denom'>taxa with ≥1 read</span>", None),
-        ("Shannon H<span class='denom'>natural log</span>", None),
-        ("Simpson (1−D)<span class='denom'>Gini–Simpson</span>", None),
-    ])
-
-    head_html = "".join(f"<th>{lbl}</th>" for lbl, _ in headers)
-    rows_html: list[str] = []
-    tsv_rows: list[list[str]] = []
+    # --- Always-on TSV sidecar (unchanged columns) -------------------
     tsv_header = [
         "sample_id", "total_reads", "classified_reads", "nonhuman_reads",
         "nonhuman_pct_of_classified",
@@ -1222,7 +1388,199 @@ def render_per_sample_appendix(
         tsv_header.append("nonhuman_abs_ppm_total")
     tsv_header += ["richness", "shannon", "simpson"]
 
+    tsv_rows: list[list[str]] = []
     for s in per_sample_stats:
+        row = [
+            str(s["sample_id"]),
+            str(s["total_reads"]) if s["total_reads"] is not None else "NA",
+            str(int(s["classified_reads"])),
+            str(int(s["nonhuman_reads"])),
+            "NA" if s["nonhuman_pct_of_classified"] is None
+            else f"{s['nonhuman_pct_of_classified']:.6f}",
+        ]
+        if abs_enabled:
+            v = s["nonhuman_abs_ppm_total"]
+            row.append("NA" if v is None else f"{v:.6f}")
+        row += [
+            str(s["richness"]),
+            f"{s['shannon']:.6f}",
+            f"{s['simpson']:.6f}",
+        ]
+        tsv_rows.append(row)
+
+    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tsv_path, "w", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t")
+        writer.writerow(tsv_header)
+        writer.writerows(tsv_rows)
+
+    # --- Curated highlight tables ------------------------------------
+    n = len(per_sample_stats)
+    # Detect-flagged sample IDs (union over both passes when available)
+    flagged_ids: set[str] = set()
+    if inputs.detect_summary is not None:
+        flagged_ids |= set(inputs.detect_summary.get("flagged_samples") or [])
+    if inputs.abs_detect_summary is not None:
+        flagged_ids |= set(inputs.abs_detect_summary.get("flagged_samples") or [])
+
+    parts: list[str] = ["<h2>6. Notable samples &amp; per-sample sidecar</h2>"]
+    parts.append(
+        "<p>To keep the report easily renderable for cohorts of "
+        f"thousands of samples, the per-sample HTML table is "
+        "intentionally <strong>not</strong> emitted here.  The "
+        f"complete per-sample summary ({_fmt_int(n)} sample(s) × "
+        f"{len(tsv_header)} columns) is written alongside this report "
+        f"as <a class='dl-link' href='{_esc(tsv_path.name)}'>"
+        f"{_esc(tsv_path.name)}</a> for offline analysis.  The "
+        "highlight tables below surface a small number of samples that "
+        "are most useful for interpreting the cohort: outliers by "
+        "burden / composition, the most diverse non-human metagenomes, "
+        "and any samples that <code>csc-detect</code> flagged as "
+        "contamination calls.</p>"
+    )
+
+    # Highlight A — top by absolute burden (variant-impact relevant)
+    if abs_enabled:
+        top_burden = sorted(
+            (s for s in per_sample_stats
+             if s["nonhuman_abs_ppm_total"] is not None),
+            key=lambda s: -float(s["nonhuman_abs_ppm_total"] or 0.0),
+        )[:notable_top]
+        parts.append(_render_notable_table(
+            top_burden,
+            heading=(
+                f"6.1 Highest absolute non-human burden "
+                f"(top {len(top_burden)} of {n})"
+            ),
+            description=(
+                "Samples whose non-human reads make up the largest "
+                "fraction of <em>total sequencing</em> — these are the "
+                "most likely to perturb variant calls, assemblies and "
+                "expression estimates."
+            ),
+            abs_enabled=abs_enabled,
+            flagged_ids=flagged_ids,
+            sort_metric="abs",
+        ))
+
+    # Highlight B — top by composition (% non-human of classified)
+    top_comp = sorted(
+        (s for s in per_sample_stats
+         if s["nonhuman_pct_of_classified"] is not None),
+        key=lambda s: -float(s["nonhuman_pct_of_classified"] or 0.0),
+    )[:notable_top]
+    parts.append(_render_notable_table(
+        top_comp,
+        heading=(
+            f"6.{2 if abs_enabled else 1} Highest non-human composition "
+            f"(top {len(top_comp)} of {n})"
+        ),
+        description=(
+            "Samples whose <em>classified-read</em> fraction is dominated "
+            "by non-human taxa.  When the absolute burden is small but "
+            "this percentage is high, the sample is typically a "
+            "successfully host-depleted or low-yield WGS run rather than "
+            "a contamination event — cross-reference with the absolute "
+            "burden column."
+        ),
+        abs_enabled=abs_enabled,
+        flagged_ids=flagged_ids,
+        sort_metric="pct",
+    ))
+
+    # Highlight C — most diverse non-human content (richness × Shannon)
+    # Use Shannon (more robust to small richness inflation from kitome).
+    top_div = sorted(
+        per_sample_stats,
+        key=lambda s: -float(s.get("shannon") or 0.0),
+    )[:notable_top]
+    sec_idx = 3 if abs_enabled else 2
+    parts.append(_render_notable_table(
+        top_div,
+        heading=(
+            f"6.{sec_idx} Most diverse non-human metagenomes "
+            f"(top {len(top_div)} by Shannon H)"
+        ),
+        description=(
+            "Samples with the most varied non-human taxa.  High diversity "
+            "concurrent with high burden often reflects environmental / "
+            "skin commensal carry-over; high diversity at low burden is "
+            "characteristic of trace kitome backgrounds."
+        ),
+        abs_enabled=abs_enabled,
+        flagged_ids=flagged_ids,
+        sort_metric="shannon",
+    ))
+
+    # Highlight D — detect-flagged exemplars (when present)
+    if flagged_ids:
+        flagged_samples = [
+            s for s in per_sample_stats if s["sample_id"] in flagged_ids
+        ]
+        # Sort flagged exemplars by burden (or composition fallback) so
+        # the most actionable ones appear first.
+        if abs_enabled:
+            flagged_samples.sort(
+                key=lambda s: -float(s.get("nonhuman_abs_ppm_total") or 0.0)
+            )
+        else:
+            flagged_samples.sort(
+                key=lambda s: -float(s.get("nonhuman_pct_of_classified") or 0.0)
+            )
+        n_flagged_total = len(flagged_samples)
+        flagged_samples = flagged_samples[:notable_top]
+        sec_idx = 4 if abs_enabled else 3
+        parts.append(_render_notable_table(
+            flagged_samples,
+            heading=(
+                f"6.{sec_idx} Samples flagged by csc-detect "
+                f"(showing {len(flagged_samples)} of {n_flagged_total})"
+            ),
+            description=(
+                "The union of samples flagged by the primary and "
+                "absolute-burden detect passes.  These are the "
+                "statistically-defined contamination calls; review the "
+                "per-taxon flag table in §5 for the species responsible."
+            ),
+            abs_enabled=abs_enabled,
+            flagged_ids=flagged_ids,
+            sort_metric="abs" if abs_enabled else "pct",
+        ))
+
+    return "\n".join(parts)
+
+
+def _render_notable_table(
+    samples: Sequence[Mapping[str, Any]],
+    *,
+    heading: str,
+    description: str,
+    abs_enabled: bool,
+    flagged_ids: set[str],
+    sort_metric: str,
+) -> str:
+    """Render a small, static highlight table of notable samples."""
+    headers = [
+        "Sample",
+        "Total sequenced reads<span class='denom'>idxstats</span>",
+        "Classified reads<span class='denom'>Kraken2 direct</span>",
+        "Non-human reads<span class='denom'>classified − Homo sapiens</span>",
+        "% Non-human<span class='denom'>per million classified reads denominator</span>",
+    ]
+    if abs_enabled:
+        headers.append(
+            "Non-human burden <span class='denom'>ppm of total sequenced reads</span>"
+        )
+    headers.extend([
+        "Richness<span class='denom'>taxa with ≥1 read</span>",
+        "Shannon H<span class='denom'>natural log</span>",
+        "Simpson (1−D)<span class='denom'>Gini–Simpson</span>",
+        "csc-detect flag",
+    ])
+    head_html = "".join(f"<th>{h}</th>" for h in headers)
+
+    rows_html: list[str] = []
+    for s in samples:
         pct = s["nonhuman_pct_of_classified"]
         pct_cell = "NA" if pct is None else f"{pct:.3f}"
         cells = [
@@ -1235,53 +1593,24 @@ def render_per_sample_appendix(
         if abs_enabled:
             v = s["nonhuman_abs_ppm_total"]
             v_cell = "NA" if v is None else f"{v:,.2f}"
-            v_sort = "" if v is None else f"{v}"
-            cells.append(f"<td data-sort='{v_sort}'>{v_cell}</td>")
+            cells.append(f"<td>{v_cell}</td>")
         cells.extend([
             f"<td>{_fmt_int(s['richness'])}</td>",
             f"<td>{s['shannon']:.3f}</td>",
             f"<td>{s['simpson']:.3f}</td>",
+            "<td>" + ("⚑ flagged" if s["sample_id"] in flagged_ids else "—") + "</td>",
         ])
         rows_html.append("<tr>" + "".join(cells) + "</tr>")
-
-        tsv_row = [
-            str(s["sample_id"]),
-            str(s["total_reads"]) if s["total_reads"] is not None else "NA",
-            str(int(s["classified_reads"])),
-            str(int(s["nonhuman_reads"])),
-            "NA" if s["nonhuman_pct_of_classified"] is None
-            else f"{s['nonhuman_pct_of_classified']:.6f}",
-        ]
-        if abs_enabled:
-            v = s["nonhuman_abs_ppm_total"]
-            tsv_row.append("NA" if v is None else f"{v:.6f}")
-        tsv_row += [
-            str(s["richness"]),
-            f"{s['shannon']:.6f}",
-            f"{s['simpson']:.6f}",
-        ]
-        tsv_rows.append(tsv_row)
-
-    # Write the sidecar TSV
-    tsv_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(tsv_path, "w", newline="") as fh:
-        writer = csv.writer(fh, delimiter="\t")
-        writer.writerow(tsv_header)
-        writer.writerows(tsv_rows)
+    if not rows_html:
+        rows_html.append(
+            f"<tr><td colspan='{len(headers)}'><em>No samples to show.</em>"
+            "</td></tr>"
+        )
 
     return (
-        "<h2>6. Per-sample appendix</h2>"
-        "<p>Per-sample diversity, classified-read totals, and non-human "
-        "burden.  Click column headers to sort, use the filter box to "
-        "search by sample id; the table is paginated to "
-        f"{page_size} rows per page so the report remains readable for "
-        "cohorts of 3K+ samples.  The full table is also written to "
-        f"<a class='dl-link' href='{_esc(tsv_path.name)}'>"
-        f"{_esc(tsv_path.name)}</a> alongside this HTML for offline "
-        "analysis.</p>"
-        f'<table class="paginated" data-page-size="{page_size}" '
-        f'data-default-sort="{4 if not abs_enabled else 5}|desc">'
-        f"<thead><tr>{head_html}</tr></thead>"
+        f"<h3>{_esc(heading)}</h3>"
+        f"<p>{description}</p>"
+        f"<table><thead><tr>{head_html}</tr></thead>"
         f"<tbody>{chr(10).join(rows_html)}</tbody></table>"
     )
 

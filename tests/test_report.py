@@ -184,7 +184,7 @@ class TestGenerateReport:
         assert "3. Cohort species landscape" in text
         assert "4. Variant-Calling Impact" in text
         assert "5. Detection summary" in text
-        assert "6. Per-sample appendix" in text
+        assert "6. Notable samples" in text
         assert "7. Discussion" in text
         assert "8. Methods Transparency Checklist" in text
         # Denominator labelling – CPM denominator on tables/figures

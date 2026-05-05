@@ -188,7 +188,7 @@ class TestDualTierHtml:
         out = tmp_path / "report.html"
         generate_html_report(inputs, out, threshold_ppm=100.0)
         manifest = json.loads(out.with_name("report_manifest.json").read_text())
-        assert manifest["schema_version"] == "2.1"
+        assert manifest["schema_version"] == "2.2"
         tiers = manifest.get("confidence_tiers")
         assert isinstance(tiers, list)
         assert len(tiers) == 1
