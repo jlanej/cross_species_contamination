@@ -293,14 +293,29 @@ def render_cohort_landscape(
         "§3.6 heatmap (top %d species, %d samples cap, method=%s, dist=%s)",
         top_species_heatmap, max_samples_heatmap, cluster_method, cluster_distance,
     )
-    parts.append(_render_heatmap(
+    heatmap_html, heatmap_ctx = _render_heatmap(
         inputs,
         species_rows,
         cluster_method=cluster_method,
         cluster_distance=cluster_distance,
         max_samples_cluster=max_samples_heatmap,
         top_species=top_species_heatmap,
-    ))
+    )
+    parts.append(heatmap_html)
+    # ---- §3.6.x companion summary figures (driven from the same
+    # subsampled & clustered grid as §3.6 so they are essentially
+    # free) -----------------------------------------------------------
+    logger.info("§3.6.1 domain-stacked composition bar")
+    parts.append(_render_domain_stacked_bar(inputs, heatmap_ctx))
+    logger.info("§3.6.2 prevalence × mean-abundance scatter")
+    parts.append(_render_prevalence_abundance_scatter(species_rows, abs_enabled=abs_enabled))
+    logger.info("§3.6.3 cohort burden distribution by domain")
+    parts.append(_render_cohort_burden_distribution(inputs))
+    logger.info("§3.6.4 per-sample diversity overview")
+    parts.append(_render_diversity_overview(inputs))
+    if abs_enabled:
+        logger.info("§3.6.5 absolute-burden parallel of §3.6 heatmap")
+        parts.append(_render_abs_heatmap(inputs, heatmap_ctx))
     logger.info(
         "§3.7 PCoA β-diversity ordination (%d samples, dist=%s)",
         n_samples, cluster_distance,
@@ -788,7 +803,17 @@ def _render_heatmap(
     cluster_distance: str,
     max_samples_cluster: int,
     top_species: int,
-) -> str:
+) -> tuple[str, dict[str, Any]]:
+    """Render §3.6 — sample × species heatmap (hierarchical clustering).
+
+    Returns a tuple ``(html, ctx)`` where ``ctx`` carries the
+    intermediate artefacts (subsampled ``sample_ids``, the species
+    ``tax_ids`` actually plotted, the value matrix, and the
+    sample/taxa cluster orderings) so the §3.6.x companion figures
+    can reuse them without recomputing.  Returning context costs a
+    handful of references per renderer call but avoids re-running
+    Bray–Curtis + hclust on every dependent figure.
+    """
     matrix = inputs.matrix_cpm
     species_rows = list(species_rows)[:top_species]
     tax_ids = [r["tax_id"] for r in species_rows]
@@ -812,7 +837,15 @@ def _render_heatmap(
     if not tax_ids or not sample_ids:
         return (
             "<h3>3.6 Sample × species heatmap</h3>"
-            "<p><em>Insufficient data to render heatmap.</em></p>"
+            "<p><em>Insufficient data to render heatmap.</em></p>",
+            {
+                "sample_ids": [],
+                "tax_ids": [],
+                "species_rows": [],
+                "values": [],
+                "sample_order": [],
+                "taxa_order": [],
+            },
         )
 
     logger.info(
@@ -844,12 +877,15 @@ def _render_heatmap(
     row_labels = [str(r["name"]) for r in species_rows]
     col_labels = list(sample_ids)
 
+    sample_order = sample_clust["order"] or list(range(len(col_labels)))
+    taxa_order = taxa_clust["order"] or list(range(len(row_labels)))
+
     fig = _svg.heatmap_with_dendrogram_svg(
         values,
         row_labels=row_labels,
         col_labels=col_labels,
-        row_order=taxa_clust["order"] or list(range(len(row_labels))),
-        col_order=sample_clust["order"] or list(range(len(col_labels))),
+        row_order=taxa_order,
+        col_order=sample_order,
         title=(
             f"Figure 3.6 — Top {len(row_labels)} species × {len(col_labels)} "
             f"samples, log1p(CPM); rows and columns reordered by "
@@ -857,8 +893,13 @@ def _render_heatmap(
             f"({cluster_distance} distance)"
         ),
         show_col_labels=len(col_labels) <= 50,
+        # Roomier rows for the §3.6 view (caller-supplied floor) so
+        # the species names stay legible without depending on the
+        # automatic tier in svg.py.
+        cell_min_h=14.0,
+        value_label="log1p(CPM)",
     )
-    return (
+    html_out = (
         "<h3>3.6 Sample × species heatmap (hierarchical clustering)</h3>"
         + fig
         + sub_note
@@ -867,8 +908,349 @@ def _render_heatmap(
         "differences rather than biological signal.  Cluster method "
         f"= <code>{_esc(cluster_method)}</code>, distance "
         f"= <code>{_esc(cluster_distance)}</code> on log1p-CPM over the "
-        f"top-{len(row_labels)} species by cohort burden.</p>"
+        f"top-{len(row_labels)} species by cohort burden.  Colour scale: "
+        "<code>log1p(CPM)</code>; see legend at right.</p>"
     )
+    ctx = {
+        "sample_ids": sample_ids,
+        "tax_ids": tax_ids,
+        "species_rows": species_rows,
+        "values": values,
+        "sample_order": sample_order,
+        "taxa_order": taxa_order,
+        "cluster_method": cluster_method,
+        "cluster_distance": cluster_distance,
+    }
+    return html_out, ctx
+
+
+# ---------------------------------------------------------------------------
+# §3.6.x cohort summary figures (driven from the §3.6 heatmap context)
+# ---------------------------------------------------------------------------
+
+
+def _flagged_sample_set(inputs: Any) -> set[str]:
+    flagged: set[str] = set()
+    if inputs.detect_summary is not None:
+        flagged |= set(inputs.detect_summary.get("flagged_samples") or [])
+    if inputs.abs_detect_summary is not None:
+        flagged |= set(inputs.abs_detect_summary.get("flagged_samples") or [])
+    return flagged
+
+
+def _domain_order_for_legend(matrix: Any) -> list[str]:
+    """Stable, biologically meaningful domain ordering for stacked bars."""
+    preferred = (
+        "Bacteria", "Viruses", "Fungi", "Archaea",
+        "Metazoa_other", "Viridiplantae", "Unannotated", "Other",
+    )
+    seen = {d for d in matrix.tax_domains.values() if d}
+    ordered = [d for d in preferred if d in seen]
+    extras = sorted(seen - set(ordered))
+    return ordered + extras
+
+
+def _render_domain_stacked_bar(
+    inputs: Any,
+    heatmap_ctx: Mapping[str, Any],
+) -> str:
+    """§3.6.1 — per-sample domain composition, ordered by §3.6 column order."""
+    sample_ids = list(heatmap_ctx.get("sample_ids") or [])
+    if not sample_ids:
+        return ""
+    matrix = inputs.matrix_cpm
+    sample_order = list(heatmap_ctx.get("sample_order") or list(range(len(sample_ids))))
+    domain_order = _domain_order_for_legend(matrix)
+
+    columns: list[list[tuple[str, float]]] = []
+    for idx in sample_order:
+        if idx >= len(sample_ids):
+            continue
+        sid = sample_ids[idx]
+        per_dom: dict[str, float] = {}
+        for tid in matrix.tax_ids:
+            if tid == 9606:  # exclude human
+                continue
+            v = matrix.values.get(tid, {}).get(sid)
+            if v is None or v <= 0:
+                continue
+            d = matrix.tax_domains.get(tid, "Unannotated") or "Unannotated"
+            per_dom[d] = per_dom.get(d, 0.0) + float(v)
+        columns.append([(d, per_dom[d]) for d in per_dom])
+
+    flagged = _flagged_sample_set(inputs)
+    flagged_indices = [
+        i for i, src_idx in enumerate(sample_order)
+        if src_idx < len(sample_ids) and sample_ids[src_idx] in flagged
+    ]
+    n = len(columns)
+    fig = _svg.stacked_column_bar_svg(
+        columns,
+        title=(
+            "Figure 3.6.1 — Per-sample non-human composition by taxonomic "
+            f"domain ({n} samples, ordered identically to §3.6 columns)"
+        ),
+        domain_order=domain_order,
+        column_labels=[sample_ids[i] for i in sample_order if i < len(sample_ids)],
+        show_column_labels=n <= 50,
+        flagged_indices=flagged_indices,
+    )
+    return (
+        "<h3>3.6.1 Per-sample domain composition</h3>"
+        + fig
+        + _svg.domain_legend_html(domain_order)
+        + "<p class='fig-caption'>Each column is one sample; segments show "
+        "the share of non-human burden contributed by each taxonomic "
+        "domain.  Columns share the §3.6 column order so adjacent "
+        "columns belong to the same hierarchical-clustering branch.  "
+        "Solid blocks of one colour across a cluster indicate "
+        "host-depletion or batch artefacts (one organism dominates "
+        "every sample in the cluster); a mosaic suggests genuine "
+        "per-sample contamination heterogeneity.  Orange dots mark "
+        "<code>csc-detect</code>-flagged samples when present.</p>"
+    )
+
+
+def _render_prevalence_abundance_scatter(
+    species_rows: Sequence[Mapping[str, Any]],
+    *,
+    abs_enabled: bool,
+    top_n: int = 200,
+) -> str:
+    """§3.6.2 — top-species prevalence × mean-abundance scatter."""
+    rows = list(species_rows)[:top_n]
+    if not rows:
+        return ""
+    domains = sorted({str(r.get("domain", "Unannotated")) for r in rows})
+    cmap = _svg.domain_colour_map(domains)
+
+    points: list[dict[str, Any]] = []
+    for r in rows:
+        prev = r.get("prevalence")
+        med = r.get("cpm_median_pos")
+        p95 = r.get("cpm_p95_pos")
+        if prev is None or med is None:
+            continue
+        if isinstance(med, float) and math.isnan(med):
+            continue
+        if med <= 0:
+            continue
+        # Size proxies max-CPM (p95 of positives) — emphasises spiky
+        # taxa.
+        max_cpm = float(p95) if p95 is not None and not (
+            isinstance(p95, float) and math.isnan(p95)
+        ) else float(med)
+        size = max(2.5, min(10.0, 2.5 + 1.5 * math.log10(max(max_cpm, 1.0))))
+        d = str(r.get("domain", "Unannotated"))
+        points.append({
+            "x": float(prev),
+            "y": float(med),
+            "size": size,
+            "colour": cmap.get(d, _svg._colour_for(0)),
+            "domain": d,
+            "label": (
+                f"{r.get('name')} (tax_id {r.get('tax_id')}; {d}) — "
+                f"prev {float(prev) * 100:.1f}%, median CPM "
+                f"{float(med):.3g}, p95 {max_cpm:.3g}"
+            ),
+        })
+
+    if not points:
+        return ""
+
+    fig = _svg.scatter_svg(
+        points,
+        title=(
+            f"Figure 3.6.2 — Prevalence × abundance for top-{len(points)} "
+            "species (median CPM among positives, sized by p95 CPM)"
+        ),
+        x_label="prevalence (fraction of cohort with positive detection)",
+        y_label="median CPM among detected (log10)",
+        y_log=True,
+        legend_domains=domains,
+    )
+    return (
+        "<h3>3.6.2 Prevalence × abundance scatter</h3>"
+        + fig
+        + "<p class='fig-caption'>Each dot is a species.  X-axis is the "
+        "fraction of samples where the species is detected (any "
+        "positive count); Y-axis is the median CPM <em>among</em> "
+        "samples that detected it.  Dot size scales with p95 CPM, so "
+        "<strong>large dots in the bottom-left</strong> are "
+        "rare-but-spiky contaminants (typical of one-off lab/reagent "
+        "events), while points along the top edge are "
+        "always-present background organisms.  Use this view to "
+        "spot signal that the §3.6 heatmap dilutes by averaging "
+        "across the cohort.</p>"
+    )
+
+
+def _render_cohort_burden_distribution(inputs: Any) -> str:
+    """§3.6.3 — per-sample log1p(CPM total) horizontal density per domain."""
+    from csc.report.report import _per_sample_stats  # local import: avoid cycle
+
+    matrix = inputs.matrix_cpm
+    if not matrix.sample_ids:
+        return ""
+    # Per-sample, per-domain summed CPM (excluding human).
+    per_dom: dict[str, list[float]] = {}
+    for sid in matrix.sample_ids:
+        sums: dict[str, float] = {}
+        for tid in matrix.tax_ids:
+            if tid == 9606:
+                continue
+            v = matrix.values.get(tid, {}).get(sid)
+            if v is None or v <= 0:
+                continue
+            d = matrix.tax_domains.get(tid, "Unannotated") or "Unannotated"
+            sums[d] = sums.get(d, 0.0) + float(v)
+        for d, val in sums.items():
+            per_dom.setdefault(d, []).append(val)
+    # Drop empty groups.
+    groups = [(d, vs) for d, vs in per_dom.items() if vs]
+    if not groups:
+        return ""
+    # Sort by sample-coverage so largest groups appear first.
+    groups.sort(key=lambda kv: -len(kv[1]))
+
+    fig = _svg.boxplot_svg(
+        groups,
+        title=(
+            "Figure 3.6.3 — Per-sample non-human burden by taxonomic "
+            "domain (CPM sum within domain, log10)"
+        ),
+        y_label="CPM (sum within domain, log10)",
+        log_y=True,
+    )
+    return (
+        "<h3>3.6.3 Cohort burden distribution by domain</h3>"
+        + fig
+        + "<p class='fig-caption'>Each row is a taxonomic domain; the box "
+        "summarises per-sample CPM totals (sum across all species in "
+        "that domain).  A wide spread for Bacteria with a tight "
+        "distribution for Viruses, Fungi, etc. is consistent with a "
+        "<em>host-depletion-rate</em> cohort (the bacterial signal "
+        "tracks how much of each library survived host filtering).  "
+        "Conversely, narrow distributions across all domains except "
+        "for one outlier domain are characteristic of a true "
+        "contamination event affecting that domain.</p>"
+    )
+
+
+def _render_diversity_overview(inputs: Any) -> str:
+    """§3.6.4 — Shannon entropy and observed-species count histograms."""
+    from csc.report.report import _per_sample_stats  # local import: avoid cycle
+
+    per_sample = _per_sample_stats(inputs)
+    if not per_sample:
+        return ""
+    flagged = _flagged_sample_set(inputs)
+
+    shannon = [float(s["shannon"]) for s in per_sample
+               if s.get("shannon") is not None
+               and not (isinstance(s["shannon"], float) and math.isnan(s["shannon"]))]
+    richness = [int(s["richness"]) for s in per_sample
+                if s.get("richness") is not None]
+
+    parts = ["<h3>3.6.4 Per-sample diversity overview</h3>"]
+    if shannon:
+        edges_h, counts_h = _cohort.histogram(shannon, n_bins=20, log=False)
+        parts.append(_svg.histogram_svg(
+            edges_h, counts_h,
+            title="Figure 3.6.4a — Shannon entropy distribution (per sample)",
+            x_label="Shannon entropy (nats; non-human distribution)",
+        ))
+    if richness:
+        # Use linear bins because richness is integer-valued and
+        # typically not too long-tailed once human is excluded.
+        edges_r, counts_r = _cohort.histogram(
+            [float(v) for v in richness], n_bins=20, log=False,
+        )
+        parts.append(_svg.histogram_svg(
+            edges_r, counts_r,
+            title="Figure 3.6.4b — Observed species richness (per sample)",
+            x_label="number of distinct non-human taxa with >0 reads",
+        ))
+    parts.append(
+        "<p class='fig-caption'>Histograms of per-sample diversity. "
+        "Samples sitting in the long left tail of Shannon entropy "
+        "(very low diversity) are typically dominated by a single "
+        "contaminant or by PCR duplicates of a single species; the "
+        f"cohort currently has <strong>{len(flagged)}</strong> sample(s) "
+        "flagged by <code>csc-detect</code>, which often "
+        "concentrate in those tails.  Right-skew on the richness "
+        "histogram is consistent with kit-/reagent-contamination "
+        "introducing many low-count species across affected "
+        "samples.</p>"
+    )
+    return "\n".join(parts)
+
+
+def _render_abs_heatmap(
+    inputs: Any,
+    heatmap_ctx: Mapping[str, Any],
+) -> str:
+    """§3.6.5 — absolute-burden parallel of §3.6 heatmap.
+
+    Uses the *same* sample/taxa orderings as §3.6 so the reader can
+    compare compositional (CPM) vs absolute (ppm of total sequenced
+    reads) views side by side.  Renders only when ``matrix_abs`` is
+    available; cells encode log1p(ppm) on the same gradient.
+    """
+    if inputs.matrix_abs is None:
+        return ""
+    sample_ids = list(heatmap_ctx.get("sample_ids") or [])
+    tax_ids = list(heatmap_ctx.get("tax_ids") or [])
+    species_rows = list(heatmap_ctx.get("species_rows") or [])
+    sample_order = list(heatmap_ctx.get("sample_order") or list(range(len(sample_ids))))
+    taxa_order = list(heatmap_ctx.get("taxa_order") or list(range(len(tax_ids))))
+    if not sample_ids or not tax_ids:
+        return ""
+
+    abs_m = inputs.matrix_abs
+    values = [
+        [
+            (abs_m.values.get(tid, {}).get(sid) or 0.0)
+            for sid in sample_ids
+        ]
+        for tid in tax_ids
+    ]
+
+    row_labels = [str(r["name"]) for r in species_rows]
+    col_labels = list(sample_ids)
+
+    fig = _svg.heatmap_with_dendrogram_svg(
+        values,
+        row_labels=row_labels,
+        col_labels=col_labels,
+        row_order=taxa_order,
+        col_order=sample_order,
+        title=(
+            f"Figure 3.6.5 — Top {len(row_labels)} species × "
+            f"{len(col_labels)} samples, log1p(ppm of total sequenced "
+            "reads); rows and columns reordered to match §3.6"
+        ),
+        show_col_labels=len(col_labels) <= 50,
+        cell_min_h=14.0,
+        value_label="log1p(ppm)",
+    )
+    return (
+        "<h3>3.6.5 Absolute-burden heatmap (parallel to §3.6)</h3>"
+        + fig
+        + "<p class='fig-caption'>Same row/column order as §3.6 but cells "
+        "encode <em>absolute</em> burden (ppm of total sequenced "
+        "reads) instead of compositional CPM.  Read it side-by-side "
+        "with §3.6: a cluster that is dark in §3.6 but pale here is "
+        "a host-depletion artefact (the species dominates "
+        "<em>among non-human reads</em> only because there are few "
+        "non-human reads); a cluster that is dark in both is a "
+        "genuine contamination episode.</p>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helper distance matrices (used by §3.6 and §3.7)
+# ---------------------------------------------------------------------------
 
 
 def _bray_from_value_matrix(values: Sequence[Sequence[float]]) -> list[list[float]]:

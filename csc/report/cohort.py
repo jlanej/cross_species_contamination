@@ -600,15 +600,56 @@ def pcoa_2d(
     # Trace of B = sum of eigenvalues.
     trace = sum(B[i][i] for i in range(n))
 
+    def _project_out_ones(vec: list[float]) -> list[float]:
+        """Remove the all-ones / null-space component from ``vec``.
+
+        Because B = -½ J D² J is double-centred, the constant vector
+        ``1`` is exactly in the null space of B (B·1 = 0).  Power
+        iteration must therefore start from — and stay at — a vector
+        orthogonal to ``1``; otherwise iterates collapse to the
+        zero-eigenvalue direction and every coordinate ends up zero.
+        """
+        m = sum(vec) / n
+        return [x - m for x in vec]
+
+    def _normalise(vec: list[float]) -> list[float]:
+        nrm = math.sqrt(sum(x * x for x in vec))
+        if nrm < tol:
+            return vec
+        return [x / nrm for x in vec]
+
     eigvals: list[float] = []
     eigvecs: list[list[float]] = []
-    for _ in range(n_components):
-        # Power iteration on the deflated B.
-        v = [1.0 / math.sqrt(n)] * n
+    for k in range(n_components):
+        # Deterministic non-constant seed.  ``sin((k+1)·(i+1)·π/(n+1))``
+        # gives roughly ``(k+1)/2`` cycles across the n indices, so a
+        # different starting direction for each component, while the
+        # alternating ±1 perturbation guarantees the seed is not in
+        # the all-ones null space of B even for n=2 where the sine
+        # term alone could be small.  No RNG → reproducible.
+        seed = [
+            math.sin((k + 1) * (i + 1) * math.pi / (n + 1)) + (1.0 if i % 2 == 0 else -1.0)
+            for i in range(n)
+        ]
+        v = _normalise(_project_out_ones(seed))
+        if not any(abs(x) > tol for x in v):
+            # Fall back to a simple alternating ±1 if the construction
+            # somehow degenerates (e.g. n=1 already handled above).
+            v = _normalise(_project_out_ones(
+                [1.0 if i % 2 == 0 else -1.0 for i in range(n)]
+            ))
         prev_lam = 0.0
         lam = 0.0
         for _ in range(power_iters):
             w = [sum(B[i][j] * v[j] for j in range(n)) for i in range(n)]
+            # Re-project out the ones-direction and any previously
+            # extracted eigenvectors so floating-point drift can't
+            # leak v back into the null space.
+            w = _project_out_ones(w)
+            for u in eigvecs:
+                dot = sum(w[i] * u[i] for i in range(n))
+                if dot:
+                    w = [w[i] - dot * u[i] for i in range(n)]
             norm = math.sqrt(sum(x * x for x in w))
             if norm < tol:
                 break
@@ -625,7 +666,9 @@ def pcoa_2d(
             for j in range(n):
                 B[i][j] -= lam * v[i] * v[j]
 
-    # Coordinates = sqrt(max(lam, 0)) * v
+    # Coordinates = sqrt(max(lam, 0)) * v.  Negative eigenvalues
+    # (numerical noise on a degenerate matrix, or non-Euclidean
+    # distances) become zero coordinates without raising.
     coords = [[0.0] * n_components for _ in range(n)]
     for k, (lam, v) in enumerate(zip(eigvals, eigvecs)):
         scale = math.sqrt(max(lam, 0.0))
@@ -633,8 +676,10 @@ def pcoa_2d(
             coords[i][k] = scale * v[i]
 
     explained_var: list[float] = []
-    if trace > 0:
-        explained_var = [lam / trace for lam in eigvals]
+    # Guard against a non-positive trace (degenerate matrices can
+    # produce small negatives from float round-off).
+    if trace > tol:
+        explained_var = [(lam / trace if lam > 0 else 0.0) for lam in eigvals]
     logger.info(
         "pcoa_2d: done — explained variance %s",
         ", ".join(f"{v:.1%}" for v in explained_var) if explained_var else "N/A",

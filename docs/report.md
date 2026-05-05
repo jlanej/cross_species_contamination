@@ -96,7 +96,7 @@ one release window behind `--layout legacy` for byte-level diffing.
 | What | Old layout (`legacy`) | New layout (`cohort`, default) |
 |---|---|---|
 | Unit of analysis | per sample | per **species** |
-| §3 contents | per-sample summary table + cohort top-N table + per-sample stacked bars | §3.1 species summary table (paginated, sortable, filterable, with sparklines), §3.2 prevalence × abundance map, §3.3 rank-abundance, §3.4 core/accessory/rare partition, §3.5 cohort-wide distribution figures, §3.6 hierarchical-cluster heatmap, §3.7 PCoA β-diversity ordination, §3.8 per-species drill-down |
+| §3 contents | per-sample summary table + cohort top-N table + per-sample stacked bars | §3.1 species summary table (paginated, sortable, filterable, with sparklines), §3.2 prevalence × abundance map, §3.3 rank-abundance, §3.4 core/accessory/rare partition, §3.5 cohort-wide distribution figures, §3.6 hierarchical-cluster heatmap (with vertical colour-bar legend), §3.6.1 per-sample domain composition (ordered by §3.6 column order), §3.6.2 prevalence × mean-abundance scatter, §3.6.3 cohort burden distribution by domain, §3.6.4 per-sample diversity overview (Shannon + richness histograms), §3.6.5 absolute-burden parallel of §3.6 (when `taxa_matrix_abs.tsv` is available), §3.7 PCoA β-diversity ordination, §3.8 per-species drill-down |
 | §4 Variant-Calling Impact | linear table of flagged samples | histogram of cohort burden + species attribution stacked bar + paginated flagged-samples table |
 | Detection summary | folded inside §3 | promoted to its own §5 with an UpSet-style 2-set tile diagram |
 | Per-sample table | full 3K-row literal table | demoted to §6, paginated (default 25/page) + sortable + filterable + a sibling `per_sample_summary.tsv` for offline analysis |
@@ -228,6 +228,17 @@ Optional detect-module inputs (from `csc-detect -o <detect_dir>`):
 | `flagged_samples.tsv` | Per (sample, taxon) outlier flags |
 | `qc_summary.json` | Detect parameters, flagged samples |
 | `quarantine_list.txt` | Plain-text quarantine list |
+| `<detect_dir>/<tier>/abs/qc_summary.json` | Absolute-burden side-pass detect summary; presence of this file is what `csc-report` uses to decide whether to render the §2.5 "absolute-burden side pass" section |
+
+> **Note** — the report decides the absolute-burden side pass is
+> "available" by looking for `<detect_dir>/<tier>/abs/qc_summary.json`,
+> not by inspecting `aggregate/`.  If you re-use a `detect/` directory
+> that pre-dates the absolute-burden matrix, the §2.5 callout will
+> warn that the side pass was not run even when
+> `taxa_matrix_abs.tsv` is present in `aggregate/`.  Re-running
+> `csc-detect` against the current `aggregate/` directory (no
+> re-aggregation needed) populates `detect/<tier>/abs/` and resolves
+> the warning.
 
 ## Outputs
 
@@ -247,12 +258,41 @@ Optional detect-module inputs (from `csc-detect -o <detect_dir>`):
    mini horizontal stacked bar of cohort burden by domain.
 2. **Methods** – extract / classify / aggregate / detect procedures
    and a clear statement distinguishing the three read counts.
-3. **Cohort species landscape** – the new primary section.  Eight
-   sub-sections (§3.1 species summary table, §3.2 prevalence ×
-   abundance map, §3.3 rank-abundance, §3.4 core/accessory/rare
-   partition, §3.5 cohort-wide distribution figures, §3.6
-   hierarchical-cluster heatmap, §3.7 PCoA, §3.8 per-species
-   drill-down).
+3. **Cohort species landscape** – the new primary section.  Sub-sections:
+   §3.1 species summary table, §3.2 prevalence × abundance map, §3.3
+   rank-abundance, §3.4 core/accessory/rare partition, §3.5 cohort-wide
+   distribution figures, §3.6 hierarchical-cluster heatmap (with a
+   vertical colour-bar legend on the right that maps cell shade to the
+   underlying log1p-CPM value, anchored at 0 / 10× / 100× / max), and
+   five §3.6.x companion summary plots driven from the same clustered
+   grid as §3.6:
+   * **§3.6.1 Per-sample domain composition** — a 100%-stacked column
+     bar where each column is one sample (ordered identically to §3.6
+     columns).  Solid blocks of one colour across a §3.6 cluster
+     indicate host-depletion or batch artefacts; a mosaic suggests
+     genuine per-sample contamination heterogeneity.  Detect-flagged
+     samples are marked with an orange dot.
+   * **§3.6.2 Prevalence × abundance scatter** — top-200 species
+     plotted as prevalence (fraction of cohort) × median CPM among
+     positives; dot size scales with p95 CPM.  Surfaces rare-but-spiky
+     contaminants (large dots in the bottom-left) that the heatmap
+     dilutes.
+   * **§3.6.3 Cohort burden distribution by domain** — boxplot of
+     per-sample CPM totals by taxonomic domain; quickly answers "is
+     this a host-depletion-rate cohort or a contamination cohort?"
+     without reading every cell of the heatmap.
+   * **§3.6.4 Per-sample diversity overview** — Shannon entropy and
+     observed-species histograms, with the count of detect-flagged
+     samples annotated.  Often pulls out PCR-duplication /
+     undersequenced samples.
+   * **§3.6.5 Absolute-burden parallel of §3.6** — same row/column
+     order as §3.6 but cells encode log1p(ppm) instead of log1p(CPM)
+     (rendered only when `taxa_matrix_abs.tsv` is available).  A
+     cluster that is dark in §3.6 but pale here is a host-depletion
+     artefact; a cluster that is dark in both is a genuine
+     contamination episode.
+
+   Followed by §3.7 PCoA and §3.8 per-species drill-down.
 4. **Variant-Calling Impact** – histogram of cohort burden, species
    attribution stacked bar, and a paginated table of flagged samples.
 5. **Detection summary** – relocated from the legacy §3.3.  Adds an

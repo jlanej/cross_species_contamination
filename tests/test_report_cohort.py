@@ -20,6 +20,7 @@ from csc.report import (
     load_inputs,
 )
 from csc.report import cohort as ch
+from csc.report import svg as _svg
 from csc.report.report import _parse_matrix
 from csc.report.cli import main as report_cli
 
@@ -298,6 +299,190 @@ class TestPCoA:
         # Trace explained should sum to <= 1 + small tolerance.
         assert sum(out["explained_var"]) <= 1.0 + 1e-9
 
+    def test_recovers_two_axes_for_known_2d_layout(self) -> None:
+        """4 well-separated points in 2D — both PCoA axes should be
+        non-trivial and together explain ≈100% of B-trace.
+
+        Regression test for the all-ones-seed degeneracy that caused
+        every coordinate to collapse to zero (PCo1 0.0% / PCo2 0.0%).
+        """
+        coords_true = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+        n = len(coords_true)
+        D = [
+            [math.dist(coords_true[i], coords_true[j]) for j in range(n)]
+            for i in range(n)
+        ]
+        out = ch.pcoa_2d(D)
+        # Coords are not all zero on either axis.
+        xs = [c[0] for c in out["coords"]]
+        ys = [c[1] for c in out["coords"]]
+        assert max(abs(x) for x in xs) > 1e-6
+        assert max(abs(y) for y in ys) > 1e-6
+        # Both eigenvalues clearly positive.
+        assert out["eigvals"][0] > 1e-6
+        assert out["eigvals"][1] > 1e-6
+        # Two axes should explain essentially all the variance.
+        assert sum(out["explained_var"][:2]) == pytest.approx(1.0, abs=1e-6)
+        # Embedded distances should match input distances up to a rigid
+        # transform — i.e., pairwise distances in the 2-D embedding
+        # equal the input distances.
+        for i in range(n):
+            for j in range(i + 1, n):
+                d_emb = math.dist(out["coords"][i], out["coords"][j])
+                assert d_emb == pytest.approx(D[i][j], abs=1e-6)
+
+    def test_constant_distance_matrix_is_degenerate_safely(self) -> None:
+        """All-zero distance matrix → coords zero, no division by zero."""
+        n = 5
+        D = [[0.0] * n for _ in range(n)]
+        out = ch.pcoa_2d(D)
+        assert len(out["coords"]) == n
+        for c in out["coords"]:
+            assert c == [0.0, 0.0]
+        # explained_var either empty or all zeros — the key invariant
+        # is that no NaN/inf leaks out.
+        for ev in out["explained_var"]:
+            assert math.isfinite(ev)
+
+    def test_pcoa_via_bray_curtis_pipeline(self, tmp_path: Path) -> None:
+        """End-to-end regression: synthetic CPM matrix → Bray–Curtis →
+        pcoa_2d must produce non-degenerate ordination.  This guards
+        the exact failure mode reported (PCo1/PCo2 0.0% / 0.0%) in the
+        rendered §3.7 figure."""
+        # 3 species × 5 samples with deliberately distinct profiles so
+        # Bray–Curtis distances are non-degenerate.
+        from csc.report.cohort_report import _bray_from_value_matrix
+
+        values = [
+            [10.0, 1.0, 0.0, 0.0, 5.0],   # taxon A
+            [0.0, 10.0, 5.0, 1.0, 0.0],   # taxon B
+            [1.0, 0.0, 10.0, 8.0, 1.0],   # taxon C
+        ]
+        D = _bray_from_value_matrix(values)
+        out = ch.pcoa_2d(D)
+        n = len(values[0])
+        assert len(out["coords"]) == n
+        xs = [c[0] for c in out["coords"]]
+        ys = [c[1] for c in out["coords"]]
+        # Non-trivial spread on both axes.
+        assert max(xs) - min(xs) > 1e-6
+        assert max(ys) - min(ys) > 1e-6
+        # Leading axis explains a positive fraction of variance.
+        assert out["explained_var"]
+        assert out["explained_var"][0] > 0.0
+
+
+class TestHeatmapSvg:
+    def _grid(self) -> list[list[float]]:
+        # 5 rows × 4 columns, varying magnitudes.
+        return [
+            [0.0, 1.0, 10.0, 100.0],
+            [10.0, 0.0, 5.0, 50.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [100.0, 50.0, 10.0, 0.0],
+            [1.0, 1.0, 1.0, 1.0],
+        ]
+
+    def test_colour_bar_present_and_value_label_propagated(self) -> None:
+        values = self._grid()
+        svg_text = _svg.heatmap_with_dendrogram_svg(
+            values,
+            row_labels=["a", "b", "c", "d", "e"],
+            col_labels=["s1", "s2", "s3", "s4"],
+            row_order=list(range(5)),
+            col_order=list(range(4)),
+            title="t",
+            value_label="log1p(CPM)",
+        )
+        assert 'class="heatmap-colourbar"' in svg_text
+        assert "log1p(CPM)" in svg_text
+        # max ≈ 100 should appear (annotation) and tick labels for 0
+        # and 100 should be present (10^0 / 10^2 anchors).
+        assert "max ≈ 100" in svg_text
+        assert ">0<" in svg_text  # tick label for 0
+        assert ">100<" in svg_text  # tick label for vmax
+
+    def test_value_label_caller_supplied(self) -> None:
+        svg_text = _svg.heatmap_with_dendrogram_svg(
+            self._grid(),
+            row_labels=["a", "b", "c", "d", "e"],
+            col_labels=["s1", "s2", "s3", "s4"],
+            row_order=list(range(5)),
+            col_order=list(range(4)),
+            title="t",
+            value_label="log1p(ppm)",
+        )
+        assert "log1p(ppm)" in svg_text
+        assert "log1p(CPM)" not in svg_text
+
+    def test_cell_min_h_floor_propagates(self) -> None:
+        """A taller ``cell_min_h`` must produce a taller SVG."""
+        kwargs = dict(
+            row_labels=["a", "b", "c", "d", "e"],
+            col_labels=["s1", "s2", "s3", "s4"],
+            row_order=list(range(5)),
+            col_order=list(range(4)),
+            title="t",
+        )
+        small = _svg.heatmap_with_dendrogram_svg(
+            self._grid(), cell_min_h=1.0, **kwargs,
+        )
+        big = _svg.heatmap_with_dendrogram_svg(
+            self._grid(), cell_min_h=80.0, **kwargs,
+        )
+        # Extract viewBox heights — the second number is width, third
+        # is height (4-arg viewBox).  Compare numerically.
+        import re
+        m_small = re.search(r'viewBox="0 0 \S+ (\d+)"', small)
+        m_big = re.search(r'viewBox="0 0 \S+ (\d+)"', big)
+        assert m_small and m_big
+        assert int(m_big.group(1)) > int(m_small.group(1))
+
+    def test_default_taller_rows_than_legacy(self) -> None:
+        """Sanity-check that the bumped default tier yields rows
+        taller than the previous 12 px / 8 px / 4 px tiers."""
+        # 50-row grid: previous tier returned 8 px; new tier should be
+        # > 8 px.
+        rows = [[i + j for j in range(3)] for i in range(50)]
+        svg_text = _svg.heatmap_with_dendrogram_svg(
+            rows,
+            row_labels=[str(i) for i in range(50)],
+            col_labels=["a", "b", "c"],
+            row_order=list(range(50)),
+            col_order=list(range(3)),
+            title="t",
+        )
+        # Pull a cell rect and check height.  Heatmap rect is the
+        # plotting frame: <rect x="..." y="40" width="..." height="..."
+        # fill="#fff"... — match the next data-cell rect that follows.
+        import re
+        m = re.search(r'<rect x="[\d.]+" y="[\d.]+" '
+                      r'width="[\d.]+" height="([\d.]+)" fill="#'
+                      r'(?!fff)', svg_text)
+        assert m is not None
+        cell_h = float(m.group(1))
+        assert cell_h > 8.0  # previous tier ceiling for n_rows<80
+
+
+class TestStackedColumnBarSvg:
+    def test_renders_segments_per_column(self) -> None:
+        cols = [
+            [("Bacteria", 8.0), ("Viruses", 2.0)],
+            [("Bacteria", 1.0), ("Fungi", 9.0)],
+            [("Bacteria", 0.0)],  # empty column → placeholder
+        ]
+        svg_text = _svg.stacked_column_bar_svg(
+            cols,
+            title="t",
+            domain_order=["Bacteria", "Viruses", "Fungi"],
+            flagged_indices=[1],
+        )
+        assert "Bacteria" in svg_text
+        assert "Viruses" in svg_text
+        assert "Fungi" in svg_text
+        # Flagged dot present.
+        assert "flagged sample" in svg_text
+
 
 # ---------------------------------------------------------------------------
 # Rendered report assertions
@@ -323,9 +508,22 @@ class TestRenderedCohortReport:
             "3.4 Core",
             "3.5 Cohort-wide distribution figures",
             "3.6 Sample × species heatmap",
+            "3.6.1 Per-sample domain composition",
+            "3.6.2 Prevalence",
+            "3.6.3 Cohort burden distribution",
+            "3.6.4 Per-sample diversity",
+            # §3.6.5 only renders when matrix_abs is present (it is in
+            # this fixture because reads_summary sidecars were
+            # supplied).
+            "3.6.5 Absolute-burden heatmap",
             "3.8 Per-species drill-down",
         ):
             assert marker in text, f"missing section marker: {marker}"
+        # The §3.6 heatmap colour-bar legend is rendered (data scale).
+        assert 'class="heatmap-colourbar"' in text
+        assert "log1p(CPM)" in text
+        # Confirm the abs-parallel heatmap also carries its own scale.
+        assert "log1p(ppm)" in text
         # Per-sample TSV sidecar exists and is non-empty.
         tsv = out.with_name("per_sample_summary.tsv")
         assert tsv.exists()

@@ -609,10 +609,123 @@ def rank_abundance_svg(
 
 
 # ---------------------------------------------------------------------------
-# Heatmap with dendrogram
+# Per-sample stacked-column bar (cohort domain composition view)
 # ---------------------------------------------------------------------------
 
 
+def stacked_column_bar_svg(
+    columns: Sequence[Sequence[tuple[str, float]]],
+    *,
+    title: str,
+    domain_order: Sequence[str],
+    width: int = 980,
+    height: int = 220,
+    column_labels: Sequence[str] | None = None,
+    show_column_labels: bool = False,
+    flagged_indices: Sequence[int] | None = None,
+    y_label: str = "% of non-human burden",
+) -> str:
+    """100%-stacked column bar where each column is one sample.
+
+    ``columns`` is a sequence (one element per sample) of
+    ``(domain_label, value)`` lists, in plotting order.  Values are
+    normalised to 100% per column; columns with all-zero values are
+    rendered as a thin grey placeholder.  Domain colours follow
+    :func:`domain_colour_map` over ``domain_order`` so they remain
+    consistent with the rest of the report.
+
+    ``flagged_indices`` (optional) marks the columns of detect-flagged
+    samples with a small dot underneath the column.
+    """
+    n = len(columns)
+    pad_left, pad_right = 56, 16
+    pad_top, pad_bottom = 26, 36 + (24 if show_column_labels else 0)
+    plot_w = width - pad_left - pad_right
+    plot_h = height - pad_top - pad_bottom
+    if n == 0 or plot_w <= 0:
+        return (
+            f'<div class="figure"><p class="fig-title">{_esc(title)}</p>'
+            f'<p><em>No data to plot.</em></p></div>'
+        )
+
+    cmap = domain_colour_map(domain_order)
+    col_w = plot_w / n
+    parts = [
+        '<div class="figure">',
+        f'<p class="fig-title">{_esc(title)}</p>',
+        f'<svg viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg" role="img" '
+        f'aria-label="{_esc(title)}">',
+        f'<rect x="{pad_left}" y="{pad_top}" width="{plot_w:.2f}" '
+        f'height="{plot_h:.2f}" fill="#fafafa" stroke="#ccc"/>',
+    ]
+
+    flagged = set(flagged_indices or [])
+    for i, items in enumerate(columns):
+        col_x = pad_left + i * col_w
+        clean = [(d, float(v)) for d, v in items if v is not None and v > 0]
+        total = sum(v for _, v in clean)
+        if total <= 0:
+            parts.append(
+                f'<rect x="{col_x:.2f}" y="{pad_top:.2f}" '
+                f'width="{max(col_w - 0.4, 0.1):.2f}" height="{plot_h:.2f}" '
+                f'fill="#eee" stroke="#ccc"/>'
+            )
+            continue
+        # Stack from bottom (axis) to top in domain_order so identical
+        # domains share the same vertical position across columns.
+        order_index = {d: idx for idx, d in enumerate(domain_order)}
+        clean.sort(key=lambda kv: order_index.get(kv[0], len(order_index)))
+        y_cursor = pad_top + plot_h
+        for d, v in clean:
+            seg_h = (v / total) * plot_h
+            y_top = y_cursor - seg_h
+            colour = cmap.get(d, _colour_for(0))
+            parts.append(
+                f'<rect x="{col_x:.2f}" y="{y_top:.2f}" '
+                f'width="{max(col_w - 0.4, 0.1):.2f}" height="{seg_h:.2f}" '
+                f'fill="{colour}">'
+                f'<title>{_esc(d)}: {v / total * 100:.1f}%</title></rect>'
+            )
+            y_cursor = y_top
+        if i in flagged:
+            cy = pad_top + plot_h + 8
+            parts.append(
+                f'<circle cx="{col_x + col_w / 2:.2f}" cy="{cy:.2f}" '
+                f'r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4">'
+                f'<title>flagged sample</title></circle>'
+            )
+
+    # Axis ticks: 0% / 50% / 100%
+    for frac, label in ((0.0, "0%"), (0.5, "50%"), (1.0, "100%")):
+        y = pad_top + (1 - frac) * plot_h
+        parts.append(
+            f'<line x1="{pad_left - 4}" y1="{y:.2f}" '
+            f'x2="{pad_left}" y2="{y:.2f}" stroke="#444"/>'
+            f'<text x="{pad_left - 6}" y="{y + 3:.2f}" font-size="10" '
+            f'text-anchor="end">{label}</text>'
+        )
+    parts.append(
+        f'<text x="14" y="{pad_top + plot_h / 2:.1f}" font-size="11" '
+        f'text-anchor="middle" '
+        f'transform="rotate(-90 14 {pad_top + plot_h / 2:.1f})">'
+        f'{_esc(y_label)}</text>'
+    )
+    if show_column_labels and column_labels:
+        for i, lbl in enumerate(column_labels):
+            x = pad_left + (i + 0.5) * col_w
+            y = pad_top + plot_h + 18 + (8 if flagged_indices else 0)
+            parts.append(
+                f'<text x="{x:.2f}" y="{y:.2f}" font-size="9" '
+                f'transform="rotate(-60 {x:.2f} {y:.2f})">{_esc(lbl)}</text>'
+            )
+    parts.append('</svg></div>')
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Heatmap with dendrogram
+# ---------------------------------------------------------------------------
 def heatmap_with_dendrogram_svg(
     values: Sequence[Sequence[float]],
     *,
@@ -628,6 +741,7 @@ def heatmap_with_dendrogram_svg(
     cell_min_w: float = 1.0,
     show_col_labels: bool = False,
     show_row_labels: bool = True,
+    value_label: str = "log1p(value)",
 ) -> str:
     """Render a coloured heatmap with the rows and columns reordered.
 
@@ -636,6 +750,19 @@ def heatmap_with_dendrogram_svg(
     monitor).  Instead we colour-code rows by domain through the
     palette and rely on the precomputed ``row_order`` /
     ``col_order`` to expose cluster structure visually.
+
+    A vertical colour-bar legend is rendered to the right of the
+    heatmap so readers can map cell shade to the underlying numeric
+    scale.  The transform header is supplied via ``value_label``
+    (e.g. ``"log1p(CPM)"``) so the same routine can render raw,
+    CPM, and absolute-burden matrices with appropriate labelling.
+
+    ``cell_min_h`` is a *floor* — the actual row height is the
+    larger of this floor and a cohort-size-aware default that
+    favours readability for small/medium cohorts and density for
+    very large ones.  Callers rendering small heatmaps can pass a
+    bigger ``cell_min_h`` (e.g. ``8`` or ``10``) to force generous
+    vertical space.
     """
     n_rows = len(values)
     n_cols = len(values[0]) if values else 0
@@ -652,12 +779,23 @@ def heatmap_with_dendrogram_svg(
     _CELL_TITLE_BUDGET = 5000
     emit_cell_titles = (n_rows * n_cols) <= _CELL_TITLE_BUDGET
 
+    # Colour-bar reserves a slim strip on the right edge.
+    cbar_w = 14
+    cbar_gap_left = 18    # gap between heatmap right edge and cbar
+    cbar_gap_right = 56   # space for tick labels + scale title
     pad_left = 220 if show_row_labels else 60
     pad_top = 40
     pad_bottom = 80 if show_col_labels else 30
-    pad_right = 30
+    pad_right = cbar_gap_left + cbar_w + cbar_gap_right
     cell_w = max(cell_min_w, (width - pad_left - pad_right) / n_cols)
-    cell_h = max(cell_min_h, 12.0 if n_rows < 30 else (8.0 if n_rows < 80 else 4.0))
+    # Roughly doubled vs. the previous tiers so typical top-K (50–100
+    # species) reports get readable rows without overwhelming very
+    # large cohorts.  Caller-supplied floor (``cell_min_h``) takes
+    # precedence so renderers can force more vertical space.
+    default_cell_h = (
+        24.0 if n_rows < 30 else (16.0 if n_rows < 80 else 8.0)
+    )
+    cell_h = max(cell_min_h, default_cell_h)
     plot_w = cell_w * n_cols
     plot_h = cell_h * n_rows
     height = pad_top + plot_h + pad_bottom
@@ -750,5 +888,98 @@ def heatmap_with_dendrogram_svg(
         f'font-size="11" text-anchor="middle">{_esc(col_axis_label)} '
         f'(n = {n_cols}; ordered by hierarchical clustering)</text>'
     )
+
+    # ---- Vertical colour-bar legend (data scale) -----------------
+    # Rendered as a stack of N narrow rectangles using the same
+    # gradient as ``_cell_colour``.  Tick labels show natural-scale
+    # values at log1p(0) / log1p(vmax/100) / log1p(vmax/10) /
+    # log1p(vmax) so readers can read the heatmap without needing to
+    # invert the transform mentally.
+    cbar_x = pad_left + plot_w + cbar_gap_left
+    cbar_y0 = pad_top
+    cbar_y1 = pad_top + plot_h
+    cbar_h = cbar_y1 - cbar_y0
+    cbar_class = 'class="heatmap-colourbar"'
+    parts.append(
+        f'<g {cbar_class} aria-label="colour scale">'
+    )
+    # Stripes: top = vmax (darkest), bottom = 0 (lightest).
+    # Use 24 stripes for a smooth gradient at small SVG cost.
+    n_stripes = 24
+    for k in range(n_stripes):
+        # k=0 (bottom)  -> v=0;  k=n_stripes (top) -> v=vmax
+        frac_top = (k + 1) / n_stripes  # top of stripe (closer to vmax)
+        frac_bot = k / n_stripes
+        # Use mid-point of stripe for colour so stripes blend.
+        v_mid = (math.expm1(((frac_top + frac_bot) / 2) * log_vmax))
+        colour = _cell_colour(v_mid)
+        # SVG y-axis: top of plot is small y, bottom is large y.
+        y_top = cbar_y1 - frac_top * cbar_h
+        y_bot = cbar_y1 - frac_bot * cbar_h
+        parts.append(
+            f'<rect x="{cbar_x:.2f}" y="{y_top:.2f}" '
+            f'width="{cbar_w:.2f}" height="{(y_bot - y_top):.2f}" '
+            f'fill="{colour}"/>'
+        )
+    parts.append(
+        f'<rect x="{cbar_x:.2f}" y="{cbar_y0:.2f}" '
+        f'width="{cbar_w:.2f}" height="{cbar_h:.2f}" '
+        f'fill="none" stroke="#666" stroke-width="0.6"/>'
+    )
+
+    # Tick labels on the natural scale.  We pick four ticks at
+    # 0, vmax/100, vmax/10 and vmax so readers can place a cell
+    # shade against an order-of-magnitude scale without mental
+    # inversion of the log1p transform.
+    def _fmt_v(v: float) -> str:
+        if v <= 0:
+            return "0"
+        if v >= 1000:
+            return f"{v:,.0f}"
+        if v >= 1:
+            return f"{v:.3g}"
+        return f"{v:.2g}"
+
+    ticks_v: list[float] = [0.0]
+    if vmax >= 100:
+        ticks_v.append(vmax / 100.0)
+    if vmax >= 10:
+        ticks_v.append(vmax / 10.0)
+    ticks_v.append(vmax)
+    # Deduplicate while preserving order (tiny cohorts can collapse).
+    seen: set[float] = set()
+    uniq_ticks: list[float] = []
+    for v in ticks_v:
+        if v not in seen:
+            uniq_ticks.append(v)
+            seen.add(v)
+    for v in uniq_ticks:
+        if v <= 0:
+            frac = 0.0
+        else:
+            frac = math.log1p(v) / log_vmax
+        y = cbar_y1 - frac * cbar_h
+        parts.append(
+            f'<line x1="{cbar_x + cbar_w:.2f}" y1="{y:.2f}" '
+            f'x2="{cbar_x + cbar_w + 4:.2f}" y2="{y:.2f}" '
+            f'stroke="#444"/>'
+            f'<text x="{cbar_x + cbar_w + 6:.2f}" y="{y + 3:.2f}" '
+            f'font-size="9" text-anchor="start">{_esc(_fmt_v(v))}</text>'
+        )
+    # Header / transform label sits above the bar.
+    parts.append(
+        f'<text x="{cbar_x + cbar_w / 2:.2f}" y="{cbar_y0 - 8:.2f}" '
+        f'font-size="10" text-anchor="middle" font-weight="bold">'
+        f'{_esc(value_label)}</text>'
+    )
+    # Footer: explicit "max ≈" annotation underneath for readers
+    # who want the numeric anchor at a glance.
+    parts.append(
+        f'<text x="{cbar_x + cbar_w / 2:.2f}" y="{cbar_y1 + 14:.2f}" '
+        f'font-size="9" text-anchor="middle" fill="#555">'
+        f'max ≈ {_esc(_fmt_v(vmax))}</text>'
+    )
+    parts.append('</g>')
+
     parts.append('</svg></div>')
     return "\n".join(parts)
