@@ -1,6 +1,6 @@
 {
-  "schema_version": "2.1",
-  "generated_at": "2026-05-05T00:45:40+00:00",
+  "schema_version": "2.2",
+  "generated_at": "2026-05-05T01:21:49+00:00",
   "title": "Cross-Species Contamination \u2013 Demo Cohort Report",
   "layout": "cohort",
   "variant_impact_threshold_ppm": 1000.0,
@@ -12,7 +12,11 @@
   "prevalence_core": 0.5,
   "prevalence_rare": 0.1,
   "max_samples_cluster": 2000,
+  "max_samples_heatmap": 500,
   "min_reads_for_prevalence": 5,
+  "species_table_top": 200,
+  "variant_flagged_top": 100,
+  "notable_top": 15,
   "sample_count": 20,
   "taxon_count": 35,
   "absolute_burden_enabled": true,
@@ -552,5 +556,7 @@
   },
   "top_species_by_burden": "root",
   "top_species_by_prevalence": "root",
-  "per_sample_tsv": "per_sample_summary.tsv"
+  "per_sample_tsv": "per_sample_summary.tsv",
+  "species_summary_tsv": "species_summary.tsv",
+  "variant_impact_flagged_tsv": "variant_impact_flagged.tsv"
 }
