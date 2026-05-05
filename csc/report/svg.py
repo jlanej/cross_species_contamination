@@ -645,6 +645,13 @@ def heatmap_with_dendrogram_svg(
             f'<p><em>No data.</em></p></div>'
         )
 
+    # When the grid is large the per-cell <title> tooltips dominate the
+    # SVG byte size while being unusable (cells become sub-pixel and are
+    # not individually hoverable).  Suppress them above a fixed cell
+    # budget so cohorts of thousands of samples stay easily renderable.
+    _CELL_TITLE_BUDGET = 5000
+    emit_cell_titles = (n_rows * n_cols) <= _CELL_TITLE_BUDGET
+
     pad_left = 220 if show_row_labels else 60
     pad_top = 40
     pad_bottom = 80 if show_col_labels else 30
@@ -708,12 +715,18 @@ def heatmap_with_dendrogram_svg(
             # cells are tiny – keeps the SVG manageably sized.
             if v is None or v <= 0:
                 continue
-            parts.append(
-                f'<rect x="{x:.2f}" y="{y:.2f}" width="{cell_w:.2f}" '
-                f'height="{cell_h:.2f}" fill="{colour}">'
-                f'<title>{_esc(row_labels[r])} / {_esc(col_labels[c])}: '
-                f'{float(v):.3g}</title></rect>'
-            )
+            if emit_cell_titles:
+                parts.append(
+                    f'<rect x="{x:.2f}" y="{y:.2f}" width="{cell_w:.2f}" '
+                    f'height="{cell_h:.2f}" fill="{colour}">'
+                    f'<title>{_esc(row_labels[r])} / {_esc(col_labels[c])}: '
+                    f'{float(v):.3g}</title></rect>'
+                )
+            else:
+                parts.append(
+                    f'<rect x="{x:.2f}" y="{y:.2f}" width="{cell_w:.2f}" '
+                    f'height="{cell_h:.2f}" fill="{colour}"/>'
+                )
 
         if show_row_labels:
             label = row_labels[r] if r < len(row_labels) else ""

@@ -332,17 +332,66 @@ class TestRenderedCohortReport:
         lines = tsv.read_text().strip().splitlines()
         assert len(lines) == 1 + 3  # header + 3 samples
         assert lines[0].split("\t")[0] == "sample_id"
-        # Per-sample appendix paginated, not a literal full-cohort dump
-        # in the body of the HTML when n is large – here it's tiny but
-        # the data-page-size attribute must be present.
+        # Section 6 is now "Notable samples & per-sample sidecar" and
+        # the §3.1 species table remains paginated (data-page-size).
+        assert "6. Notable samples" in text
         assert 'data-page-size="25"' in text
+        # New sidecar TSVs for §3.1 species summary and §4 variant
+        # impact flagged samples are always written so reviewers retain
+        # full auditability even when the HTML is truncated for large
+        # cohorts.
+        assert out.with_name("species_summary.tsv").exists()
+        assert out.with_name("variant_impact_flagged.tsv").exists()
+
+    def test_species_table_truncates_to_top_n_with_full_tsv(
+        self, aggregate_outputs: dict
+    ) -> None:
+        """For large cohorts the §3.1 HTML caps at top-N rows but the
+        TSV sidecar always contains every taxon."""
+        inputs = load_inputs(aggregate_outputs["aggregate_dir"])
+        out = aggregate_outputs["tmp_path"] / "report.html"
+        # Force a tiny cap so the truncation path is exercised even on
+        # the small fixture cohort.
+        generate_html_report(
+            inputs, out, threshold_ppm=100.0, species_table_top=2,
+        )
+        text = out.read_text(encoding="utf-8")
+        # Truncation banner present in HTML
+        assert "additional taxa" in text
+        # Sidecar TSV contains *every* non-human taxon, not just top-N.
+        tsv = out.with_name("species_summary.tsv")
+        lines = tsv.read_text().strip().splitlines()
+        assert lines[0].split("\t")[0] == "tax_id"
+        # Header + at least three non-human taxa (S. aureus, E. coli,
+        # B. subtilis at minimum from the fixtures).
+        assert len(lines) - 1 >= 3
+
+    def test_per_sample_appendix_renders_no_full_table(
+        self, aggregate_outputs: dict
+    ) -> None:
+        """The §6 section deliberately omits a full per-sample HTML
+        table (it would dominate file size for cohorts of 1K+ samples)
+        and instead renders curated highlight tables + a sidecar TSV
+        link."""
+        inputs = load_inputs(aggregate_outputs["aggregate_dir"])
+        out = aggregate_outputs["tmp_path"] / "report.html"
+        generate_html_report(inputs, out, threshold_ppm=100.0)
+        text = out.read_text(encoding="utf-8")
+        assert "Highest absolute non-human burden" in text
+        assert "Highest non-human composition" in text
+        assert "Most diverse non-human metagenomes" in text
+        # The sidecar TSV link is surfaced in the appendix copy.
+        assert "per_sample_summary.tsv" in text
+        # No per-sample paginated table inside §6 (only the §3.1 +
+        # §4 paginated tables remain).
+        assert text.count('class="paginated"') <= 2
 
     def test_manifest_has_cohort_keys(self, aggregate_outputs: dict) -> None:
         inputs = load_inputs(aggregate_outputs["aggregate_dir"])
         out = aggregate_outputs["tmp_path"] / "report.html"
         generate_html_report(inputs, out, threshold_ppm=100.0)
         m = json.loads(out.with_name("report_manifest.json").read_text())
-        assert m["schema_version"] == "2.1"
+        assert m["schema_version"] == "2.2"
         assert m["layout"] == "cohort"
         assert "species_summary" in m
         assert "partition_counts" in m
@@ -404,4 +453,4 @@ class TestCohortCLI:
 
 class TestSchemaVersion:
     def test_schema_version_bumped(self) -> None:
-        assert REPORT_SCHEMA_VERSION == "2.1"
+        assert REPORT_SCHEMA_VERSION == "2.2"

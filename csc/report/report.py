@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 #        every tier-sensitive section twice (once per tier) under a
 #        client-side toggle, plus a "sensitive vs high-confidence
 #        concordance" subsection comparing the flag sets.
-REPORT_SCHEMA_VERSION = "2.1"
+REPORT_SCHEMA_VERSION = "2.2"
 
 # Default absolute-burden threshold (reads per million total sequenced
 # reads) above which a sample is flagged as potentially impacting
@@ -1773,7 +1773,11 @@ def generate_html_report(
     prevalence_core: float = 0.5,
     prevalence_rare: float = 0.1,
     max_samples_cluster: int = 2000,
+    max_samples_heatmap: int | None = None,
     min_reads_for_prevalence: int = 5,
+    species_table_top: int = 200,
+    variant_flagged_top: int = 100,
+    notable_top: int = 15,
 ) -> Path:
     """Render the static HTML report.
 
@@ -1841,6 +1845,16 @@ def generate_html_report(
         )
     if page_size < 1:
         raise ValueError("page_size must be >= 1")
+    if species_table_top < 1:
+        raise ValueError("species_table_top must be >= 1")
+    if variant_flagged_top < 1:
+        raise ValueError("variant_flagged_top must be >= 1")
+    if notable_top < 1:
+        raise ValueError("notable_top must be >= 1")
+    if max_samples_heatmap is None:
+        max_samples_heatmap = min(max_samples_cluster, 500)
+    elif max_samples_heatmap < 1:
+        raise ValueError("max_samples_heatmap must be >= 1")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1879,7 +1893,11 @@ def generate_html_report(
             prevalence_core=prevalence_core,
             prevalence_rare=prevalence_rare,
             max_samples_cluster=max_samples_cluster,
+            max_samples_heatmap=max_samples_heatmap,
             min_reads_for_prevalence=min_reads_for_prevalence,
+            species_table_top=species_table_top,
+            variant_flagged_top=variant_flagged_top,
+            notable_top=notable_top,
         )
         variant_flagged = manifest_extra["variant_flagged"]
 
@@ -1919,7 +1937,11 @@ def generate_html_report(
                 prevalence_core=prevalence_core,
                 prevalence_rare=prevalence_rare,
                 max_samples_cluster=max_samples_cluster,
+                max_samples_heatmap=max_samples_heatmap,
                 min_reads_for_prevalence=min_reads_for_prevalence,
+                species_table_top=species_table_top,
+                variant_flagged_top=variant_flagged_top,
+                notable_top=notable_top,
             )
             tier_label = (
                 f"High-confidence (confidence ≥ "
@@ -2063,7 +2085,11 @@ def generate_html_report(
         "prevalence_core": prevalence_core,
         "prevalence_rare": prevalence_rare,
         "max_samples_cluster": max_samples_cluster,
+        "max_samples_heatmap": max_samples_heatmap,
         "min_reads_for_prevalence": min_reads_for_prevalence,
+        "species_table_top": species_table_top,
+        "variant_flagged_top": variant_flagged_top,
+        "notable_top": notable_top,
         "sample_count": len(inputs.matrix_raw.sample_ids),
         "taxon_count": len(inputs.matrix_raw.tax_ids),
         "absolute_burden_enabled": inputs.matrix_abs is not None,
@@ -2122,7 +2148,8 @@ def generate_html_report(
     # Cohort-specific keys from manifest_extra.
     for key in ("species_summary", "partition_counts",
                 "top_species_by_burden", "top_species_by_prevalence",
-                "per_sample_tsv"):
+                "per_sample_tsv", "species_summary_tsv",
+                "variant_impact_flagged_tsv"):
         if key in manifest_extra:
             manifest[key] = manifest_extra[key]
     manifest_path = output_path.with_name("report_manifest.json")
@@ -2147,7 +2174,11 @@ def _render_cohort_layout(
     prevalence_core: float,
     prevalence_rare: float,
     max_samples_cluster: int,
+    max_samples_heatmap: int,
     min_reads_for_prevalence: int,
+    species_table_top: int,
+    variant_flagged_top: int,
+    notable_top: int,
 ) -> tuple[str, dict[str, Any]]:
     """Assemble §1–§8 for the cohort layout and return (body, manifest_extra)."""
     from csc.report import cohort as _cohort
@@ -2163,6 +2194,12 @@ def _render_cohort_layout(
         "_render_cohort_layout%s: %d samples, %d taxa",
         tier_label, n_samples, n_taxa,
     )
+
+    # Tier-aware sidecar filenames so sensitive vs high-confidence
+    # outputs do not clobber each other.
+    suffix_part = f"_{inputs.tier_suffix}" if inputs.tier_suffix else ""
+    species_tsv = output_path.with_name(f"species_summary{suffix_part}.tsv")
+    variant_tsv = output_path.with_name(f"variant_impact_flagged{suffix_part}.tsv")
 
     # Flagged-taxon → distinct-sample counts (used for the §3.1 columns).
     primary_taxa = _cohort.flagged_taxon_counts(inputs.flagged_samples)
@@ -2201,6 +2238,8 @@ def _render_cohort_layout(
     variant_section, variant_flagged = _cr.render_variant_impact_v2(
         inputs, per_sample, species_rows, threshold_ppm,
         page_size=page_size,
+        flagged_table_top=variant_flagged_top,
+        flagged_tsv_path=variant_tsv,
     )
     logger.info(
         "_render_cohort_layout%s: %d samples exceed variant-impact threshold "
@@ -2233,8 +2272,11 @@ def _render_cohort_layout(
         cluster_method=cluster_method,
         cluster_distance=cluster_distance,
         max_samples_cluster=max_samples_cluster,
+        max_samples_heatmap=max_samples_heatmap,
         top_species_heatmap=top_species,
         drilldown_top=drilldown_top,
+        species_table_top=species_table_top,
+        species_table_tsv=species_tsv,
     )
 
     logger.info(
@@ -2252,11 +2294,13 @@ def _render_cohort_layout(
     else:
         appendix_tsv = output_path.with_name("per_sample_summary.tsv")
     logger.info(
-        "_render_cohort_layout%s: step 7/8 — §6 per-sample appendix (%d rows)",
+        "_render_cohort_layout%s: step 7/8 — §6 notable samples + sidecar TSV "
+        "(%d total samples)",
         tier_label, n_samples,
     )
     appendix_section = _cr.render_per_sample_appendix(
         inputs, per_sample, page_size=page_size, tsv_path=appendix_tsv,
+        notable_top=notable_top,
     )
 
     logger.info(
@@ -2278,6 +2322,10 @@ def _render_cohort_layout(
             "cluster_distance": cluster_distance,
             "prevalence_core": prevalence_core,
             "prevalence_rare": prevalence_rare,
+            "species_table_top": species_table_top,
+            "variant_flagged_top": variant_flagged_top,
+            "notable_top": notable_top,
+            "max_samples_heatmap": max_samples_heatmap,
         },
     )
     # Renumber the transparency checklist heading from §6 to §8.
@@ -2336,6 +2384,8 @@ def _render_cohort_layout(
         "top_species_by_burden": top_burden,
         "top_species_by_prevalence": top_prev,
         "per_sample_tsv": appendix_tsv.name,
+        "species_summary_tsv": species_tsv.name,
+        "variant_impact_flagged_tsv": variant_tsv.name,
         "variant_flagged": variant_flagged,
     }
     return body, manifest_extra
