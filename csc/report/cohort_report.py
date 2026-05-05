@@ -21,12 +21,15 @@ from __future__ import annotations
 import csv
 import html
 import json
+import logging
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from csc.report import cohort as _cohort
 from csc.report import svg as _svg
+
+logger = logging.getLogger(__name__)
 
 
 # Maximum number of per-sample rows to emit in the §5.1 concordance
@@ -255,15 +258,26 @@ def render_cohort_landscape(
     * §3.8 Per-species drill-down for the top-N species.
     """
     abs_enabled = inputs.matrix_abs is not None
+    n_species = len(species_rows)
+    n_samples = len(inputs.matrix_raw.sample_ids)
     parts: list[str] = ["<h2>3. Cohort species landscape</h2>"]
 
+    logger.info("§3.1 species summary table (%d species)", n_species)
     parts.append(_render_species_table(species_rows, page_size=page_size,
                                         abs_enabled=abs_enabled))
+    logger.info("§3.2 prevalence–abundance map")
     parts.append(_render_prevalence_abundance_map(species_rows,
                                                    abs_enabled=abs_enabled))
+    logger.info("§3.3 rank-abundance curve")
     parts.append(_render_rank_abundance(species_rows, abs_enabled=abs_enabled))
+    logger.info("§3.4 core/accessory/rare partition")
     parts.append(_render_partition(partition, abs_enabled=abs_enabled))
+    logger.info("§3.5 cohort distribution figures")
     parts.append(_render_distribution_figures(inputs, species_rows))
+    logger.info(
+        "§3.6 heatmap (top %d species, %d samples, method=%s, dist=%s)",
+        top_species_heatmap, n_samples, cluster_method, cluster_distance,
+    )
     parts.append(_render_heatmap(
         inputs,
         species_rows,
@@ -272,6 +286,10 @@ def render_cohort_landscape(
         max_samples_cluster=max_samples_cluster,
         top_species=top_species_heatmap,
     ))
+    logger.info(
+        "§3.7 PCoA β-diversity ordination (%d samples, dist=%s)",
+        n_samples, cluster_distance,
+    )
     parts.append(_render_pcoa(
         inputs,
         species_rows,
@@ -279,9 +297,11 @@ def render_cohort_landscape(
         max_samples=max_samples_cluster,
         top_species=top_species_heatmap,
     ))
+    logger.info("§3.8 per-species drill-down (top %d)", drilldown_top)
     parts.append(_render_species_drilldown(
         inputs, species_rows, top_n=drilldown_top, abs_enabled=abs_enabled,
     ))
+    logger.info("§3 cohort landscape complete (§3.1–§3.8)")
 
     return "\n".join(parts)
 
@@ -675,12 +695,22 @@ def _render_heatmap(
             f"every-{step}-th sub-sample (n = {len(sample_ids)}).  Adjust with "
             f"<code>--max-samples-cluster</code>.</p>"
         )
+        logger.info(
+            "_render_heatmap: sub-sampled to %d samples (step=%d) "
+            "for clustering", len(sample_ids), step,
+        )
 
     if not tax_ids or not sample_ids:
         return (
             "<h3>3.6 Sample × species heatmap</h3>"
             "<p><em>Insufficient data to render heatmap.</em></p>"
         )
+
+    logger.info(
+        "_render_heatmap: clustering %d samples × %d species "
+        "(method=%s, dist=%s)",
+        len(sample_ids), len(tax_ids), cluster_method, cluster_distance,
+    )
 
     # Build value matrix [taxa][samples]
     values = [
@@ -847,11 +877,19 @@ def _render_pcoa(
         sub_note = (
             f" (deterministic every-{step}-th sub-sample; n = {len(sample_ids)})"
         )
+        logger.info(
+            "_render_pcoa: sub-sampled to %d samples (step=%d) for PCoA",
+            len(sample_ids), step,
+        )
 
     species_rows = list(species_rows)[:top_species]
     tax_ids = [r["tax_id"] for r in species_rows]
     if not tax_ids or len(sample_ids) < 3:
         return ""
+    logger.info(
+        "_render_pcoa: computing distance matrix (%d samples, %d species, dist=%s)",
+        len(sample_ids), len(tax_ids), cluster_distance,
+    )
     values = [
         [(matrix.values.get(tid, {}).get(sid) or 0.0) for sid in sample_ids]
         for tid in tax_ids

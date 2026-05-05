@@ -27,12 +27,15 @@ take precedence over specific implementation details.
 
 from __future__ import annotations
 
+import logging
 import math
 import statistics
 from typing import Any, Iterable, Mapping, Sequence
 
 # A "matrix" in this module mirrors :class:`csc.report.report.Matrix`
 # (we accept the parsed dataclass directly to avoid duplication).
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +163,11 @@ def species_summary_rows(
     flagged_taxa_abs = flagged_taxa_abs or {}
 
     n_samples = max(len(matrix_raw.sample_ids), 1)
+    n_taxa = len(matrix_raw.tax_ids)
+    logger.info(
+        "species_summary_rows: computing stats for %d taxa across %d samples",
+        n_taxa, n_samples,
+    )
     rows: list[dict[str, Any]] = []
 
     for tid in matrix_raw.tax_ids:
@@ -248,6 +256,9 @@ def species_summary_rows(
         return (-float(bur), -float(r["cohort_raw_total"]))
 
     rows.sort(key=_sort_key)
+    logger.info(
+        "species_summary_rows: done — %d non-human taxa summarised", len(rows),
+    )
     return rows
 
 
@@ -364,6 +375,12 @@ def bray_curtis_matrix(
     """
     if tax_ids is None:
         tax_ids = list(matrix.tax_ids)
+    n_features = len(tax_ids)
+    logger.info(
+        "bray_curtis_matrix: computing %d×%d pairwise distances "
+        "(features=%d)",
+        len(sample_ids), len(sample_ids), n_features,
+    )
     # Pre-extract per-sample vectors as plain lists (positional) for speed
     vecs: list[list[float]] = []
     sums: list[float] = []
@@ -400,6 +417,10 @@ def bray_curtis_matrix(
                     num += abs(a - b)
                 d = num / denom
             D[i][j] = D[j][i] = d
+    logger.info(
+        "bray_curtis_matrix: done — %d×%d distance matrix computed",
+        len(sample_ids), len(sample_ids),
+    )
     return D
 
 
@@ -434,6 +455,7 @@ def hclust(
     if n == 1:
         return {"order": [0], "merges": [], "method": method}
 
+    logger.info("hclust: agglomerative clustering of %d items (method=%s)", n, method)
     # Working symmetric distance matrix as dict-of-dicts so we can
     # delete clusters as they are merged.
     D: dict[int, dict[int, float]] = {}
@@ -519,6 +541,9 @@ def hclust(
             stack.append(ch[1])
             stack.append(ch[0])
 
+    logger.info(
+        "hclust: done — %d merges, leaf order computed", len(merges),
+    )
     return {"order": order, "merges": merges, "method": method}
 
 
@@ -555,6 +580,12 @@ def pcoa_2d(
     if n == 1:
         return {"coords": [[0.0] * n_components], "eigvals": [],
                 "explained_var": []}
+
+    logger.info(
+        "pcoa_2d: classical MDS on %d×%d distance matrix "
+        "(n_components=%d, max_iters=%d)",
+        n, n, n_components, power_iters,
+    )
 
     # Build B = -1/2 (D² - row_mean - col_mean + grand_mean)
     D2 = [[float(distance_matrix[i][j]) ** 2 for j in range(n)] for i in range(n)]
@@ -604,6 +635,10 @@ def pcoa_2d(
     explained_var: list[float] = []
     if trace > 0:
         explained_var = [lam / trace for lam in eigvals]
+    logger.info(
+        "pcoa_2d: done — explained variance %s",
+        ", ".join(f"{v:.1%}" for v in explained_var) if explained_var else "N/A",
+    )
     return {"coords": coords, "eigvals": eigvals, "explained_var": explained_var}
 
 

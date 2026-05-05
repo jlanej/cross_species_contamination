@@ -396,6 +396,9 @@ def load_inputs(
     with open(meta_path) as fh:
         aggregate_metadata = json.load(fh)
 
+    logger.info(
+        "load_inputs: loading sensitive-tier matrices from %s", aggregate_dir,
+    )
     detect_dir_path = Path(detect_dir) if detect_dir is not None else None
 
     sensitive = _load_single_tier(
@@ -405,9 +408,25 @@ def load_inputs(
         tier_suffix="",
         tier_threshold=0.0,
     )
+    logger.info(
+        "load_inputs: sensitive tier loaded — %d samples, %d taxa",
+        len(sensitive.matrix_raw.sample_ids),
+        len(sensitive.matrix_raw.tax_ids),
+    )
 
     # Discover and attach sibling high-confidence tier bundles.
-    for tier_suffix, tier_threshold in _discover_tier_suffixes(aggregate_dir):
+    tier_suffixes = _discover_tier_suffixes(aggregate_dir)
+    if tier_suffixes:
+        logger.info(
+            "load_inputs: discovered %d confidence-tier sibling(s): %s",
+            len(tier_suffixes),
+            ", ".join(s for s, _ in tier_suffixes),
+        )
+    for tier_suffix, tier_threshold in tier_suffixes:
+        logger.info(
+            "load_inputs: loading confidence tier %s (threshold=%.2f)",
+            tier_suffix, tier_threshold,
+        )
         try:
             tier_bundle = _load_single_tier(
                 aggregate_dir,
@@ -1111,6 +1130,15 @@ def _per_sample_stats(
     cpm = inputs.matrix_cpm
     abs_m = inputs.matrix_abs
     provenance = inputs.aggregate_metadata.get("sample_provenance", {}) or {}
+
+    n_samples = len(raw.sample_ids)
+    tier_label = (
+        f" (tier {inputs.tier_suffix})" if inputs.tier_suffix else ""
+    )
+    logger.info(
+        "_per_sample_stats: computing per-sample stats for %d samples%s",
+        n_samples, tier_label,
+    )
 
     for sid in raw.sample_ids:
         classified = _column_sum(raw, sid)
@@ -1817,6 +1845,15 @@ def generate_html_report(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    n_samples = len(inputs.matrix_raw.sample_ids)
+    n_taxa = len(inputs.matrix_raw.tax_ids)
+    n_tiers = 1 + len(inputs.confidence_tiers)
+    logger.info(
+        "generate_html_report: starting — layout=%s, %d samples, "
+        "%d taxa, %d tier(s), output=%s",
+        layout, n_samples, n_taxa, n_tiers, output_path,
+    )
+
     per_sample = _per_sample_stats(inputs)
     generated_at = datetime.now(tz=timezone.utc).isoformat(
         timespec="seconds"
@@ -1857,7 +1894,17 @@ def generate_html_report(
         tier_bodies: list[tuple[str, str, float, str]] = [
             ("", "Sensitive (confidence 0.0)", 0.0, body),
         ]
-        for tier_suffix, tier_inputs in inputs.confidence_tiers.items():
+        for tier_idx, (tier_suffix, tier_inputs) in enumerate(
+            inputs.confidence_tiers.items(), start=1
+        ):
+            logger.info(
+                "generate_html_report: rendering confidence tier %d/%d: %s "
+                "(threshold=%.2f)",
+                tier_idx,
+                len(inputs.confidence_tiers),
+                tier_suffix,
+                tier_inputs.tier_threshold,
+            )
             tier_per_sample = _per_sample_stats(tier_inputs)
             tier_body, _ = _render_cohort_layout(
                 tier_inputs,
@@ -1993,6 +2040,10 @@ def generate_html_report(
         + "\n</body>\n</html>\n"
     )
 
+    logger.info(
+        "generate_html_report: writing HTML report (~%d KB) to %s",
+        len(doc) // 1024, output_path,
+    )
     output_path.write_text(doc, encoding="utf-8")
     logger.info("Wrote HTML report to %s", output_path)
 
@@ -2102,10 +2153,25 @@ def _render_cohort_layout(
     from csc.report import cohort as _cohort
     from csc.report import cohort_report as _cr
 
+    tier_label = (
+        f" (confidence tier {inputs.tier_suffix})"
+        if inputs.tier_suffix else " (sensitive tier)"
+    )
+    n_samples = len(inputs.matrix_raw.sample_ids)
+    n_taxa = len(inputs.matrix_raw.tax_ids)
+    logger.info(
+        "_render_cohort_layout%s: %d samples, %d taxa",
+        tier_label, n_samples, n_taxa,
+    )
+
     # Flagged-taxon → distinct-sample counts (used for the §3.1 columns).
     primary_taxa = _cohort.flagged_taxon_counts(inputs.flagged_samples)
     abs_taxa = _cohort.flagged_taxon_counts(inputs.abs_flagged_samples)
 
+    logger.info(
+        "_render_cohort_layout%s: step 1/8 — computing species summary rows",
+        tier_label,
+    )
     species_rows = _cohort.species_summary_rows(
         inputs.matrix_raw,
         inputs.matrix_cpm,
@@ -2119,16 +2185,46 @@ def _render_cohort_layout(
         core_threshold=prevalence_core,
         rare_threshold=prevalence_rare,
     )
+    logger.info(
+        "_render_cohort_layout%s: prevalence partition — "
+        "core=%d accessory=%d rare=%d",
+        tier_label,
+        partition["core_count"],
+        partition["accessory_count"],
+        partition["rare_count"],
+    )
 
+    logger.info(
+        "_render_cohort_layout%s: step 2/8 — §4 variant-calling impact",
+        tier_label,
+    )
     variant_section, variant_flagged = _cr.render_variant_impact_v2(
         inputs, per_sample, species_rows, threshold_ppm,
         page_size=page_size,
+    )
+    logger.info(
+        "_render_cohort_layout%s: %d samples exceed variant-impact threshold "
+        "(%.0f ppm)",
+        tier_label, len(variant_flagged), threshold_ppm,
+    )
+
+    logger.info(
+        "_render_cohort_layout%s: step 3/8 — §1 executive summary", tier_label,
     )
     exec_section = _cr.render_executive_summary_v2(
         inputs, per_sample, species_rows, partition,
         variant_flagged, threshold_ppm,
     )
+
+    logger.info(
+        "_render_cohort_layout%s: step 4/8 — §2 methods", tier_label,
+    )
     methods_section = _render_methods(inputs)
+
+    logger.info(
+        "_render_cohort_layout%s: step 5/8 — §3 cohort landscape "
+        "(heatmap, PCoA, drilldown)", tier_label,
+    )
     landscape_section = _cr.render_cohort_landscape(
         inputs,
         species_rows,
@@ -2140,7 +2236,12 @@ def _render_cohort_layout(
         top_species_heatmap=top_species,
         drilldown_top=drilldown_top,
     )
+
+    logger.info(
+        "_render_cohort_layout%s: step 6/8 — §5 detection summary", tier_label,
+    )
     detection_section = _cr.render_detection_section_v2(inputs)
+
     # When this is a high-confidence tier (non-empty tier_suffix) write
     # the per-sample appendix TSV under a tier-specific filename so the
     # sensitive-tier sidecar isn't overwritten.
@@ -2150,8 +2251,17 @@ def _render_cohort_layout(
         )
     else:
         appendix_tsv = output_path.with_name("per_sample_summary.tsv")
+    logger.info(
+        "_render_cohort_layout%s: step 7/8 — §6 per-sample appendix (%d rows)",
+        tier_label, n_samples,
+    )
     appendix_section = _cr.render_per_sample_appendix(
         inputs, per_sample, page_size=page_size, tsv_path=appendix_tsv,
+    )
+
+    logger.info(
+        "_render_cohort_layout%s: step 8/8 — §7 discussion + §8 checklist",
+        tier_label,
     )
     discussion_section = _cr.render_discussion_v2(
         inputs, species_rows, partition, variant_flagged,
@@ -2185,6 +2295,10 @@ def _render_cohort_layout(
         + appendix_section
         + discussion_section
         + checklist_section
+    )
+
+    logger.info(
+        "_render_cohort_layout%s: all sections assembled", tier_label,
     )
 
     # Compact species summary for the manifest (top 200 only).
