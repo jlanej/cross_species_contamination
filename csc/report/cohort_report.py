@@ -39,6 +39,56 @@ logger = logging.getLogger(__name__)
 _DEMOTED_TABLE_MAX_ROWS = 200
 
 
+# ---------------------------------------------------------------------------
+# Non-informative taxa filtering for clustering / ordination
+# ---------------------------------------------------------------------------
+#
+# Kraken2 emits two pseudo-taxa that almost always sit at the very top of
+# the cohort burden ranking but carry no biological signal:
+#
+#   tax_id 0  → "unclassified"  (reads with no k-mer match anywhere)
+#   tax_id 1  → "root"          (reads matching the LCA of the whole tree)
+#
+# Including them in the hierarchical clustering of §3.6 / §3.6.5 and the
+# β-diversity PCoA of §3.7 is actively harmful: their prevalence and
+# magnitude swamp the true cohort structure (every sample looks similar
+# along the "unclassified" axis), and tooltips end up reporting them as
+# the dominant signal even though they are not interpretable.  We
+# therefore drop them up-front when picking the top-K species for those
+# figures.
+#
+# Conversely, *Unclassified is intentionally retained* in:
+#   - §3.1 species summary table  (auditability)
+#   - §3.6.1 per-sample domain composition  (cohort-level QC)
+#   - §3.6.3 cohort burden distribution     (cohort-level QC)
+#   - §5 detection summary                  (driven by the detect pass)
+# so reviewers can still see how big the unclassified bucket is.
+_NON_INFORMATIVE_TAX_IDS: frozenset[int] = frozenset({0, 1})
+
+
+def _is_unclassified_or_root(row: Mapping[str, Any]) -> bool:
+    """Return True if *row* describes the kraken2 ``unclassified`` (tax_id
+    0) or ``root`` (tax_id 1) pseudo-taxon, which we exclude from
+    clustering / ordination figures."""
+    try:
+        tid = int(row.get("tax_id"))
+    except (TypeError, ValueError):
+        return False
+    return tid in _NON_INFORMATIVE_TAX_IDS
+
+
+def _drop_unclassified_and_root(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Return *rows* with the unclassified (0) and root (1) entries removed.
+
+    Used by the §3.6 species heatmap, §3.6.5 absolute-burden heatmap, and
+    §3.7 PCoA so that those figures cluster on biologically informative
+    taxa only.  See :data:`_NON_INFORMATIVE_TAX_IDS` for rationale.
+    """
+    return [r for r in rows if not _is_unclassified_or_root(r)]
+
+
 def _esc(s: object) -> str:
     return html.escape(str(s))
 
@@ -778,20 +828,33 @@ def _render_distribution_figures(
 def _largest_domain(matrix: Any, sample_id: str) -> str:
     """Return the taxonomic domain that contributes the most to a sample.
 
-    Excludes ``Human`` so the output is informative for contamination
-    grouping.
+    Excludes ``Human`` (tax_id 9606), the kraken2 ``unclassified``
+    (tax_id 0) and ``root`` (tax_id 1) pseudo-taxa, *and* any taxon
+    whose canonical domain resolves to ``"Unclassified"`` so the
+    output is informative for contamination grouping.  In Kraken2
+    output the unclassified bucket is often the single largest CPM
+    contributor, which made every sample's "dominant" label render as
+    ``Unclassified`` in the §3.7 PCoA hover tooltip.  Falling back to
+    the next-largest *informative* domain gives a meaningful label.
     """
     totals: dict[str, float] = {}
     for tid in matrix.tax_ids:
         if tid == 9606:
             continue
+        if tid in _NON_INFORMATIVE_TAX_IDS:
+            continue
         v = matrix.values.get(tid, {}).get(sample_id)
         if v is None or v <= 0:
             continue
         d = matrix.tax_domains.get(tid, "Unannotated") or "Unannotated"
+        # Skip taxa whose lineage resolves to "Unclassified" (e.g. a
+        # taxid that is itself just below root with no kingdom anchor).
+        # See csc/aggregate/taxonomy.py for the assignment rules.
+        if d == "Unclassified":
+            continue
         totals[d] = totals.get(d, 0.0) + float(v)
     if not totals:
-        return "no non-human"
+        return "no informative domain"
     return max(totals.items(), key=lambda kv: kv[1])[0]
 
 
@@ -815,10 +878,32 @@ def _render_heatmap(
     Bray–Curtis + hclust on every dependent figure.
     """
     matrix = inputs.matrix_cpm
+    # Drop the kraken2 "unclassified" (tax_id 0) and "root" (tax_id 1)
+    # pseudo-taxa before picking the top-K species: their prevalence
+    # and magnitude swamp the hierarchical clustering and produce
+    # uninformative dendrograms (every sample looks similar along the
+    # "unclassified" axis).  See _drop_unclassified_and_root for
+    # rationale; the top-K is therefore picked from this tier's own
+    # informative-species ranking, which is independent across tiers.
+    n_input_rows = len(species_rows)
+    species_rows = _drop_unclassified_and_root(species_rows)
+    n_dropped = n_input_rows - len(species_rows)
     species_rows = list(species_rows)[:top_species]
     tax_ids = [r["tax_id"] for r in species_rows]
     sample_ids = list(matrix.sample_ids)
     sub_note = ""
+    drop_note = ""
+    if n_dropped:
+        # n_dropped is at most 2 (tax_ids 0 and 1) but we phrase it
+        # generically in case the filter set ever expands.
+        drop_note = (
+            f"<p class='fig-caption'><em>Note:</em> the kraken2 "
+            f"<code>unclassified</code> (tax_id 0) and <code>root</code> "
+            f"(tax_id 1) pseudo-taxa are excluded from this clustering "
+            f"because their prevalence dominates every sample and "
+            f"obscures real cohort structure.  They remain visible in "
+            f"§3.1, §3.6.1 and §3.6.3 for QC.</p>"
+        )
     if len(sample_ids) > max_samples_cluster:
         # Stable deterministic sub-sample: every k-th sample.
         step = math.ceil(len(sample_ids) / max_samples_cluster)
@@ -899,17 +984,36 @@ def _render_heatmap(
         cell_min_h=14.0,
         value_label="log1p(CPM)",
     )
+    # Surface the tier this clustering was computed against so the
+    # reader can see at a glance whether the sensitive vs
+    # high-confidence views are using different species sets.
+    tier_suffix = getattr(inputs, "tier_suffix", "") or ""
+    tier_threshold = getattr(inputs, "tier_threshold", 0.0)
+    if tier_suffix:
+        tier_descr = (
+            f" — confidence tier <code>{_esc(tier_suffix)}</code> "
+            f"(Kraken2 confidence ≥ {float(tier_threshold):.2f})"
+        )
+    else:
+        tier_descr = " — sensitive tier (Kraken2 confidence 0.0)"
+
     html_out = (
         "<h3>3.6 Sample × species heatmap (hierarchical clustering)</h3>"
         + fig
         + sub_note
+        + drop_note
         + "<p class='fig-caption'>Distinct sample clusters in this heatmap "
         "frequently correspond to sequencing batch, kit, or lab "
         "differences rather than biological signal.  Cluster method "
         f"= <code>{_esc(cluster_method)}</code>, distance "
         f"= <code>{_esc(cluster_distance)}</code> on log1p-CPM over the "
-        f"top-{len(row_labels)} species by cohort burden.  Colour scale: "
-        "<code>log1p(CPM)</code>; see legend at right.</p>"
+        f"top-{len(row_labels)} species by cohort burden{tier_descr}.  "
+        "The species set, the Bray–Curtis distance matrix, and both "
+        "(sample, taxa) dendrograms are recomputed independently for "
+        "each confidence tier, so flipping the tier picker can produce "
+        "a genuinely different ordering — that is the point of the "
+        "comparison.  Colour scale: <code>log1p(CPM)</code>; see "
+        "legend at right.</p>"
     )
     ctx = {
         "sample_ids": sample_ids,
@@ -1072,7 +1176,10 @@ def _render_prevalence_abundance_scatter(
     return (
         "<h3>3.6.2 Prevalence × abundance scatter</h3>"
         + fig
-        + "<p class='fig-caption'>Each dot is a species.  X-axis is the "
+        + "<p class='fig-caption'>Each dot is a species — "
+        "<strong>hover any point for an immediate tooltip</strong> "
+        "with the species name, tax_id, domain, prevalence, median "
+        "CPM and p95 CPM.  X-axis is the "
         "fraction of samples where the species is detected (any "
         "positive count); Y-axis is the median CPM <em>among</em> "
         "samples that detected it.  Dot size scales with p95 CPM, so "
@@ -1373,7 +1480,16 @@ def _render_pcoa(
             len(sample_ids), step,
         )
 
-    species_rows = list(species_rows)[:top_species]
+    species_rows = list(species_rows)
+    # Mirror §3.6: drop tax_ids 0 (unclassified) and 1 (root) so the
+    # PCoA distance matrix isn't dominated by the kraken2 unclassified
+    # bucket — that was making most samples cluster together along an
+    # uninformative "unclassified" axis and forcing the hover label to
+    # always read "Unclassified" (see _largest_domain).
+    n_pre_filter = len(species_rows)
+    species_rows = _drop_unclassified_and_root(species_rows)
+    n_dropped_pcoa = n_pre_filter - len(species_rows)
+    species_rows = species_rows[:top_species]
     tax_ids = [r["tax_id"] for r in species_rows]
     if not tax_ids or len(sample_ids) < 3:
         return ""
@@ -1439,10 +1555,17 @@ def _render_pcoa(
         + "<p class='fig-caption'>Each dot is a sample, projected by "
         "classical multidimensional scaling on a "
         f"<code>{_esc(cluster_distance)}</code>-distance matrix over the "
-        "top-K species.  Tight clusters / streaks here often co-localise "
-        "with batch / kit / lab effects when cross-referenced with the "
-        "heatmap (§3.6); samples flagged by <code>csc-detect</code> are "
-        "highlighted.</p>"
+        f"top-{len(tax_ids)} species (kraken2 <code>unclassified</code> "
+        "and <code>root</code> pseudo-taxa excluded — they would "
+        "otherwise dominate the distance and force every sample's "
+        "hover label to <em>Unclassified</em>).  The hover label "
+        "reports each sample's dominant <em>informative</em> domain "
+        "(Human / Unclassified / root excluded), so points appearing "
+        "to overlap can still be distinguished by their "
+        "real-organism contribution.  Tight clusters / streaks here "
+        "often co-localise with batch / kit / lab effects when "
+        "cross-referenced with the heatmap (§3.6); samples flagged "
+        "by <code>csc-detect</code> are highlighted.</p>"
     )
 
 

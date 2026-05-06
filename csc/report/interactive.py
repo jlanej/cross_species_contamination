@@ -60,6 +60,35 @@ details.species-details { margin: 0.4em 0; padding: 0.3em 0.6em;
                            background: #fafafa; border-left: 3px solid #56B4E9; }
 details.species-details summary { cursor: pointer; font-weight: 600; }
 .dl-link { font-size: 12px; }
+
+/* Interactive scatter-plot tooltip (used by §3.2, §3.6.2, §3.7) */
+.scatter-figure { position: relative; }
+.scatter-svg .scatter-point {
+  transition: stroke-width 80ms linear, fill-opacity 80ms linear;
+  cursor: crosshair;
+}
+.scatter-svg .scatter-point:hover,
+.scatter-svg .scatter-point.scatter-point-active {
+  stroke: #111;
+  stroke-width: 2.0;
+  fill-opacity: 1.0;
+}
+.scatter-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(33, 33, 33, 0.94);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 320px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  white-space: pre-wrap;
+  z-index: 10;
+  display: none;
+}
+.scatter-tooltip.scatter-tooltip-visible { display: block; }
 """
 
 
@@ -229,6 +258,55 @@ COHORT_JS = r"""
   }
   function init() {
     document.querySelectorAll('table.paginated').forEach(setupTable);
+    document.querySelectorAll('.scatter-figure').forEach(setupScatter);
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // Interactive scatter-plot hover tooltip
+  // ──────────────────────────────────────────────────────────────────
+  // Used by §3.2 prevalence-vs-abundance map, §3.6.2 prevalence ×
+  // abundance scatter, and §3.7 PCoA.  Each scatter <circle> already
+  // carries a native <title> tooltip (graceful fallback for no-JS),
+  // but native titles take ~1s to appear and clip at the SVG edge.
+  // We attach a tiny mousemove tooltip so hover feedback is immediate.
+  function setupScatter(fig) {
+    var pts = fig.querySelectorAll('.scatter-point');
+    if (!pts.length) return;
+    var tip = document.createElement('div');
+    tip.className = 'scatter-tooltip';
+    fig.appendChild(tip);
+    var active = null;
+    function show(evt, pt) {
+      var label = pt.getAttribute('data-label') || '';
+      if (!label) return;
+      tip.textContent = label;
+      tip.classList.add('scatter-tooltip-visible');
+      var rect = fig.getBoundingClientRect();
+      var x = evt.clientX - rect.left + 12;
+      var y = evt.clientY - rect.top + 12;
+      // Keep tooltip inside the figure horizontally.
+      var maxX = rect.width - tip.offsetWidth - 4;
+      if (x > maxX) x = Math.max(0, maxX);
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+      if (active && active !== pt) {
+        active.classList.remove('scatter-point-active');
+      }
+      pt.classList.add('scatter-point-active');
+      active = pt;
+    }
+    function hide() {
+      tip.classList.remove('scatter-tooltip-visible');
+      if (active) {
+        active.classList.remove('scatter-point-active');
+        active = null;
+      }
+    }
+    pts.forEach(function (pt) {
+      pt.addEventListener('mouseenter', function (e) { show(e, pt); });
+      pt.addEventListener('mousemove',  function (e) { show(e, pt); });
+      pt.addEventListener('mouseleave', hide);
+    });
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

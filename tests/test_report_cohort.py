@@ -484,6 +484,138 @@ class TestStackedColumnBarSvg:
         assert "flagged sample" in svg_text
 
 
+class TestScatterSvgInteractivity:
+    """The §3.6.2 prevalence × abundance scatter (and §3.7 PCoA, §3.2
+    quadrant map) all flow through :func:`_svg.scatter_svg`.  The
+    rendered SVG must opt every point into the JS-driven hover tooltip
+    and visual highlight via ``class="scatter-point"`` and
+    ``data-label="…"`` attributes."""
+
+    def test_scatter_circles_carry_interactive_hooks(self) -> None:
+        pts = [
+            {"x": 0.1, "y": 1.0, "label": "alpha", "domain": "Bacteria"},
+            {"x": 0.5, "y": 5.0, "label": "beta",  "domain": "Viruses"},
+        ]
+        svg_text = _svg.scatter_svg(
+            pts, title="t", x_label="x", y_label="y",
+            legend_domains=["Bacteria", "Viruses"],
+        )
+        # Wrapping div + svg classes are present so the JS init can
+        # find the figure.
+        assert 'class="figure scatter-figure"' in svg_text
+        assert 'class="scatter-svg"' in svg_text
+        # Each circle is tagged for the JS tooltip + visual hover.
+        assert svg_text.count('class="scatter-point"') == 2
+        # data-label round-trips the tooltip text (kept in sync with
+        # native <title> for graceful no-JS fallback).
+        assert 'data-label="alpha"' in svg_text
+        assert 'data-label="beta"' in svg_text
+        assert "<title>alpha</title>" in svg_text
+
+
+class TestUnclassifiedFiltering:
+    """Regression tests for the §3.6 / §3.6.5 / §3.7 unclassified+root
+    filter.  The kraken2 pseudo-taxa ``unclassified`` (tax_id 0) and
+    ``root`` (tax_id 1) must be excluded from hierarchical clustering
+    and PCoA, but kept available for the §3.1 species table and §3.6.1
+    domain composition bar."""
+
+    def test_drop_unclassified_and_root_helper(self) -> None:
+        from csc.report import cohort_report as cr
+        rows = [
+            {"tax_id": 0, "name": "unclassified"},
+            {"tax_id": 1, "name": "root"},
+            {"tax_id": 1280, "name": "Staphylococcus aureus"},
+            {"tax_id": 562, "name": "Escherichia coli"},
+        ]
+        out = cr._drop_unclassified_and_root(rows)
+        ids = {int(r["tax_id"]) for r in out}
+        assert ids == {1280, 562}
+
+    def test_heatmap_excludes_unclassified_and_root(
+        self, aggregate_outputs: dict
+    ) -> None:
+        """The rendered §3.6 heatmap row labels must not contain
+        unclassified or root, even though those pseudo-taxa carry the
+        largest cohort burden in the fixture."""
+        import re
+        inputs = load_inputs(aggregate_outputs["aggregate_dir"])
+        out = aggregate_outputs["tmp_path"] / "report.html"
+        generate_html_report(inputs, out, threshold_ppm=100.0)
+        text = out.read_text(encoding="utf-8")
+
+        # The §3.6 heatmap caption must call out the exclusion rule so
+        # users understand why the top-K differs from the §3.1 table.
+        assert "kraken2" in text and "pseudo-taxa" in text
+        assert "<code>unclassified</code>" in text
+        assert "<code>root</code>" in text
+
+        # Pull the actual SVG row/column labels from §3.6 — these are
+        # the only place "unclassified" or "root" would appear if they
+        # had leaked into the clustering.
+        h36 = text.split("3.6 Sample × species heatmap")[1].split(
+            "<h3>3.6.1"
+        )[0]
+        svg_labels = re.findall(r"<text[^>]*>([^<]+)</text>", h36)
+        assert "unclassified" not in svg_labels
+        assert "root" not in svg_labels
+        # Sanity: real species do appear (proves we actually rendered
+        # a heatmap, not an empty one).
+        assert any("Staphylococcus" in s or "coli" in s for s in svg_labels)
+
+        # The species summary table (§3.1) still exposes both rows for
+        # auditability — they appear there as plain table cells.
+        assert "unclassified" in text
+        assert ">root<" in text
+
+    def test_per_tier_clustering_documented_in_caption(
+        self, aggregate_outputs: dict
+    ) -> None:
+        """The §3.6 caption must explicitly tell the user that the
+        species set / dendrograms are recomputed per confidence tier."""
+        inputs = load_inputs(aggregate_outputs["aggregate_dir"])
+        out = aggregate_outputs["tmp_path"] / "report.html"
+        generate_html_report(inputs, out, threshold_ppm=100.0)
+        text = out.read_text(encoding="utf-8")
+        assert "independently for each confidence tier" in text
+
+    def test_largest_domain_skips_unclassified(self) -> None:
+        """`_largest_domain` must skip tax_ids 0/1 and any taxon whose
+        domain resolves to ``Unclassified`` so PCoA hover tooltips do
+        not always read 'dominant Unclassified'."""
+        from csc.report import cohort_report as cr
+
+        class _M:
+            tax_ids = [0, 1, 2, 1280]  # 0 and 1 = unclassified/root
+            tax_domains = {
+                0: "Unclassified",
+                1: "Unclassified",
+                2: "Bacteria",
+                1280: "Bacteria",
+            }
+            values = {
+                0: {"S1": 1_000_000.0},   # huge but ignored
+                1: {"S1": 500_000.0},     # huge but ignored
+                2: {"S1": 10.0},
+                1280: {"S1": 5.0},
+            }
+
+        # Even though the unclassified bucket dwarfs everything, the
+        # informative domain (Bacteria) wins.
+        assert cr._largest_domain(_M(), "S1") == "Bacteria"
+
+    def test_largest_domain_falls_back_when_only_unclassified(self) -> None:
+        from csc.report import cohort_report as cr
+
+        class _M:
+            tax_ids = [0, 1]
+            tax_domains = {0: "Unclassified", 1: "Unclassified"}
+            values = {0: {"S1": 1.0}, 1: {"S1": 1.0}}
+
+        # No informative reads → graceful fallback string (not "Unclassified").
+        assert cr._largest_domain(_M(), "S1") == "no informative domain"
+
+
 # ---------------------------------------------------------------------------
 # Rendered report assertions
 # ---------------------------------------------------------------------------
