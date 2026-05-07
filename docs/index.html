@@ -68,6 +68,35 @@ details.species-details { margin: 0.4em 0; padding: 0.3em 0.6em;
                            background: #fafafa; border-left: 3px solid #56B4E9; }
 details.species-details summary { cursor: pointer; font-weight: 600; }
 .dl-link { font-size: 12px; }
+
+/* Interactive scatter-plot tooltip (used by §3.2, §3.6.2, §3.7) */
+.scatter-figure { position: relative; }
+.scatter-svg .scatter-point {
+  transition: stroke-width 80ms linear, fill-opacity 80ms linear;
+  cursor: crosshair;
+}
+.scatter-svg .scatter-point:hover,
+.scatter-svg .scatter-point.scatter-point-active {
+  stroke: #111;
+  stroke-width: 2.0;
+  fill-opacity: 1.0;
+}
+.scatter-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(33, 33, 33, 0.94);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 320px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  white-space: pre-wrap;
+  z-index: 10;
+  display: none;
+}
+.scatter-tooltip.scatter-tooltip-visible { display: block; }
 </style>
 </head>
 <body>
@@ -133,9 +162,9 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <tr><td>Bacillus</td><td>1386</td><td>Unannotated</td><td data-sort='0.0'>0.0%</td><td data-sort='0.0'>0.0%</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>NA</td><td>0</td><td>0</td><td>0</td><td>0</td><td>NA</td><td><svg width="110" height="22" viewBox="0 0 110 22" xmlns="http://www.w3.org/2000/svg" aria-label="empty"><line x1="0" y1="21" x2="110" y2="21" stroke="#bbb"/></svg></td></tr></tbody></table>
 <h3>3.2 Prevalence-vs-abundance map (contamination quadrants)</h3>
 <p>One dot per species.  <em>x</em> = prevalence (fraction of samples with ≥1 read).  <em>y</em> = log10 median absolute burden (ppm of total sequenced reads, positives only) when available, otherwise log10 median CPM (per million classified reads).  Dot size is proportional to log10 cohort raw reads, colour by domain.  Quadrant guidance (50% prevalence × the median y-value of the scatter) separates <em>core kitome</em>, <em>systemic burden</em>, <em>outburst</em>, and <em>trace</em> species.</p>
-<div class="figure">
+<div class="figure scatter-figure">
 <p class="fig-title">Figure 3.2 — prevalence vs absolute burden</p>
-<svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.2 — prevalence vs absolute burden">
+<svg class="scatter-svg" viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.2 — prevalence vs absolute burden">
 <rect x="70" y="30" width="632" height="354" fill="#fafafa" stroke="#ccc"/>
 <line x1="369.4" y1="30" x2="369.4" y2="384" stroke="#888" stroke-dasharray="4 3"/>
 <line x1="70" y1="148.4" x2="702" y2="148.4" stroke="#888" stroke-dasharray="4 3"/>
@@ -155,48 +184,48 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <line x1="66" y1="30.0" x2="70" y2="30.0" stroke="#444"/><text x="64" y="33.0" font-size="10" text-anchor="end">10^5.4</text>
 <text x="386.0" y="422" font-size="12" text-anchor="middle">prevalence (fraction of samples)</text>
 <text x="14" y="207.0" font-size="12" text-anchor="middle" transform="rotate(-90 14 207.0)">log10 median ppm of total sequenced reads (positives)</text>
-<circle cx="702.00" cy="30.00" r="8.08" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>root (tax_id 1) — prev 100.0%, median ppm 2.3e+05</title></circle>
-<circle cx="369.37" cy="74.54" r="7.29" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacteria (tax_id 2) — prev 50.0%, median ppm 6.5e+04</title></circle>
-<circle cx="702.00" cy="108.22" r="7.21" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>unclassified (tax_id 0) — prev 100.0%, median ppm 2.5e+04</title></circle>
-<circle cx="469.16" cy="182.95" r="6.96" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus aureus (tax_id 1280) — prev 65.0%, median ppm 3e+03</title></circle>
-<circle cx="435.89" cy="172.81" r="6.81" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia coli (tax_id 562) — prev 60.0%, median ppm 4e+03</title></circle>
-<circle cx="136.53" cy="74.54" r="6.76" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus (tax_id 1279) — prev 15.0%, median ppm 6.5e+04</title></circle>
-<circle cx="136.53" cy="83.79" r="6.58" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Klebsiella pneumoniae (tax_id 620) — prev 15.0%, median ppm 5e+04</title></circle>
-<circle cx="136.53" cy="87.50" r="6.55" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Metazoa (tax_id 33208) — prev 15.0%, median ppm 4.5e+04</title></circle>
-<circle cx="136.53" cy="91.65" r="6.52" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mus musculus (tax_id 10090) — prev 15.0%, median ppm 4e+04</title></circle>
-<circle cx="103.26" cy="85.97" r="6.48" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia (tax_id 561) — prev 10.0%, median ppm 4.7e+04</title></circle>
-<circle cx="136.53" cy="116.09" r="6.25" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Fungi (tax_id 4751) — prev 15.0%, median ppm 2e+04</title></circle>
-<circle cx="169.79" cy="132.65" r="6.19" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Candida albicans (tax_id 5476) — prev 20.0%, median ppm 1.25e+04</title></circle>
-<circle cx="136.53" cy="140.52" r="6.15" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Pseudomonas aeruginosa (tax_id 287) — prev 15.0%, median ppm 1e+04</title></circle>
-<circle cx="136.53" cy="140.52" r="6.03" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Viruses (tax_id 10239) — prev 15.0%, median ppm 1e+04</title></circle>
-<circle cx="103.26" cy="132.65" r="5.96" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Arabidopsis thaliana (tax_id 3702) — prev 10.0%, median ppm 1.25e+04</title></circle>
-<circle cx="136.53" cy="148.38" r="5.93" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Epstein-Barr virus (tax_id 10376) — prev 15.0%, median ppm 8e+03</title></circle>
-<circle cx="70.00" cy="121.81" r="5.81" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Archaea (tax_id 2157) — prev 5.0%, median ppm 1.7e+04</title></circle>
-<circle cx="70.00" cy="134.09" r="5.67" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Methanobrevibacter smithii (tax_id 2190) — prev 5.0%, median ppm 1.2e+04</title></circle>
-<circle cx="70.00" cy="140.52" r="5.60" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>artificial sequences (tax_id 81077) — prev 5.0%, median ppm 1e+04</title></circle>
-<circle cx="70.00" cy="148.38" r="5.51" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Zea mays (tax_id 4577) — prev 5.0%, median ppm 8e+03</title></circle>
-<circle cx="70.00" cy="164.95" r="5.33" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Saccharomyces cerevisiae (tax_id 4932) — prev 5.0%, median ppm 5e+03</title></circle>
-<circle cx="70.00" cy="164.95" r="5.33" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Rattus norvegicus (tax_id 10116) — prev 5.0%, median ppm 5e+03</title></circle>
-<circle cx="70.00" cy="164.95" r="5.33" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Human cytomegalovirus (tax_id 10359) — prev 5.0%, median ppm 5e+03</title></circle>
-<circle cx="70.00" cy="164.95" r="5.33" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Nitrosopumilus maritimus (tax_id 187420) — prev 5.0%, median ppm 5e+03</title></circle>
-<circle cx="70.00" cy="172.81" r="5.24" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mycobacterium tuberculosis (tax_id 1773) — prev 5.0%, median ppm 4e+03</title></circle>
-<circle cx="136.53" cy="246.11" r="5.19" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacillus subtilis (tax_id 1423) — prev 15.0%, median ppm 500</title></circle>
-<circle cx="70.00" cy="182.95" r="5.13" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Cryptococcus neoformans (tax_id 5207) — prev 5.0%, median ppm 3e+03</title></circle>
-<circle cx="70.00" cy="197.25" r="4.97" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Measles morbillivirus (tax_id 11234) — prev 5.0%, median ppm 2e+03</title></circle>
-<circle cx="70.00" cy="221.68" r="4.70" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Campylobacter jejuni (tax_id 194) — prev 5.0%, median ppm 1e+03</title></circle>
-<circle cx="70.00" cy="229.54" r="4.61" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Enterococcus faecium (tax_id 1352) — prev 5.0%, median ppm 800</title></circle>
-<circle cx="70.00" cy="246.11" r="4.43" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pyogenes (tax_id 1314) — prev 5.0%, median ppm 500</title></circle>
-<circle cx="70.00" cy="359.57" r="3.17" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pneumoniae (tax_id 1301) — prev 5.0%, median ppm 20</title></circle>
-<circle cx="70.00" cy="384.00" r="2.90" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Haemophilus influenzae (tax_id 727) — prev 5.0%, median ppm 10</title></circle>
+<circle class="scatter-point" cx="702.00" cy="30.00" r="8.08" fill="#E69F00" data-r="8.08" data-label="root (tax_id 1) — prev 100.0%, median ppm 2.3e+05" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>root (tax_id 1) — prev 100.0%, median ppm 2.3e+05</title></circle>
+<circle class="scatter-point" cx="369.37" cy="74.54" r="7.29" fill="#E69F00" data-r="7.29" data-label="Bacteria (tax_id 2) — prev 50.0%, median ppm 6.5e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacteria (tax_id 2) — prev 50.0%, median ppm 6.5e+04</title></circle>
+<circle class="scatter-point" cx="702.00" cy="108.22" r="7.21" fill="#E69F00" data-r="7.21" data-label="unclassified (tax_id 0) — prev 100.0%, median ppm 2.5e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>unclassified (tax_id 0) — prev 100.0%, median ppm 2.5e+04</title></circle>
+<circle class="scatter-point" cx="469.16" cy="182.95" r="6.96" fill="#E69F00" data-r="6.96" data-label="Staphylococcus aureus (tax_id 1280) — prev 65.0%, median ppm 3e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus aureus (tax_id 1280) — prev 65.0%, median ppm 3e+03</title></circle>
+<circle class="scatter-point" cx="435.89" cy="172.81" r="6.81" fill="#E69F00" data-r="6.81" data-label="Escherichia coli (tax_id 562) — prev 60.0%, median ppm 4e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia coli (tax_id 562) — prev 60.0%, median ppm 4e+03</title></circle>
+<circle class="scatter-point" cx="136.53" cy="74.54" r="6.76" fill="#E69F00" data-r="6.76" data-label="Staphylococcus (tax_id 1279) — prev 15.0%, median ppm 6.5e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus (tax_id 1279) — prev 15.0%, median ppm 6.5e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="83.79" r="6.58" fill="#E69F00" data-r="6.58" data-label="Klebsiella pneumoniae (tax_id 620) — prev 15.0%, median ppm 5e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Klebsiella pneumoniae (tax_id 620) — prev 15.0%, median ppm 5e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="87.50" r="6.55" fill="#E69F00" data-r="6.55" data-label="Metazoa (tax_id 33208) — prev 15.0%, median ppm 4.5e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Metazoa (tax_id 33208) — prev 15.0%, median ppm 4.5e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="91.65" r="6.52" fill="#E69F00" data-r="6.52" data-label="Mus musculus (tax_id 10090) — prev 15.0%, median ppm 4e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mus musculus (tax_id 10090) — prev 15.0%, median ppm 4e+04</title></circle>
+<circle class="scatter-point" cx="103.26" cy="85.97" r="6.48" fill="#E69F00" data-r="6.48" data-label="Escherichia (tax_id 561) — prev 10.0%, median ppm 4.7e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia (tax_id 561) — prev 10.0%, median ppm 4.7e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="116.09" r="6.25" fill="#E69F00" data-r="6.25" data-label="Fungi (tax_id 4751) — prev 15.0%, median ppm 2e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Fungi (tax_id 4751) — prev 15.0%, median ppm 2e+04</title></circle>
+<circle class="scatter-point" cx="169.79" cy="132.65" r="6.19" fill="#E69F00" data-r="6.19" data-label="Candida albicans (tax_id 5476) — prev 20.0%, median ppm 1.25e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Candida albicans (tax_id 5476) — prev 20.0%, median ppm 1.25e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="140.52" r="6.15" fill="#E69F00" data-r="6.15" data-label="Pseudomonas aeruginosa (tax_id 287) — prev 15.0%, median ppm 1e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Pseudomonas aeruginosa (tax_id 287) — prev 15.0%, median ppm 1e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="140.52" r="6.03" fill="#E69F00" data-r="6.03" data-label="Viruses (tax_id 10239) — prev 15.0%, median ppm 1e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Viruses (tax_id 10239) — prev 15.0%, median ppm 1e+04</title></circle>
+<circle class="scatter-point" cx="103.26" cy="132.65" r="5.96" fill="#E69F00" data-r="5.96" data-label="Arabidopsis thaliana (tax_id 3702) — prev 10.0%, median ppm 1.25e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Arabidopsis thaliana (tax_id 3702) — prev 10.0%, median ppm 1.25e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="148.38" r="5.93" fill="#E69F00" data-r="5.93" data-label="Epstein-Barr virus (tax_id 10376) — prev 15.0%, median ppm 8e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Epstein-Barr virus (tax_id 10376) — prev 15.0%, median ppm 8e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="121.81" r="5.81" fill="#E69F00" data-r="5.81" data-label="Archaea (tax_id 2157) — prev 5.0%, median ppm 1.7e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Archaea (tax_id 2157) — prev 5.0%, median ppm 1.7e+04</title></circle>
+<circle class="scatter-point" cx="70.00" cy="134.09" r="5.67" fill="#E69F00" data-r="5.67" data-label="Methanobrevibacter smithii (tax_id 2190) — prev 5.0%, median ppm 1.2e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Methanobrevibacter smithii (tax_id 2190) — prev 5.0%, median ppm 1.2e+04</title></circle>
+<circle class="scatter-point" cx="70.00" cy="140.52" r="5.60" fill="#E69F00" data-r="5.60" data-label="artificial sequences (tax_id 81077) — prev 5.0%, median ppm 1e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>artificial sequences (tax_id 81077) — prev 5.0%, median ppm 1e+04</title></circle>
+<circle class="scatter-point" cx="70.00" cy="148.38" r="5.51" fill="#E69F00" data-r="5.51" data-label="Zea mays (tax_id 4577) — prev 5.0%, median ppm 8e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Zea mays (tax_id 4577) — prev 5.0%, median ppm 8e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="164.95" r="5.33" fill="#E69F00" data-r="5.33" data-label="Saccharomyces cerevisiae (tax_id 4932) — prev 5.0%, median ppm 5e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Saccharomyces cerevisiae (tax_id 4932) — prev 5.0%, median ppm 5e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="164.95" r="5.33" fill="#E69F00" data-r="5.33" data-label="Rattus norvegicus (tax_id 10116) — prev 5.0%, median ppm 5e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Rattus norvegicus (tax_id 10116) — prev 5.0%, median ppm 5e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="164.95" r="5.33" fill="#E69F00" data-r="5.33" data-label="Human cytomegalovirus (tax_id 10359) — prev 5.0%, median ppm 5e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Human cytomegalovirus (tax_id 10359) — prev 5.0%, median ppm 5e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="164.95" r="5.33" fill="#E69F00" data-r="5.33" data-label="Nitrosopumilus maritimus (tax_id 187420) — prev 5.0%, median ppm 5e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Nitrosopumilus maritimus (tax_id 187420) — prev 5.0%, median ppm 5e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="172.81" r="5.24" fill="#E69F00" data-r="5.24" data-label="Mycobacterium tuberculosis (tax_id 1773) — prev 5.0%, median ppm 4e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mycobacterium tuberculosis (tax_id 1773) — prev 5.0%, median ppm 4e+03</title></circle>
+<circle class="scatter-point" cx="136.53" cy="246.11" r="5.19" fill="#E69F00" data-r="5.19" data-label="Bacillus subtilis (tax_id 1423) — prev 15.0%, median ppm 500" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacillus subtilis (tax_id 1423) — prev 15.0%, median ppm 500</title></circle>
+<circle class="scatter-point" cx="70.00" cy="182.95" r="5.13" fill="#E69F00" data-r="5.13" data-label="Cryptococcus neoformans (tax_id 5207) — prev 5.0%, median ppm 3e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Cryptococcus neoformans (tax_id 5207) — prev 5.0%, median ppm 3e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="197.25" r="4.97" fill="#E69F00" data-r="4.97" data-label="Measles morbillivirus (tax_id 11234) — prev 5.0%, median ppm 2e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Measles morbillivirus (tax_id 11234) — prev 5.0%, median ppm 2e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="221.68" r="4.70" fill="#E69F00" data-r="4.70" data-label="Campylobacter jejuni (tax_id 194) — prev 5.0%, median ppm 1e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Campylobacter jejuni (tax_id 194) — prev 5.0%, median ppm 1e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="229.54" r="4.61" fill="#E69F00" data-r="4.61" data-label="Enterococcus faecium (tax_id 1352) — prev 5.0%, median ppm 800" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Enterococcus faecium (tax_id 1352) — prev 5.0%, median ppm 800</title></circle>
+<circle class="scatter-point" cx="70.00" cy="246.11" r="4.43" fill="#E69F00" data-r="4.43" data-label="Streptococcus pyogenes (tax_id 1314) — prev 5.0%, median ppm 500" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pyogenes (tax_id 1314) — prev 5.0%, median ppm 500</title></circle>
+<circle class="scatter-point" cx="70.00" cy="359.57" r="3.17" fill="#E69F00" data-r="3.17" data-label="Streptococcus pneumoniae (tax_id 1301) — prev 5.0%, median ppm 20" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pneumoniae (tax_id 1301) — prev 5.0%, median ppm 20</title></circle>
+<circle class="scatter-point" cx="70.00" cy="384.00" r="2.90" fill="#E69F00" data-r="2.90" data-label="Haemophilus influenzae (tax_id 727) — prev 5.0%, median ppm 10" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Haemophilus influenzae (tax_id 727) — prev 5.0%, median ppm 10</title></circle>
 </svg>
 <div class="legend"><span class="lg-item"><span class="lg-sw" style="background:#E69F00"></span>Unannotated</span></div>
 </div>
 <p class='fig-caption'>The denominator behind the y-axis is stated in its label.  Always inspect this map together with §4 — high prevalence at low absolute burden typically reflects reagent / library contamination ('kitome') rather than biological signal.</p>
 <h3>3.3 Rank-abundance (Whittaker) curve</h3>
 <p>Log-rank vs log-cohort-burden.  A steep slope indicates strong cohort-level dominance by a few species; a shallow slope indicates broad, even contamination consistent with environmental / reagent background.</p>
-<div class="figure">
+<div class="figure scatter-figure">
 <p class="fig-title">Figure 3.3 — Rank-abundance (cohort burden, ppm of total sequenced reads)</p>
-<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.3 — Rank-abundance (cohort burden, ppm of total sequenced reads)">
+<svg class="scatter-svg" viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.3 — Rank-abundance (cohort burden, ppm of total sequenced reads)">
 <rect x="70" y="30" width="632" height="234" fill="#fafafa" stroke="#ccc"/>
 <line x1="70.0" y1="264" x2="70.0" y2="268" stroke="#444"/><text x="70.0" y="280" font-size="10" text-anchor="middle">1</text>
 <line x1="66" y1="264.0" x2="70" y2="264.0" stroke="#444"/><text x="64" y="267.0" font-size="10" text-anchor="end">10</text>
@@ -210,39 +239,39 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <line x1="66" y1="30.0" x2="70" y2="30.0" stroke="#444"/><text x="64" y="33.0" font-size="10" text-anchor="end">10^6.8</text>
 <text x="386.0" y="302" font-size="12" text-anchor="middle">rank (log10)</text>
 <text x="14" y="147.0" font-size="12" text-anchor="middle" transform="rotate(-90 14 147.0)">cohort burden (log10)</text>
-<circle cx="70.00" cy="30.00" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#1 root (Unannotated)</title></circle>
-<circle cx="195.29" cy="65.79" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#2 Bacteria (Unannotated)</title></circle>
-<circle cx="268.58" cy="69.24" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#3 unclassified (Unannotated)</title></circle>
-<circle cx="320.58" cy="80.38" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#4 Staphylococcus aureus (Unannotated)</title></circle>
-<circle cx="360.91" cy="87.50" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#5 Escherichia coli (Unannotated)</title></circle>
-<circle cx="393.86" cy="89.42" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#6 Staphylococcus (Unannotated)</title></circle>
-<circle cx="421.73" cy="97.79" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#7 Klebsiella pneumoniae (Unannotated)</title></circle>
-<circle cx="445.86" cy="98.84" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#8 Metazoa (Unannotated)</title></circle>
-<circle cx="467.15" cy="100.45" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#9 Mus musculus (Unannotated)</title></circle>
-<circle cx="486.20" cy="102.40" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#10 Escherichia (Unannotated)</title></circle>
-<circle cx="503.42" cy="112.52" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#11 Fungi (Unannotated)</title></circle>
-<circle cx="519.15" cy="115.41" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#12 Candida albicans (Unannotated)</title></circle>
-<circle cx="533.62" cy="117.06" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#13 Pseudomonas aeruginosa (Unannotated)</title></circle>
-<circle cx="547.01" cy="122.57" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#14 Viruses (Unannotated)</title></circle>
-<circle cx="559.48" cy="125.79" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#15 Arabidopsis thaliana (Unannotated)</title></circle>
-<circle cx="571.15" cy="127.27" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#16 Epstein-Barr virus (Unannotated)</title></circle>
-<circle cx="582.11" cy="132.61" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#17 Archaea (Unannotated)</title></circle>
-<circle cx="592.44" cy="138.76" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#18 Methanobrevibacter smithii (Unannotated)</title></circle>
-<circle cx="602.21" cy="141.98" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#19 artificial sequences (Unannotated)</title></circle>
-<circle cx="611.48" cy="145.92" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#20 Zea mays (Unannotated)</title></circle>
-<circle cx="620.30" cy="154.22" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#21 Saccharomyces cerevisiae (Unannotated)</title></circle>
-<circle cx="628.71" cy="154.22" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#22 Rattus norvegicus (Unannotated)</title></circle>
-<circle cx="636.75" cy="154.22" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#23 Human cytomegalovirus (Unannotated)</title></circle>
-<circle cx="644.44" cy="154.22" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#24 Nitrosopumilus maritimus (Unannotated)</title></circle>
-<circle cx="651.82" cy="158.17" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#25 Mycobacterium tuberculosis (Unannotated)</title></circle>
-<circle cx="658.91" cy="160.50" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#26 Bacillus subtilis (Unannotated)</title></circle>
-<circle cx="665.73" cy="163.25" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#27 Cryptococcus neoformans (Unannotated)</title></circle>
-<circle cx="672.30" cy="170.41" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#28 Measles morbillivirus (Unannotated)</title></circle>
-<circle cx="678.64" cy="182.65" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#29 Campylobacter jejuni (Unannotated)</title></circle>
-<circle cx="684.77" cy="186.59" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#30 Enterococcus faecium (Unannotated)</title></circle>
-<circle cx="690.70" cy="194.90" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#31 Streptococcus pyogenes (Unannotated)</title></circle>
-<circle cx="696.44" cy="251.76" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#32 Streptococcus pneumoniae (Unannotated)</title></circle>
-<circle cx="702.00" cy="264.00" r="3.20" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#33 Haemophilus influenzae (Unannotated)</title></circle>
+<circle class="scatter-point" cx="70.00" cy="30.00" r="3.20" fill="#E69F00" data-r="3.20" data-label="#1 root (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#1 root (Unannotated)</title></circle>
+<circle class="scatter-point" cx="195.29" cy="65.79" r="3.20" fill="#E69F00" data-r="3.20" data-label="#2 Bacteria (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#2 Bacteria (Unannotated)</title></circle>
+<circle class="scatter-point" cx="268.58" cy="69.24" r="3.20" fill="#E69F00" data-r="3.20" data-label="#3 unclassified (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#3 unclassified (Unannotated)</title></circle>
+<circle class="scatter-point" cx="320.58" cy="80.38" r="3.20" fill="#E69F00" data-r="3.20" data-label="#4 Staphylococcus aureus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#4 Staphylococcus aureus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="360.91" cy="87.50" r="3.20" fill="#E69F00" data-r="3.20" data-label="#5 Escherichia coli (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#5 Escherichia coli (Unannotated)</title></circle>
+<circle class="scatter-point" cx="393.86" cy="89.42" r="3.20" fill="#E69F00" data-r="3.20" data-label="#6 Staphylococcus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#6 Staphylococcus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="421.73" cy="97.79" r="3.20" fill="#E69F00" data-r="3.20" data-label="#7 Klebsiella pneumoniae (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#7 Klebsiella pneumoniae (Unannotated)</title></circle>
+<circle class="scatter-point" cx="445.86" cy="98.84" r="3.20" fill="#E69F00" data-r="3.20" data-label="#8 Metazoa (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#8 Metazoa (Unannotated)</title></circle>
+<circle class="scatter-point" cx="467.15" cy="100.45" r="3.20" fill="#E69F00" data-r="3.20" data-label="#9 Mus musculus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#9 Mus musculus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="486.20" cy="102.40" r="3.20" fill="#E69F00" data-r="3.20" data-label="#10 Escherichia (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#10 Escherichia (Unannotated)</title></circle>
+<circle class="scatter-point" cx="503.42" cy="112.52" r="3.20" fill="#E69F00" data-r="3.20" data-label="#11 Fungi (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#11 Fungi (Unannotated)</title></circle>
+<circle class="scatter-point" cx="519.15" cy="115.41" r="3.20" fill="#E69F00" data-r="3.20" data-label="#12 Candida albicans (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#12 Candida albicans (Unannotated)</title></circle>
+<circle class="scatter-point" cx="533.62" cy="117.06" r="3.20" fill="#E69F00" data-r="3.20" data-label="#13 Pseudomonas aeruginosa (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#13 Pseudomonas aeruginosa (Unannotated)</title></circle>
+<circle class="scatter-point" cx="547.01" cy="122.57" r="3.20" fill="#E69F00" data-r="3.20" data-label="#14 Viruses (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#14 Viruses (Unannotated)</title></circle>
+<circle class="scatter-point" cx="559.48" cy="125.79" r="3.20" fill="#E69F00" data-r="3.20" data-label="#15 Arabidopsis thaliana (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#15 Arabidopsis thaliana (Unannotated)</title></circle>
+<circle class="scatter-point" cx="571.15" cy="127.27" r="3.20" fill="#E69F00" data-r="3.20" data-label="#16 Epstein-Barr virus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#16 Epstein-Barr virus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="582.11" cy="132.61" r="3.20" fill="#E69F00" data-r="3.20" data-label="#17 Archaea (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#17 Archaea (Unannotated)</title></circle>
+<circle class="scatter-point" cx="592.44" cy="138.76" r="3.20" fill="#E69F00" data-r="3.20" data-label="#18 Methanobrevibacter smithii (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#18 Methanobrevibacter smithii (Unannotated)</title></circle>
+<circle class="scatter-point" cx="602.21" cy="141.98" r="3.20" fill="#E69F00" data-r="3.20" data-label="#19 artificial sequences (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#19 artificial sequences (Unannotated)</title></circle>
+<circle class="scatter-point" cx="611.48" cy="145.92" r="3.20" fill="#E69F00" data-r="3.20" data-label="#20 Zea mays (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#20 Zea mays (Unannotated)</title></circle>
+<circle class="scatter-point" cx="620.30" cy="154.22" r="3.20" fill="#E69F00" data-r="3.20" data-label="#21 Saccharomyces cerevisiae (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#21 Saccharomyces cerevisiae (Unannotated)</title></circle>
+<circle class="scatter-point" cx="628.71" cy="154.22" r="3.20" fill="#E69F00" data-r="3.20" data-label="#22 Rattus norvegicus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#22 Rattus norvegicus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="636.75" cy="154.22" r="3.20" fill="#E69F00" data-r="3.20" data-label="#23 Human cytomegalovirus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#23 Human cytomegalovirus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="644.44" cy="154.22" r="3.20" fill="#E69F00" data-r="3.20" data-label="#24 Nitrosopumilus maritimus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#24 Nitrosopumilus maritimus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="651.82" cy="158.17" r="3.20" fill="#E69F00" data-r="3.20" data-label="#25 Mycobacterium tuberculosis (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#25 Mycobacterium tuberculosis (Unannotated)</title></circle>
+<circle class="scatter-point" cx="658.91" cy="160.50" r="3.20" fill="#E69F00" data-r="3.20" data-label="#26 Bacillus subtilis (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#26 Bacillus subtilis (Unannotated)</title></circle>
+<circle class="scatter-point" cx="665.73" cy="163.25" r="3.20" fill="#E69F00" data-r="3.20" data-label="#27 Cryptococcus neoformans (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#27 Cryptococcus neoformans (Unannotated)</title></circle>
+<circle class="scatter-point" cx="672.30" cy="170.41" r="3.20" fill="#E69F00" data-r="3.20" data-label="#28 Measles morbillivirus (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#28 Measles morbillivirus (Unannotated)</title></circle>
+<circle class="scatter-point" cx="678.64" cy="182.65" r="3.20" fill="#E69F00" data-r="3.20" data-label="#29 Campylobacter jejuni (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#29 Campylobacter jejuni (Unannotated)</title></circle>
+<circle class="scatter-point" cx="684.77" cy="186.59" r="3.20" fill="#E69F00" data-r="3.20" data-label="#30 Enterococcus faecium (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#30 Enterococcus faecium (Unannotated)</title></circle>
+<circle class="scatter-point" cx="690.70" cy="194.90" r="3.20" fill="#E69F00" data-r="3.20" data-label="#31 Streptococcus pyogenes (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#31 Streptococcus pyogenes (Unannotated)</title></circle>
+<circle class="scatter-point" cx="696.44" cy="251.76" r="3.20" fill="#E69F00" data-r="3.20" data-label="#32 Streptococcus pneumoniae (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#32 Streptococcus pneumoniae (Unannotated)</title></circle>
+<circle class="scatter-point" cx="702.00" cy="264.00" r="3.20" fill="#E69F00" data-r="3.20" data-label="#33 Haemophilus influenzae (Unannotated)" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>#33 Haemophilus influenzae (Unannotated)</title></circle>
 </svg>
 <div class="legend"><span class="lg-item"><span class="lg-sw" style="background:#E69F00"></span>Unannotated</span></div>
 </div>
@@ -279,241 +308,197 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <text x="418.0" y="346" font-size="12" text-anchor="middle">ppm of total sequenced reads (log10)</text>
 </svg></div><p class='fig-caption'><strong>Cohort-aggregate composition</strong> (single bar = entire cohort summed; metric: ppm of total sequenced reads):</p><svg width="720" height="18" viewBox="0 0 720 18" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="cohort domain composition"><rect x="0.00" y="0" width="720.00" height="18" fill="#E69F00"><title>Unannotated: 100.0%</title></rect></svg><div class="legend"><span class="lg-item"><span class="lg-sw" style="background:#E69F00"></span>Unannotated</span></div><p class='fig-caption'>The legacy per-sample stacked-bar figures (one row per sample) are <strong>not</strong> rendered by default because the cohort has 20 sample(s).  Use <code>--layout legacy</code> to obtain them when n &lt; 200.</p>
 <h3>3.6 Sample × species heatmap (hierarchical clustering)</h3><div class="figure">
-<p class="fig-title">Figure 3.6 — Top 34 species × 20 samples, log1p(CPM); rows and columns reordered by average-linkage hierarchical clustering (bray distance)</p>
-<svg viewBox="0 0 980 664" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6 — Top 34 species × 20 samples, log1p(CPM); rows and columns reordered by average-linkage hierarchical clustering (bray distance)">
-<rect x="220" y="40" width="672.0" height="544.0" fill="#fff" stroke="#ccc"/>
-<text x="214" y="51.00" font-size="11" text-anchor="end">Bacillus</text>
-<rect x="858.40" y="56.00" width="33.60" height="16.00" fill="#bfcbdc"><title>Streptococcus pneumoniae / clean_D: 19.9</title></rect>
-<text x="214" y="67.00" font-size="11" text-anchor="end">Streptococcus pneumoniae</text>
-<rect x="858.40" y="72.00" width="33.60" height="16.00" fill="#cbd5e3"><title>Haemophilus influenzae / clean_D: 9.95</title></rect>
-<text x="214" y="83.00" font-size="11" text-anchor="end">Haemophilus influenzae</text>
-<rect x="320.80" y="88.00" width="33.60" height="16.00" fill="#5f7aa1"><title>Mycobacterium tuberculosis / mod_mycobact: 3.96e+03</title></rect>
+<p class="fig-title">Figure 3.6 — Top 32 species × 20 samples, log1p(CPM); rows and columns reordered by average-linkage hierarchical clustering (bray distance)</p>
+<svg viewBox="0 0 980 632" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6 — Top 32 species × 20 samples, log1p(CPM); rows and columns reordered by average-linkage hierarchical clustering (bray distance)">
+<rect x="220" y="40" width="672.0" height="512.0" fill="#fff" stroke="#ccc"/>
+<rect x="824.80" y="40.00" width="33.60" height="16.00" fill="#4d6b96"><title>Nitrosopumilus maritimus / archaea_contam: 4.72e+03</title></rect>
+<text x="214" y="51.00" font-size="11" text-anchor="end">Nitrosopumilus maritimus</text>
+<rect x="824.80" y="56.00" width="33.60" height="16.00" fill="#355686"><title>Archaea / archaea_contam: 1.6e+04</title></rect>
+<text x="214" y="67.00" font-size="11" text-anchor="end">Archaea</text>
+<rect x="824.80" y="72.00" width="33.60" height="16.00" fill="#3c5c8b"><title>Methanobrevibacter smithii / archaea_contam: 1.13e+04</title></rect>
+<text x="214" y="83.00" font-size="11" text-anchor="end">Methanobrevibacter smithii</text>
+<rect x="388.00" y="88.00" width="33.60" height="16.00" fill="#516e98"><title>Mycobacterium tuberculosis / mod_mycobact: 3.96e+03</title></rect>
 <text x="214" y="99.00" font-size="11" text-anchor="end">Mycobacterium tuberculosis</text>
-<rect x="320.80" y="104.00" width="33.60" height="16.00" fill="#7c93b3"><title>Enterococcus faecium / mod_mycobact: 792</title></rect>
+<rect x="388.00" y="104.00" width="33.60" height="16.00" fill="#7189ac"><title>Enterococcus faecium / mod_mycobact: 792</title></rect>
 <text x="214" y="115.00" font-size="11" text-anchor="end">Enterococcus faecium</text>
-<rect x="388.00" y="120.00" width="33.60" height="16.00" fill="#5c779f"><title>Nitrosopumilus maritimus / archaea_contam: 4.72e+03</title></rect>
-<text x="214" y="131.00" font-size="11" text-anchor="end">Nitrosopumilus maritimus</text>
-<rect x="388.00" y="136.00" width="33.60" height="16.00" fill="#456491"><title>Archaea / archaea_contam: 1.6e+04</title></rect>
-<text x="214" y="147.00" font-size="11" text-anchor="end">Archaea</text>
-<rect x="388.00" y="152.00" width="33.60" height="16.00" fill="#4c6995"><title>Methanobrevibacter smithii / archaea_contam: 1.13e+04</title></rect>
-<text x="214" y="163.00" font-size="11" text-anchor="end">Methanobrevibacter smithii</text>
-<rect x="488.80" y="168.00" width="33.60" height="16.00" fill="#859bb9"><title>Streptococcus pyogenes / mod_mixed_bact: 479</title></rect>
-<text x="214" y="179.00" font-size="11" text-anchor="end">Streptococcus pyogenes</text>
-<rect x="455.20" y="184.00" width="33.60" height="16.00" fill="#4e6c96"><title>artificial sequences / synthetic_contam: 9.68e+03</title></rect>
-<text x="214" y="195.00" font-size="11" text-anchor="end">artificial sequences</text>
-<rect x="421.60" y="200.00" width="33.60" height="16.00" fill="#859ab9"><title>Bacillus subtilis / mod_ecoli: 480</title></rect>
-<rect x="690.40" y="200.00" width="33.60" height="16.00" fill="#6882a6"><title>Bacillus subtilis / heavy_ecoli: 2.36e+03</title></rect>
-<rect x="791.20" y="200.00" width="33.60" height="16.00" fill="#d6dfea"><title>Bacillus subtilis / clean_B: 4.98</title></rect>
-<text x="214" y="211.00" font-size="11" text-anchor="end">Bacillus subtilis</text>
-<rect x="690.40" y="216.00" width="33.60" height="16.00" fill="#7c93b3"><title>Campylobacter jejuni / heavy_ecoli: 788</title></rect>
-<text x="214" y="227.00" font-size="11" text-anchor="end">Campylobacter jejuni</text>
-<rect x="220.00" y="232.00" width="33.60" height="16.00" fill="#5d789f"><title>Rattus norvegicus / mouse_contam: 4.49e+03</title></rect>
-<text x="214" y="243.00" font-size="11" text-anchor="end">Rattus norvegicus</text>
-<rect x="253.60" y="248.00" width="33.60" height="16.00" fill="#5c779f"><title>Saccharomyces cerevisiae / fungal_contam: 4.68e+03</title></rect>
-<text x="214" y="259.00" font-size="11" text-anchor="end">Saccharomyces cerevisiae</text>
-<rect x="253.60" y="264.00" width="33.60" height="16.00" fill="#657fa4"><title>Cryptococcus neoformans / fungal_contam: 2.81e+03</title></rect>
-<text x="214" y="275.00" font-size="11" text-anchor="end">Cryptococcus neoformans</text>
-<rect x="287.20" y="280.00" width="33.60" height="16.00" fill="#42618f"><title>Arabidopsis thaliana / plant_contam: 1.88e+04</title></rect>
-<rect x="623.20" y="280.00" width="33.60" height="16.00" fill="#607aa1"><title>Arabidopsis thaliana / zoo_mix: 3.76e+03</title></rect>
-<text x="214" y="291.00" font-size="11" text-anchor="end">Arabidopsis thaliana</text>
-<rect x="287.20" y="296.00" width="33.60" height="16.00" fill="#537099"><title>Zea mays / plant_contam: 7.52e+03</title></rect>
-<text x="214" y="307.00" font-size="11" text-anchor="end">Zea mays</text>
-<rect x="354.40" y="312.00" width="33.60" height="16.00" fill="#5b779e"><title>Human cytomegalovirus / viral_contam: 4.8e+03</title></rect>
-<text x="214" y="323.00" font-size="11" text-anchor="end">Human cytomegalovirus</text>
-<rect x="354.40" y="328.00" width="33.60" height="16.00" fill="#6c85a9"><title>Measles morbillivirus / viral_contam: 1.92e+03</title></rect>
-<text x="214" y="339.00" font-size="11" text-anchor="end">Measles morbillivirus</text>
-<rect x="220.00" y="344.00" width="33.60" height="16.00" fill="#345686"><title>Metazoa / mouse_contam: 4.04e+04</title></rect>
-<rect x="589.60" y="344.00" width="33.60" height="16.00" fill="#506d98"><title>Metazoa / super_contaminated: 8.77e+03</title></rect>
-<rect x="623.20" y="344.00" width="33.60" height="16.00" fill="#345586"><title>Metazoa / zoo_mix: 4.14e+04</title></rect>
-<text x="214" y="355.00" font-size="11" text-anchor="end">Metazoa</text>
-<rect x="220.00" y="360.00" width="33.60" height="16.00" fill="#365788"><title>Mus musculus / mouse_contam: 3.59e+04</title></rect>
-<rect x="589.60" y="360.00" width="33.60" height="16.00" fill="#506d98"><title>Mus musculus / super_contaminated: 8.77e+03</title></rect>
-<rect x="623.20" y="360.00" width="33.60" height="16.00" fill="#365787"><title>Mus musculus / zoo_mix: 3.76e+04</title></rect>
-<text x="214" y="371.00" font-size="11" text-anchor="end">Mus musculus</text>
-<rect x="488.80" y="376.00" width="33.60" height="16.00" fill="#6c85a9"><title>Klebsiella pneumoniae / mod_mixed_bact: 1.91e+03</title></rect>
-<rect x="589.60" y="376.00" width="33.60" height="16.00" fill="#3a5b8a"><title>Klebsiella pneumoniae / super_contaminated: 2.92e+04</title></rect>
-<rect x="724.00" y="376.00" width="33.60" height="16.00" fill="#2d5082"><title>Klebsiella pneumoniae / heavy_klebsiella: 5.88e+04</title></rect>
-<text x="214" y="387.00" font-size="11" text-anchor="end">Klebsiella pneumoniae</text>
-<rect x="488.80" y="392.00" width="33.60" height="16.00" fill="#7990b1"><title>Pseudomonas aeruginosa / mod_mixed_bact: 957</title></rect>
-<rect x="589.60" y="392.00" width="33.60" height="16.00" fill="#446390"><title>Pseudomonas aeruginosa / super_contaminated: 1.75e+04</title></rect>
-<rect x="724.00" y="392.00" width="33.60" height="16.00" fill="#516e98"><title>Pseudomonas aeruginosa / heavy_klebsiella: 8.4e+03</title></rect>
-<text x="214" y="403.00" font-size="11" text-anchor="end">Pseudomonas aeruginosa</text>
-<rect x="253.60" y="408.00" width="33.60" height="16.00" fill="#405f8d"><title>Fungi / fungal_contam: 2.15e+04</title></rect>
-<rect x="589.60" y="408.00" width="33.60" height="16.00" fill="#4b6994"><title>Fungi / super_contaminated: 1.17e+04</title></rect>
-<rect x="623.20" y="408.00" width="33.60" height="16.00" fill="#537099"><title>Fungi / zoo_mix: 7.52e+03</title></rect>
-<text x="214" y="419.00" font-size="11" text-anchor="end">Fungi</text>
-<rect x="253.60" y="424.00" width="33.60" height="16.00" fill="#486692"><title>Candida albicans / fungal_contam: 1.4e+04</title></rect>
-<rect x="589.60" y="424.00" width="33.60" height="16.00" fill="#4b6994"><title>Candida albicans / super_contaminated: 1.17e+04</title></rect>
-<rect x="623.20" y="424.00" width="33.60" height="16.00" fill="#537099"><title>Candida albicans / zoo_mix: 7.52e+03</title></rect>
-<rect x="824.80" y="424.00" width="33.60" height="16.00" fill="#d6dfea"><title>Candida albicans / clean_A: 4.97</title></rect>
-<text x="214" y="435.00" font-size="11" text-anchor="end">Candida albicans</text>
-<rect x="354.40" y="440.00" width="33.60" height="16.00" fill="#476692"><title>Viruses / viral_contam: 1.44e+04</title></rect>
-<rect x="589.60" y="440.00" width="33.60" height="16.00" fill="#58749c"><title>Viruses / super_contaminated: 5.85e+03</title></rect>
-<rect x="623.20" y="440.00" width="33.60" height="16.00" fill="#607aa1"><title>Viruses / zoo_mix: 3.76e+03</title></rect>
-<text x="214" y="451.00" font-size="11" text-anchor="end">Viruses</text>
-<rect x="354.40" y="456.00" width="33.60" height="16.00" fill="#536f99"><title>Epstein-Barr virus / viral_contam: 7.68e+03</title></rect>
-<rect x="589.60" y="456.00" width="33.60" height="16.00" fill="#58749c"><title>Epstein-Barr virus / super_contaminated: 5.85e+03</title></rect>
-<rect x="623.20" y="456.00" width="33.60" height="16.00" fill="#607aa1"><title>Epstein-Barr virus / zoo_mix: 3.76e+03</title></rect>
-<text x="214" y="467.00" font-size="11" text-anchor="end">Epstein-Barr virus</text>
-<rect x="220.00" y="472.00" width="33.60" height="16.00" fill="#113870"><title>root / mouse_contam: 2.79e+05</title></rect>
-<rect x="253.60" y="472.00" width="33.60" height="16.00" fill="#113871"><title>root / fungal_contam: 2.72e+05</title></rect>
-<rect x="287.20" y="472.00" width="33.60" height="16.00" fill="#123871"><title>root / plant_contam: 2.63e+05</title></rect>
-<rect x="320.80" y="472.00" width="33.60" height="16.00" fill="#1e4278"><title>root / mod_mycobact: 1.39e+05</title></rect>
-<rect x="354.40" y="472.00" width="33.60" height="16.00" fill="#143b73"><title>root / viral_contam: 2.31e+05</title></rect>
-<rect x="388.00" y="472.00" width="33.60" height="16.00" fill="#163c74"><title>root / archaea_contam: 2.08e+05</title></rect>
-<rect x="421.60" y="472.00" width="33.60" height="16.00" fill="#1a3f76"><title>root / mod_ecoli: 1.73e+05</title></rect>
-<rect x="455.20" y="472.00" width="33.60" height="16.00" fill="#193e75"><title>root / synthetic_contam: 1.84e+05</title></rect>
-<rect x="488.80" y="472.00" width="33.60" height="16.00" fill="#173d74"><title>root / mod_mixed_bact: 2.01e+05</title></rect>
-<rect x="522.40" y="472.00" width="33.60" height="16.00" fill="#183d75"><title>root / mod_staph: 1.92e+05</title></rect>
-<rect x="556.00" y="472.00" width="33.60" height="16.00" fill="#113770"><title>root / outlier_single_species: 2.83e+05</title></rect>
-<rect x="589.60" y="472.00" width="33.60" height="16.00" fill="#08306b"><title>root / super_contaminated: 4.68e+05</title></rect>
-<rect x="623.20" y="472.00" width="33.60" height="16.00" fill="#08306b"><title>root / zoo_mix: 4.51e+05</title></rect>
-<rect x="656.80" y="472.00" width="33.60" height="16.00" fill="#0a326c"><title>root / heavy_staph: 4e+05</title></rect>
-<rect x="690.40" y="472.00" width="33.60" height="16.00" fill="#0b326d"><title>root / heavy_ecoli: 3.86e+05</title></rect>
-<rect x="724.00" y="472.00" width="33.60" height="16.00" fill="#0b326c"><title>root / heavy_klebsiella: 3.95e+05</title></rect>
-<rect x="757.60" y="472.00" width="33.60" height="16.00" fill="#4e6b96"><title>root / clean_C: 9.98e+03</title></rect>
-<rect x="791.20" y="472.00" width="33.60" height="16.00" fill="#3a5a8a"><title>root / clean_B: 2.99e+04</title></rect>
-<rect x="824.80" y="472.00" width="33.60" height="16.00" fill="#315284"><title>root / clean_A: 4.97e+04</title></rect>
-<rect x="858.40" y="472.00" width="33.60" height="16.00" fill="#2f5183"><title>root / clean_D: 5.48e+04</title></rect>
-<text x="214" y="483.00" font-size="11" text-anchor="end">root</text>
-<rect x="220.00" y="488.00" width="33.60" height="16.00" fill="#7a91b1"><title>Escherichia coli / mouse_contam: 898</title></rect>
-<rect x="287.20" y="488.00" width="33.60" height="16.00" fill="#869bb9"><title>Escherichia coli / plant_contam: 470</title></rect>
-<rect x="421.60" y="488.00" width="33.60" height="16.00" fill="#536f99"><title>Escherichia coli / mod_ecoli: 7.67e+03</title></rect>
-<rect x="488.80" y="488.00" width="33.60" height="16.00" fill="#657fa4"><title>Escherichia coli / mod_mixed_bact: 2.87e+03</title></rect>
-<rect x="522.40" y="488.00" width="33.60" height="16.00" fill="#7990b1"><title>Escherichia coli / mod_staph: 958</title></rect>
-<rect x="589.60" y="488.00" width="33.60" height="16.00" fill="#325385"><title>Escherichia coli / super_contaminated: 4.68e+04</title></rect>
-<rect x="623.20" y="488.00" width="33.60" height="16.00" fill="#466591"><title>Escherichia coli / zoo_mix: 1.5e+04</title></rect>
-<rect x="656.80" y="488.00" width="33.60" height="16.00" fill="#5f7aa0"><title>Escherichia coli / heavy_staph: 4e+03</title></rect>
-<rect x="690.40" y="488.00" width="33.60" height="16.00" fill="#2c4f81"><title>Escherichia coli / heavy_ecoli: 6.3e+04</title></rect>
-<rect x="724.00" y="488.00" width="33.60" height="16.00" fill="#446390"><title>Escherichia coli / heavy_klebsiella: 1.68e+04</title></rect>
-<rect x="791.20" y="488.00" width="33.60" height="16.00" fill="#c4cfdf"><title>Escherichia coli / clean_B: 15</title></rect>
-<rect x="824.80" y="488.00" width="33.60" height="16.00" fill="#cbd5e3"><title>Escherichia coli / clean_A: 9.95</title></rect>
-<text x="214" y="499.00" font-size="11" text-anchor="end">Escherichia coli</text>
-<rect x="421.60" y="504.00" width="33.60" height="16.00" fill="#516e98"><title>Escherichia / mod_ecoli: 8.63e+03</title></rect>
-<rect x="690.40" y="504.00" width="33.60" height="16.00" fill="#2b4e81"><title>Escherichia / heavy_ecoli: 6.7e+04</title></rect>
-<text x="214" y="515.00" font-size="11" text-anchor="end">Escherichia</text>
-<rect x="220.00" y="520.00" width="33.60" height="16.00" fill="#6d86aa"><title>Staphylococcus aureus / mouse_contam: 1.8e+03</title></rect>
-<rect x="253.60" y="520.00" width="33.60" height="16.00" fill="#6d85a9"><title>Staphylococcus aureus / fungal_contam: 1.87e+03</title></rect>
-<rect x="354.40" y="520.00" width="33.60" height="16.00" fill="#7990b1"><title>Staphylococcus aureus / viral_contam: 961</title></rect>
-<rect x="388.00" y="520.00" width="33.60" height="16.00" fill="#7990b1"><title>Staphylococcus aureus / archaea_contam: 943</title></rect>
-<rect x="455.20" y="520.00" width="33.60" height="16.00" fill="#657fa4"><title>Staphylococcus aureus / synthetic_contam: 2.9e+03</title></rect>
-<rect x="488.80" y="520.00" width="33.60" height="16.00" fill="#657fa4"><title>Staphylococcus aureus / mod_mixed_bact: 2.87e+03</title></rect>
-<rect x="522.40" y="520.00" width="33.60" height="16.00" fill="#5b779e"><title>Staphylococcus aureus / mod_staph: 4.79e+03</title></rect>
-<rect x="556.00" y="520.00" width="33.60" height="16.00" fill="#274a7e"><title>Staphylococcus aureus / outlier_single_species: 8.48e+04</title></rect>
-<rect x="589.60" y="520.00" width="33.60" height="16.00" fill="#2e5082"><title>Staphylococcus aureus / super_contaminated: 5.85e+04</title></rect>
-<rect x="623.20" y="520.00" width="33.60" height="16.00" fill="#3f5f8d"><title>Staphylococcus aureus / zoo_mix: 2.26e+04</title></rect>
-<rect x="656.80" y="520.00" width="33.60" height="16.00" fill="#315384"><title>Staphylococcus aureus / heavy_staph: 4.8e+04</title></rect>
-<rect x="757.60" y="520.00" width="33.60" height="16.00" fill="#d6dfea"><title>Staphylococcus aureus / clean_C: 4.99</title></rect>
-<rect x="824.80" y="520.00" width="33.60" height="16.00" fill="#b8c5d8"><title>Staphylococcus aureus / clean_A: 29.8</title></rect>
-<text x="214" y="531.00" font-size="11" text-anchor="end">Staphylococcus aureus</text>
-<rect x="522.40" y="536.00" width="33.60" height="16.00" fill="#58749c"><title>Staphylococcus / mod_staph: 5.75e+03</title></rect>
-<rect x="556.00" y="536.00" width="33.60" height="16.00" fill="#26497d"><title>Staphylococcus / outlier_single_species: 8.83e+04</title></rect>
-<rect x="656.80" y="536.00" width="33.60" height="16.00" fill="#305283"><title>Staphylococcus / heavy_staph: 5.2e+04</title></rect>
-<text x="214" y="547.00" font-size="11" text-anchor="end">Staphylococcus</text>
-<rect x="320.80" y="552.00" width="33.60" height="16.00" fill="#5b769e"><title>Bacteria / mod_mycobact: 4.95e+03</title></rect>
-<rect x="421.60" y="552.00" width="33.60" height="16.00" fill="#4f6c97"><title>Bacteria / mod_ecoli: 9.59e+03</title></rect>
-<rect x="488.80" y="552.00" width="33.60" height="16.00" fill="#4f6c97"><title>Bacteria / mod_mixed_bact: 9.57e+03</title></rect>
-<rect x="522.40" y="552.00" width="33.60" height="16.00" fill="#4b6995"><title>Bacteria / mod_staph: 1.15e+04</title></rect>
-<rect x="556.00" y="552.00" width="33.60" height="16.00" fill="#25497d"><title>Bacteria / outlier_single_species: 9.19e+04</title></rect>
-<rect x="589.60" y="552.00" width="33.60" height="16.00" fill="#1c4177"><title>Bacteria / super_contaminated: 1.52e+05</title></rect>
-<rect x="623.20" y="552.00" width="33.60" height="16.00" fill="#325485"><title>Bacteria / zoo_mix: 4.51e+04</title></rect>
-<rect x="656.80" y="552.00" width="33.60" height="16.00" fill="#2e5183"><title>Bacteria / heavy_staph: 5.6e+04</title></rect>
-<rect x="690.40" y="552.00" width="33.60" height="16.00" fill="#2a4d80"><title>Bacteria / heavy_ecoli: 7.09e+04</title></rect>
-<rect x="724.00" y="552.00" width="33.60" height="16.00" fill="#274a7e"><title>Bacteria / heavy_klebsiella: 8.4e+04</title></rect>
-<text x="214" y="563.00" font-size="11" text-anchor="end">Bacteria</text>
-<rect x="220.00" y="568.00" width="33.60" height="16.00" fill="#3c5c8b"><title>unclassified / mouse_contam: 2.7e+04</title></rect>
-<rect x="253.60" y="568.00" width="33.60" height="16.00" fill="#3b5b8a"><title>unclassified / fungal_contam: 2.81e+04</title></rect>
-<rect x="287.20" y="568.00" width="33.60" height="16.00" fill="#385989"><title>unclassified / plant_contam: 3.29e+04</title></rect>
-<rect x="320.80" y="568.00" width="33.60" height="16.00" fill="#4e6b96"><title>unclassified / mod_mycobact: 9.9e+03</title></rect>
-<rect x="354.40" y="568.00" width="33.60" height="16.00" fill="#42618f"><title>unclassified / viral_contam: 1.92e+04</title></rect>
-<rect x="388.00" y="568.00" width="33.60" height="16.00" fill="#3e5e8c"><title>unclassified / archaea_contam: 2.36e+04</title></rect>
-<rect x="421.60" y="568.00" width="33.60" height="16.00" fill="#476692"><title>unclassified / mod_ecoli: 1.44e+04</title></rect>
-<rect x="455.20" y="568.00" width="33.60" height="16.00" fill="#42618f"><title>unclassified / synthetic_contam: 1.94e+04</title></rect>
-<rect x="488.80" y="568.00" width="33.60" height="16.00" fill="#3e5e8c"><title>unclassified / mod_mixed_bact: 2.39e+04</title></rect>
-<rect x="522.40" y="568.00" width="33.60" height="16.00" fill="#42618f"><title>unclassified / mod_staph: 1.92e+04</title></rect>
-<rect x="556.00" y="568.00" width="33.60" height="16.00" fill="#3b5b8a"><title>unclassified / outlier_single_species: 2.83e+04</title></rect>
-<rect x="589.60" y="568.00" width="33.60" height="16.00" fill="#2e5082"><title>unclassified / super_contaminated: 5.85e+04</title></rect>
-<rect x="623.20" y="568.00" width="33.60" height="16.00" fill="#2d4f82"><title>unclassified / zoo_mix: 6.02e+04</title></rect>
-<rect x="656.80" y="568.00" width="33.60" height="16.00" fill="#355686"><title>unclassified / heavy_staph: 4e+04</title></rect>
-<rect x="690.40" y="568.00" width="33.60" height="16.00" fill="#395989"><title>unclassified / heavy_ecoli: 3.15e+04</title></rect>
-<rect x="724.00" y="568.00" width="33.60" height="16.00" fill="#305284"><title>unclassified / heavy_klebsiella: 5.04e+04</title></rect>
-<rect x="757.60" y="568.00" width="33.60" height="16.00" fill="#6b84a8"><title>unclassified / clean_C: 2e+03</title></rect>
-<rect x="791.20" y="568.00" width="33.60" height="16.00" fill="#647ea4"><title>unclassified / clean_B: 2.99e+03</title></rect>
-<rect x="824.80" y="568.00" width="33.60" height="16.00" fill="#5b769e"><title>unclassified / clean_A: 4.97e+03</title></rect>
-<rect x="858.40" y="568.00" width="33.60" height="16.00" fill="#5d789f"><title>unclassified / clean_D: 4.48e+03</title></rect>
-<text x="214" y="579.00" font-size="11" text-anchor="end">unclassified</text>
-<text x="236.80" y="590.00" font-size="9" transform="rotate(-60 236.80 590.00)">mouse_contam</text>
-<text x="270.40" y="590.00" font-size="9" transform="rotate(-60 270.40 590.00)">fungal_contam</text>
-<text x="304.00" y="590.00" font-size="9" transform="rotate(-60 304.00 590.00)">plant_contam</text>
-<text x="337.60" y="590.00" font-size="9" transform="rotate(-60 337.60 590.00)">mod_mycobact</text>
-<text x="371.20" y="590.00" font-size="9" transform="rotate(-60 371.20 590.00)">viral_contam</text>
-<text x="404.80" y="590.00" font-size="9" transform="rotate(-60 404.80 590.00)">archaea_contam</text>
-<text x="438.40" y="590.00" font-size="9" transform="rotate(-60 438.40 590.00)">mod_ecoli</text>
-<text x="472.00" y="590.00" font-size="9" transform="rotate(-60 472.00 590.00)">synthetic_contam</text>
-<text x="505.60" y="590.00" font-size="9" transform="rotate(-60 505.60 590.00)">mod_mixed_bact</text>
-<text x="539.20" y="590.00" font-size="9" transform="rotate(-60 539.20 590.00)">mod_staph</text>
-<text x="572.80" y="590.00" font-size="9" transform="rotate(-60 572.80 590.00)">outlier_single_species</text>
-<text x="606.40" y="590.00" font-size="9" transform="rotate(-60 606.40 590.00)">super_contaminated</text>
-<text x="640.00" y="590.00" font-size="9" transform="rotate(-60 640.00 590.00)">zoo_mix</text>
-<text x="673.60" y="590.00" font-size="9" transform="rotate(-60 673.60 590.00)">heavy_staph</text>
-<text x="707.20" y="590.00" font-size="9" transform="rotate(-60 707.20 590.00)">heavy_ecoli</text>
-<text x="740.80" y="590.00" font-size="9" transform="rotate(-60 740.80 590.00)">heavy_klebsiella</text>
-<text x="774.40" y="590.00" font-size="9" transform="rotate(-60 774.40 590.00)">clean_C</text>
-<text x="808.00" y="590.00" font-size="9" transform="rotate(-60 808.00 590.00)">clean_B</text>
-<text x="841.60" y="590.00" font-size="9" transform="rotate(-60 841.60 590.00)">clean_A</text>
-<text x="875.20" y="590.00" font-size="9" transform="rotate(-60 875.20 590.00)">clean_D</text>
-<text x="556.0" y="656" font-size="11" text-anchor="middle">samples (n = 20; ordered by hierarchical clustering)</text>
+<rect x="791.20" y="120.00" width="33.60" height="16.00" fill="#3f5e8d"><title>artificial sequences / synthetic_contam: 9.68e+03</title></rect>
+<text x="214" y="131.00" font-size="11" text-anchor="end">artificial sequences</text>
+<rect x="455.20" y="136.00" width="33.60" height="16.00" fill="#7b91b2"><title>Streptococcus pyogenes / mod_mixed_bact: 479</title></rect>
+<text x="214" y="147.00" font-size="11" text-anchor="end">Streptococcus pyogenes</text>
+<rect x="320.80" y="152.00" width="33.60" height="16.00" fill="#d3dce8"><title>Bacillus subtilis / clean_B: 4.98</title></rect>
+<rect x="421.60" y="152.00" width="33.60" height="16.00" fill="#7b91b2"><title>Bacillus subtilis / mod_ecoli: 480</title></rect>
+<rect x="656.80" y="152.00" width="33.60" height="16.00" fill="#5b769e"><title>Bacillus subtilis / heavy_ecoli: 2.36e+03</title></rect>
+<text x="214" y="163.00" font-size="11" text-anchor="end">Bacillus subtilis</text>
+<rect x="656.80" y="168.00" width="33.60" height="16.00" fill="#7189ac"><title>Campylobacter jejuni / heavy_ecoli: 788</title></rect>
+<text x="214" y="179.00" font-size="11" text-anchor="end">Campylobacter jejuni</text>
+<rect x="522.40" y="184.00" width="33.60" height="16.00" fill="#4e6b96"><title>Rattus norvegicus / mouse_contam: 4.49e+03</title></rect>
+<text x="214" y="195.00" font-size="11" text-anchor="end">Rattus norvegicus</text>
+<rect x="757.60" y="200.00" width="33.60" height="16.00" fill="#4d6b96"><title>Saccharomyces cerevisiae / fungal_contam: 4.68e+03</title></rect>
+<text x="214" y="211.00" font-size="11" text-anchor="end">Saccharomyces cerevisiae</text>
+<rect x="757.60" y="216.00" width="33.60" height="16.00" fill="#57739c"><title>Cryptococcus neoformans / fungal_contam: 2.81e+03</title></rect>
+<text x="214" y="227.00" font-size="11" text-anchor="end">Cryptococcus neoformans</text>
+<rect x="354.40" y="232.00" width="33.60" height="16.00" fill="#315384"><title>Arabidopsis thaliana / plant_contam: 1.88e+04</title></rect>
+<rect x="556.00" y="232.00" width="33.60" height="16.00" fill="#526e98"><title>Arabidopsis thaliana / zoo_mix: 3.76e+03</title></rect>
+<text x="214" y="243.00" font-size="11" text-anchor="end">Arabidopsis thaliana</text>
+<rect x="354.40" y="248.00" width="33.60" height="16.00" fill="#446390"><title>Zea mays / plant_contam: 7.52e+03</title></rect>
+<text x="214" y="259.00" font-size="11" text-anchor="end">Zea mays</text>
+<rect x="858.40" y="264.00" width="33.60" height="16.00" fill="#4d6a95"><title>Human cytomegalovirus / viral_contam: 4.8e+03</title></rect>
+<text x="214" y="275.00" font-size="11" text-anchor="end">Human cytomegalovirus</text>
+<rect x="858.40" y="280.00" width="33.60" height="16.00" fill="#5f7aa1"><title>Measles morbillivirus / viral_contam: 1.92e+03</title></rect>
+<text x="214" y="291.00" font-size="11" text-anchor="end">Measles morbillivirus</text>
+<rect x="522.40" y="296.00" width="33.60" height="16.00" fill="#22467b"><title>Metazoa / mouse_contam: 4.04e+04</title></rect>
+<rect x="556.00" y="296.00" width="33.60" height="16.00" fill="#22467b"><title>Metazoa / zoo_mix: 4.14e+04</title></rect>
+<rect x="724.00" y="296.00" width="33.60" height="16.00" fill="#41608e"><title>Metazoa / super_contaminated: 8.77e+03</title></rect>
+<text x="214" y="307.00" font-size="11" text-anchor="end">Metazoa</text>
+<rect x="522.40" y="312.00" width="33.60" height="16.00" fill="#24487c"><title>Mus musculus / mouse_contam: 3.59e+04</title></rect>
+<rect x="556.00" y="312.00" width="33.60" height="16.00" fill="#23477c"><title>Mus musculus / zoo_mix: 3.76e+04</title></rect>
+<rect x="724.00" y="312.00" width="33.60" height="16.00" fill="#41608e"><title>Mus musculus / super_contaminated: 8.77e+03</title></rect>
+<text x="214" y="323.00" font-size="11" text-anchor="end">Mus musculus</text>
+<rect x="455.20" y="328.00" width="33.60" height="16.00" fill="#5f7aa1"><title>Klebsiella pneumoniae / mod_mixed_bact: 1.91e+03</title></rect>
+<rect x="690.40" y="328.00" width="33.60" height="16.00" fill="#1b4076"><title>Klebsiella pneumoniae / heavy_klebsiella: 5.88e+04</title></rect>
+<rect x="724.00" y="328.00" width="33.60" height="16.00" fill="#294c7f"><title>Klebsiella pneumoniae / super_contaminated: 2.92e+04</title></rect>
+<text x="214" y="339.00" font-size="11" text-anchor="end">Klebsiella pneumoniae</text>
+<rect x="455.20" y="344.00" width="33.60" height="16.00" fill="#6d86a9"><title>Pseudomonas aeruginosa / mod_mixed_bact: 957</title></rect>
+<rect x="690.40" y="344.00" width="33.60" height="16.00" fill="#41618e"><title>Pseudomonas aeruginosa / heavy_klebsiella: 8.4e+03</title></rect>
+<rect x="724.00" y="344.00" width="33.60" height="16.00" fill="#335485"><title>Pseudomonas aeruginosa / super_contaminated: 1.75e+04</title></rect>
+<text x="214" y="355.00" font-size="11" text-anchor="end">Pseudomonas aeruginosa</text>
+<rect x="556.00" y="360.00" width="33.60" height="16.00" fill="#446390"><title>Fungi / zoo_mix: 7.52e+03</title></rect>
+<rect x="724.00" y="360.00" width="33.60" height="16.00" fill="#3b5b8a"><title>Fungi / super_contaminated: 1.17e+04</title></rect>
+<rect x="757.60" y="360.00" width="33.60" height="16.00" fill="#2f5183"><title>Fungi / fungal_contam: 2.15e+04</title></rect>
+<text x="214" y="371.00" font-size="11" text-anchor="end">Fungi</text>
+<rect x="287.20" y="376.00" width="33.60" height="16.00" fill="#d3dce8"><title>Candida albicans / clean_A: 4.97</title></rect>
+<rect x="556.00" y="376.00" width="33.60" height="16.00" fill="#446390"><title>Candida albicans / zoo_mix: 7.52e+03</title></rect>
+<rect x="724.00" y="376.00" width="33.60" height="16.00" fill="#3b5b8a"><title>Candida albicans / super_contaminated: 1.17e+04</title></rect>
+<rect x="757.60" y="376.00" width="33.60" height="16.00" fill="#375888"><title>Candida albicans / fungal_contam: 1.4e+04</title></rect>
+<text x="214" y="387.00" font-size="11" text-anchor="end">Candida albicans</text>
+<rect x="556.00" y="392.00" width="33.60" height="16.00" fill="#526e98"><title>Viruses / zoo_mix: 3.76e+03</title></rect>
+<rect x="724.00" y="392.00" width="33.60" height="16.00" fill="#496793"><title>Viruses / super_contaminated: 5.85e+03</title></rect>
+<rect x="858.40" y="392.00" width="33.60" height="16.00" fill="#375888"><title>Viruses / viral_contam: 1.44e+04</title></rect>
+<text x="214" y="403.00" font-size="11" text-anchor="end">Viruses</text>
+<rect x="556.00" y="408.00" width="33.60" height="16.00" fill="#526e98"><title>Epstein-Barr virus / zoo_mix: 3.76e+03</title></rect>
+<rect x="724.00" y="408.00" width="33.60" height="16.00" fill="#496793"><title>Epstein-Barr virus / super_contaminated: 5.85e+03</title></rect>
+<rect x="858.40" y="408.00" width="33.60" height="16.00" fill="#436290"><title>Epstein-Barr virus / viral_contam: 7.68e+03</title></rect>
+<text x="214" y="419.00" font-size="11" text-anchor="end">Epstein-Barr virus</text>
+<rect x="287.20" y="424.00" width="33.60" height="16.00" fill="#c7d2e1"><title>Escherichia coli / clean_A: 9.95</title></rect>
+<rect x="320.80" y="424.00" width="33.60" height="16.00" fill="#bfcbdc"><title>Escherichia coli / clean_B: 15</title></rect>
+<rect x="354.40" y="424.00" width="33.60" height="16.00" fill="#7b92b2"><title>Escherichia coli / plant_contam: 470</title></rect>
+<rect x="421.60" y="424.00" width="33.60" height="16.00" fill="#436290"><title>Escherichia coli / mod_ecoli: 7.67e+03</title></rect>
+<rect x="455.20" y="424.00" width="33.60" height="16.00" fill="#57739c"><title>Escherichia coli / mod_mixed_bact: 2.87e+03</title></rect>
+<rect x="488.80" y="424.00" width="33.60" height="16.00" fill="#6d86a9"><title>Escherichia coli / mod_staph: 958</title></rect>
+<rect x="522.40" y="424.00" width="33.60" height="16.00" fill="#6e87aa"><title>Escherichia coli / mouse_contam: 898</title></rect>
+<rect x="556.00" y="424.00" width="33.60" height="16.00" fill="#365787"><title>Escherichia coli / zoo_mix: 1.5e+04</title></rect>
+<rect x="589.60" y="424.00" width="33.60" height="16.00" fill="#506d98"><title>Escherichia coli / heavy_staph: 4e+03</title></rect>
+<rect x="656.80" y="424.00" width="33.60" height="16.00" fill="#193e75"><title>Escherichia coli / heavy_ecoli: 6.3e+04</title></rect>
+<rect x="690.40" y="424.00" width="33.60" height="16.00" fill="#345586"><title>Escherichia coli / heavy_klebsiella: 1.68e+04</title></rect>
+<rect x="724.00" y="424.00" width="33.60" height="16.00" fill="#1f4479"><title>Escherichia coli / super_contaminated: 4.68e+04</title></rect>
+<text x="214" y="435.00" font-size="11" text-anchor="end">Escherichia coli</text>
+<rect x="421.60" y="440.00" width="33.60" height="16.00" fill="#41608e"><title>Escherichia / mod_ecoli: 8.63e+03</title></rect>
+<rect x="656.80" y="440.00" width="33.60" height="16.00" fill="#183d75"><title>Escherichia / heavy_ecoli: 6.7e+04</title></rect>
+<text x="214" y="451.00" font-size="11" text-anchor="end">Escherichia</text>
+<rect x="388.00" y="456.00" width="33.60" height="16.00" fill="#4c6a95"><title>Bacteria / mod_mycobact: 4.95e+03</title></rect>
+<rect x="421.60" y="456.00" width="33.60" height="16.00" fill="#3f5f8d"><title>Bacteria / mod_ecoli: 9.59e+03</title></rect>
+<rect x="455.20" y="456.00" width="33.60" height="16.00" fill="#3f5f8d"><title>Bacteria / mod_mixed_bact: 9.57e+03</title></rect>
+<rect x="488.80" y="456.00" width="33.60" height="16.00" fill="#3b5b8b"><title>Bacteria / mod_staph: 1.15e+04</title></rect>
+<rect x="556.00" y="456.00" width="33.60" height="16.00" fill="#20447a"><title>Bacteria / zoo_mix: 4.51e+04</title></rect>
+<rect x="589.60" y="456.00" width="33.60" height="16.00" fill="#1c4077"><title>Bacteria / heavy_staph: 5.6e+04</title></rect>
+<rect x="623.20" y="456.00" width="33.60" height="16.00" fill="#123871"><title>Bacteria / outlier_single_species: 9.19e+04</title></rect>
+<rect x="656.80" y="456.00" width="33.60" height="16.00" fill="#173c74"><title>Bacteria / heavy_ecoli: 7.09e+04</title></rect>
+<rect x="690.40" y="456.00" width="33.60" height="16.00" fill="#133a72"><title>Bacteria / heavy_klebsiella: 8.4e+04</title></rect>
+<rect x="724.00" y="456.00" width="33.60" height="16.00" fill="#08306b"><title>Bacteria / super_contaminated: 1.52e+05</title></rect>
+<text x="214" y="467.00" font-size="11" text-anchor="end">Bacteria</text>
+<rect x="253.60" y="472.00" width="33.60" height="16.00" fill="#d3dce8"><title>Staphylococcus aureus / clean_C: 4.99</title></rect>
+<rect x="287.20" y="472.00" width="33.60" height="16.00" fill="#b2c0d4"><title>Staphylococcus aureus / clean_A: 29.8</title></rect>
+<rect x="455.20" y="472.00" width="33.60" height="16.00" fill="#57739c"><title>Staphylococcus aureus / mod_mixed_bact: 2.87e+03</title></rect>
+<rect x="488.80" y="472.00" width="33.60" height="16.00" fill="#4d6a95"><title>Staphylococcus aureus / mod_staph: 4.79e+03</title></rect>
+<rect x="522.40" y="472.00" width="33.60" height="16.00" fill="#607ba2"><title>Staphylococcus aureus / mouse_contam: 1.8e+03</title></rect>
+<rect x="556.00" y="472.00" width="33.60" height="16.00" fill="#2e5082"><title>Staphylococcus aureus / zoo_mix: 2.26e+04</title></rect>
+<rect x="589.60" y="472.00" width="33.60" height="16.00" fill="#1f4379"><title>Staphylococcus aureus / heavy_staph: 4.8e+04</title></rect>
+<rect x="623.20" y="472.00" width="33.60" height="16.00" fill="#133972"><title>Staphylococcus aureus / outlier_single_species: 8.48e+04</title></rect>
+<rect x="724.00" y="472.00" width="33.60" height="16.00" fill="#1b4076"><title>Staphylococcus aureus / super_contaminated: 5.85e+04</title></rect>
+<rect x="757.60" y="472.00" width="33.60" height="16.00" fill="#607aa1"><title>Staphylococcus aureus / fungal_contam: 1.87e+03</title></rect>
+<rect x="791.20" y="472.00" width="33.60" height="16.00" fill="#57739c"><title>Staphylococcus aureus / synthetic_contam: 2.9e+03</title></rect>
+<rect x="824.80" y="472.00" width="33.60" height="16.00" fill="#6d86aa"><title>Staphylococcus aureus / archaea_contam: 943</title></rect>
+<rect x="858.40" y="472.00" width="33.60" height="16.00" fill="#6d86a9"><title>Staphylococcus aureus / viral_contam: 961</title></rect>
+<text x="214" y="483.00" font-size="11" text-anchor="end">Staphylococcus aureus</text>
+<rect x="488.80" y="488.00" width="33.60" height="16.00" fill="#496793"><title>Staphylococcus / mod_staph: 5.75e+03</title></rect>
+<rect x="589.60" y="488.00" width="33.60" height="16.00" fill="#1d4278"><title>Staphylococcus / heavy_staph: 5.2e+04</title></rect>
+<rect x="623.20" y="488.00" width="33.60" height="16.00" fill="#123971"><title>Staphylococcus / outlier_single_species: 8.83e+04</title></rect>
+<text x="214" y="499.00" font-size="11" text-anchor="end">Staphylococcus</text>
+<text x="214" y="515.00" font-size="11" text-anchor="end">Bacillus</text>
+<rect x="220.00" y="520.00" width="33.60" height="16.00" fill="#bac7d9"><title>Streptococcus pneumoniae / clean_D: 19.9</title></rect>
+<text x="214" y="531.00" font-size="11" text-anchor="end">Streptococcus pneumoniae</text>
+<rect x="220.00" y="536.00" width="33.60" height="16.00" fill="#c7d2e1"><title>Haemophilus influenzae / clean_D: 9.95</title></rect>
+<text x="214" y="547.00" font-size="11" text-anchor="end">Haemophilus influenzae</text>
+<text x="236.80" y="558.00" font-size="9" transform="rotate(-60 236.80 558.00)">clean_D</text>
+<text x="270.40" y="558.00" font-size="9" transform="rotate(-60 270.40 558.00)">clean_C</text>
+<text x="304.00" y="558.00" font-size="9" transform="rotate(-60 304.00 558.00)">clean_A</text>
+<text x="337.60" y="558.00" font-size="9" transform="rotate(-60 337.60 558.00)">clean_B</text>
+<text x="371.20" y="558.00" font-size="9" transform="rotate(-60 371.20 558.00)">plant_contam</text>
+<text x="404.80" y="558.00" font-size="9" transform="rotate(-60 404.80 558.00)">mod_mycobact</text>
+<text x="438.40" y="558.00" font-size="9" transform="rotate(-60 438.40 558.00)">mod_ecoli</text>
+<text x="472.00" y="558.00" font-size="9" transform="rotate(-60 472.00 558.00)">mod_mixed_bact</text>
+<text x="505.60" y="558.00" font-size="9" transform="rotate(-60 505.60 558.00)">mod_staph</text>
+<text x="539.20" y="558.00" font-size="9" transform="rotate(-60 539.20 558.00)">mouse_contam</text>
+<text x="572.80" y="558.00" font-size="9" transform="rotate(-60 572.80 558.00)">zoo_mix</text>
+<text x="606.40" y="558.00" font-size="9" transform="rotate(-60 606.40 558.00)">heavy_staph</text>
+<text x="640.00" y="558.00" font-size="9" transform="rotate(-60 640.00 558.00)">outlier_single_species</text>
+<text x="673.60" y="558.00" font-size="9" transform="rotate(-60 673.60 558.00)">heavy_ecoli</text>
+<text x="707.20" y="558.00" font-size="9" transform="rotate(-60 707.20 558.00)">heavy_klebsiella</text>
+<text x="740.80" y="558.00" font-size="9" transform="rotate(-60 740.80 558.00)">super_contaminated</text>
+<text x="774.40" y="558.00" font-size="9" transform="rotate(-60 774.40 558.00)">fungal_contam</text>
+<text x="808.00" y="558.00" font-size="9" transform="rotate(-60 808.00 558.00)">synthetic_contam</text>
+<text x="841.60" y="558.00" font-size="9" transform="rotate(-60 841.60 558.00)">archaea_contam</text>
+<text x="875.20" y="558.00" font-size="9" transform="rotate(-60 875.20 558.00)">viral_contam</text>
+<text x="556.0" y="624" font-size="11" text-anchor="middle">samples (n = 20; ordered by hierarchical clustering)</text>
 <g class="heatmap-colourbar" aria-label="colour scale">
-<rect x="910.00" y="561.33" width="14.00" height="22.67" fill="#f2f6fb"/>
-<rect x="910.00" y="538.67" width="14.00" height="22.67" fill="#e8eef5"/>
-<rect x="910.00" y="516.00" width="14.00" height="22.67" fill="#dee5ef"/>
-<rect x="910.00" y="493.33" width="14.00" height="22.67" fill="#d4dde9"/>
-<rect x="910.00" y="470.67" width="14.00" height="22.67" fill="#cad4e3"/>
-<rect x="910.00" y="448.00" width="14.00" height="22.67" fill="#c0ccdd"/>
-<rect x="910.00" y="425.33" width="14.00" height="22.67" fill="#b6c4d6"/>
-<rect x="910.00" y="402.67" width="14.00" height="22.67" fill="#acbbd0"/>
-<rect x="910.00" y="380.00" width="14.00" height="22.67" fill="#a2b3ca"/>
-<rect x="910.00" y="357.33" width="14.00" height="22.67" fill="#98aac4"/>
-<rect x="910.00" y="334.67" width="14.00" height="22.67" fill="#8ea2be"/>
-<rect x="910.00" y="312.00" width="14.00" height="22.67" fill="#8499b8"/>
-<rect x="910.00" y="289.33" width="14.00" height="22.67" fill="#7a91b1"/>
-<rect x="910.00" y="266.67" width="14.00" height="22.67" fill="#7088ab"/>
-<rect x="910.00" y="244.00" width="14.00" height="22.67" fill="#6680a5"/>
-<rect x="910.00" y="221.33" width="14.00" height="22.67" fill="#5c779f"/>
-<rect x="910.00" y="198.67" width="14.00" height="22.67" fill="#526f99"/>
-<rect x="910.00" y="176.00" width="14.00" height="22.67" fill="#486693"/>
-<rect x="910.00" y="153.33" width="14.00" height="22.67" fill="#3e5e8c"/>
-<rect x="910.00" y="130.67" width="14.00" height="22.67" fill="#345686"/>
-<rect x="910.00" y="108.00" width="14.00" height="22.67" fill="#2a4d80"/>
-<rect x="910.00" y="85.33" width="14.00" height="22.67" fill="#20457a"/>
-<rect x="910.00" y="62.67" width="14.00" height="22.67" fill="#163c74"/>
-<rect x="910.00" y="40.00" width="14.00" height="22.67" fill="#0c346e"/>
-<rect x="910.00" y="40.00" width="14.00" height="544.00" fill="none" stroke="#666" stroke-width="0.6"/>
-<line x1="924.00" y1="584.00" x2="928.00" y2="584.00" stroke="#444"/><text x="930.00" y="587.00" font-size="9" text-anchor="start">0</text>
-<line x1="924.00" y1="231.88" x2="928.00" y2="231.88" stroke="#444"/><text x="930.00" y="234.88" font-size="9" text-anchor="start">4,678</text>
-<line x1="924.00" y1="135.94" x2="928.00" y2="135.94" stroke="#444"/><text x="930.00" y="138.94" font-size="9" text-anchor="start">46,784</text>
-<line x1="924.00" y1="40.00" x2="928.00" y2="40.00" stroke="#444"/><text x="930.00" y="43.00" font-size="9" text-anchor="start">467,836</text>
+<rect x="910.00" y="530.67" width="14.00" height="21.33" fill="#f2f6fb"/>
+<rect x="910.00" y="509.33" width="14.00" height="21.33" fill="#e8eef5"/>
+<rect x="910.00" y="488.00" width="14.00" height="21.33" fill="#dee5ef"/>
+<rect x="910.00" y="466.67" width="14.00" height="21.33" fill="#d4dde9"/>
+<rect x="910.00" y="445.33" width="14.00" height="21.33" fill="#cad4e3"/>
+<rect x="910.00" y="424.00" width="14.00" height="21.33" fill="#c0ccdd"/>
+<rect x="910.00" y="402.67" width="14.00" height="21.33" fill="#b6c4d6"/>
+<rect x="910.00" y="381.33" width="14.00" height="21.33" fill="#acbbd0"/>
+<rect x="910.00" y="360.00" width="14.00" height="21.33" fill="#a2b3ca"/>
+<rect x="910.00" y="338.67" width="14.00" height="21.33" fill="#98aac4"/>
+<rect x="910.00" y="317.33" width="14.00" height="21.33" fill="#8ea2be"/>
+<rect x="910.00" y="296.00" width="14.00" height="21.33" fill="#8499b8"/>
+<rect x="910.00" y="274.67" width="14.00" height="21.33" fill="#7a91b1"/>
+<rect x="910.00" y="253.33" width="14.00" height="21.33" fill="#7088ab"/>
+<rect x="910.00" y="232.00" width="14.00" height="21.33" fill="#6680a5"/>
+<rect x="910.00" y="210.67" width="14.00" height="21.33" fill="#5c779f"/>
+<rect x="910.00" y="189.33" width="14.00" height="21.33" fill="#526f99"/>
+<rect x="910.00" y="168.00" width="14.00" height="21.33" fill="#486693"/>
+<rect x="910.00" y="146.67" width="14.00" height="21.33" fill="#3e5e8c"/>
+<rect x="910.00" y="125.33" width="14.00" height="21.33" fill="#345686"/>
+<rect x="910.00" y="104.00" width="14.00" height="21.33" fill="#2a4d80"/>
+<rect x="910.00" y="82.67" width="14.00" height="21.33" fill="#20457a"/>
+<rect x="910.00" y="61.33" width="14.00" height="21.33" fill="#163c74"/>
+<rect x="910.00" y="40.00" width="14.00" height="21.33" fill="#0c346e"/>
+<rect x="910.00" y="40.00" width="14.00" height="512.00" fill="none" stroke="#666" stroke-width="0.6"/>
+<line x1="924.00" y1="552.00" x2="928.00" y2="552.00" stroke="#444"/><text x="930.00" y="555.00" font-size="9" text-anchor="start">0</text>
+<line x1="924.00" y1="237.58" x2="928.00" y2="237.58" stroke="#444"/><text x="930.00" y="240.58" font-size="9" text-anchor="start">1,520</text>
+<line x1="924.00" y1="138.80" x2="928.00" y2="138.80" stroke="#444"/><text x="930.00" y="141.80" font-size="9" text-anchor="start">15,205</text>
+<line x1="924.00" y1="40.00" x2="928.00" y2="40.00" stroke="#444"/><text x="930.00" y="43.00" font-size="9" text-anchor="start">152,047</text>
 <text x="917.00" y="32.00" font-size="10" text-anchor="middle" font-weight="bold">log1p(CPM)</text>
-<text x="917.00" y="598.00" font-size="9" text-anchor="middle" fill="#555">max ≈ 467,836</text>
+<text x="917.00" y="566.00" font-size="9" text-anchor="middle" fill="#555">max ≈ 152,047</text>
 </g>
-</svg></div><p class='fig-caption'>Distinct sample clusters in this heatmap frequently correspond to sequencing batch, kit, or lab differences rather than biological signal.  Cluster method = <code>average</code>, distance = <code>bray</code> on log1p-CPM over the top-34 species by cohort burden.  Colour scale: <code>log1p(CPM)</code>; see legend at right.</p>
+</svg></div><p class='fig-caption'><em>Note:</em> the kraken2 <code>unclassified</code> (tax_id 0) and <code>root</code> (tax_id 1) pseudo-taxa are excluded from this clustering because their prevalence dominates every sample and obscures real cohort structure.  They remain visible in §3.1, §3.6.1 and §3.6.3 for QC.</p><p class='fig-caption'>Distinct sample clusters in this heatmap frequently correspond to sequencing batch, kit, or lab differences rather than biological signal.  Cluster method = <code>average</code>, distance = <code>bray</code> on log1p-CPM over the top-32 species by cohort burden — sensitive tier (Kraken2 confidence 0.0).  The species set, the Bray–Curtis distance matrix, and both (sample, taxa) dendrograms are recomputed independently for each confidence tier, so flipping the tier picker can produce a genuinely different ordering — that is the point of the comparison.  Colour scale: <code>log1p(CPM)</code>; see legend at right.</p>
 <h3>3.6.1 Per-sample domain composition</h3><div class="figure">
 <p class="fig-title">Figure 3.6.1 — Per-sample non-human composition by taxonomic domain (20 samples, ordered identically to §3.6 columns)</p>
 <svg viewBox="0 0 980 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6.1 — Per-sample non-human composition by taxonomic domain (20 samples, ordered identically to §3.6 columns)">
 <rect x="56" y="26" width="908.00" height="134.00" fill="#fafafa" stroke="#ccc"/>
 <rect x="56.00" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="101.40" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
-<circle cx="124.10" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="146.80" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="192.20" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="237.60" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
-<circle cx="260.30" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="283.00" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="328.40" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <circle cx="351.10" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="373.80" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
+<circle cx="396.50" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="419.20" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
-<circle cx="441.90" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="464.60" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="510.00" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <circle cx="532.70" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
@@ -528,37 +513,39 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <rect x="737.00" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <circle cx="759.70" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="782.40" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
+<circle cx="805.10" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <rect x="827.80" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="873.20" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
 <rect x="918.60" y="26.00" width="45.00" height="134.00" fill="#E69F00"><title>Unannotated: 100.0%</title></rect>
+<circle cx="941.30" cy="168.00" r="2.4" fill="#D55E00" stroke="#222" stroke-width="0.4"><title>flagged sample</title></circle>
 <line x1="52" y1="160.00" x2="56" y2="160.00" stroke="#444"/><text x="50" y="163.00" font-size="10" text-anchor="end">0%</text>
 <line x1="52" y1="93.00" x2="56" y2="93.00" stroke="#444"/><text x="50" y="96.00" font-size="10" text-anchor="end">50%</text>
 <line x1="52" y1="26.00" x2="56" y2="26.00" stroke="#444"/><text x="50" y="29.00" font-size="10" text-anchor="end">100%</text>
 <text x="14" y="93.0" font-size="11" text-anchor="middle" transform="rotate(-90 14 93.0)">% of non-human burden</text>
-<text x="78.70" y="186.00" font-size="9" transform="rotate(-60 78.70 186.00)">mouse_contam</text>
-<text x="124.10" y="186.00" font-size="9" transform="rotate(-60 124.10 186.00)">fungal_contam</text>
-<text x="169.50" y="186.00" font-size="9" transform="rotate(-60 169.50 186.00)">plant_contam</text>
-<text x="214.90" y="186.00" font-size="9" transform="rotate(-60 214.90 186.00)">mod_mycobact</text>
-<text x="260.30" y="186.00" font-size="9" transform="rotate(-60 260.30 186.00)">viral_contam</text>
-<text x="305.70" y="186.00" font-size="9" transform="rotate(-60 305.70 186.00)">archaea_contam</text>
+<text x="78.70" y="186.00" font-size="9" transform="rotate(-60 78.70 186.00)">clean_D</text>
+<text x="124.10" y="186.00" font-size="9" transform="rotate(-60 124.10 186.00)">clean_C</text>
+<text x="169.50" y="186.00" font-size="9" transform="rotate(-60 169.50 186.00)">clean_A</text>
+<text x="214.90" y="186.00" font-size="9" transform="rotate(-60 214.90 186.00)">clean_B</text>
+<text x="260.30" y="186.00" font-size="9" transform="rotate(-60 260.30 186.00)">plant_contam</text>
+<text x="305.70" y="186.00" font-size="9" transform="rotate(-60 305.70 186.00)">mod_mycobact</text>
 <text x="351.10" y="186.00" font-size="9" transform="rotate(-60 351.10 186.00)">mod_ecoli</text>
-<text x="396.50" y="186.00" font-size="9" transform="rotate(-60 396.50 186.00)">synthetic_contam</text>
-<text x="441.90" y="186.00" font-size="9" transform="rotate(-60 441.90 186.00)">mod_mixed_bact</text>
-<text x="487.30" y="186.00" font-size="9" transform="rotate(-60 487.30 186.00)">mod_staph</text>
-<text x="532.70" y="186.00" font-size="9" transform="rotate(-60 532.70 186.00)">outlier_single_species</text>
-<text x="578.10" y="186.00" font-size="9" transform="rotate(-60 578.10 186.00)">super_contaminated</text>
-<text x="623.50" y="186.00" font-size="9" transform="rotate(-60 623.50 186.00)">zoo_mix</text>
-<text x="668.90" y="186.00" font-size="9" transform="rotate(-60 668.90 186.00)">heavy_staph</text>
-<text x="714.30" y="186.00" font-size="9" transform="rotate(-60 714.30 186.00)">heavy_ecoli</text>
-<text x="759.70" y="186.00" font-size="9" transform="rotate(-60 759.70 186.00)">heavy_klebsiella</text>
-<text x="805.10" y="186.00" font-size="9" transform="rotate(-60 805.10 186.00)">clean_C</text>
-<text x="850.50" y="186.00" font-size="9" transform="rotate(-60 850.50 186.00)">clean_B</text>
-<text x="895.90" y="186.00" font-size="9" transform="rotate(-60 895.90 186.00)">clean_A</text>
-<text x="941.30" y="186.00" font-size="9" transform="rotate(-60 941.30 186.00)">clean_D</text>
+<text x="396.50" y="186.00" font-size="9" transform="rotate(-60 396.50 186.00)">mod_mixed_bact</text>
+<text x="441.90" y="186.00" font-size="9" transform="rotate(-60 441.90 186.00)">mod_staph</text>
+<text x="487.30" y="186.00" font-size="9" transform="rotate(-60 487.30 186.00)">mouse_contam</text>
+<text x="532.70" y="186.00" font-size="9" transform="rotate(-60 532.70 186.00)">zoo_mix</text>
+<text x="578.10" y="186.00" font-size="9" transform="rotate(-60 578.10 186.00)">heavy_staph</text>
+<text x="623.50" y="186.00" font-size="9" transform="rotate(-60 623.50 186.00)">outlier_single_species</text>
+<text x="668.90" y="186.00" font-size="9" transform="rotate(-60 668.90 186.00)">heavy_ecoli</text>
+<text x="714.30" y="186.00" font-size="9" transform="rotate(-60 714.30 186.00)">heavy_klebsiella</text>
+<text x="759.70" y="186.00" font-size="9" transform="rotate(-60 759.70 186.00)">super_contaminated</text>
+<text x="805.10" y="186.00" font-size="9" transform="rotate(-60 805.10 186.00)">fungal_contam</text>
+<text x="850.50" y="186.00" font-size="9" transform="rotate(-60 850.50 186.00)">synthetic_contam</text>
+<text x="895.90" y="186.00" font-size="9" transform="rotate(-60 895.90 186.00)">archaea_contam</text>
+<text x="941.30" y="186.00" font-size="9" transform="rotate(-60 941.30 186.00)">viral_contam</text>
 </svg></div><div class="legend"></div><p class='fig-caption'>Each column is one sample; segments show the share of non-human burden contributed by each taxonomic domain.  Columns share the §3.6 column order so adjacent columns belong to the same hierarchical-clustering branch.  Solid blocks of one colour across a cluster indicate host-depletion or batch artefacts (one organism dominates every sample in the cluster); a mosaic suggests genuine per-sample contamination heterogeneity.  Orange dots mark <code>csc-detect</code>-flagged samples when present.</p>
-<h3>3.6.2 Prevalence × abundance scatter</h3><div class="figure">
+<h3>3.6.2 Prevalence × abundance scatter</h3><div class="figure scatter-figure">
 <p class="fig-title">Figure 3.6.2 — Prevalence × abundance for top-33 species (median CPM among positives, sized by p95 CPM)</p>
-<svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6.2 — Prevalence × abundance for top-33 species (median CPM among positives, sized by p95 CPM)">
+<svg class="scatter-svg" viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6.2 — Prevalence × abundance for top-33 species (median CPM among positives, sized by p95 CPM)">
 <rect x="70" y="30" width="632" height="354" fill="#fafafa" stroke="#ccc"/>
 <line x1="70.0" y1="384" x2="70.0" y2="388" stroke="#444"/><text x="70.0" y="400" font-size="10" text-anchor="middle">0.05</text>
 <line x1="66" y1="384.0" x2="70" y2="384.0" stroke="#444"/><text x="64" y="387.0" font-size="10" text-anchor="end">9.95</text>
@@ -572,42 +559,42 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <line x1="66" y1="30.0" x2="70" y2="30.0" stroke="#444"/><text x="64" y="33.0" font-size="10" text-anchor="end">10^5.3</text>
 <text x="386.0" y="422" font-size="12" text-anchor="middle">prevalence (fraction of cohort with positive detection)</text>
 <text x="14" y="207.0" font-size="12" text-anchor="middle" transform="rotate(-90 14 207.0)">median CPM among detected (log10)</text>
-<circle cx="702.00" cy="30.00" r="10.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>root (tax_id 1; Unannotated) — prev 100.0%, median CPM 2.19e+05, p95 4.52e+05</title></circle>
-<circle cx="369.37" cy="81.91" r="10.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacteria (tax_id 2; Unannotated) — prev 50.0%, median CPM 5.06e+04, p95 1.25e+05</title></circle>
-<circle cx="702.00" cy="108.64" r="9.65" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>unclassified (tax_id 0; Unannotated) — prev 100.0%, median CPM 2.38e+04, p95 5.86e+04</title></circle>
-<circle cx="469.16" cy="183.45" r="9.76" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus aureus (tax_id 1280; Unannotated) — prev 65.0%, median CPM 2.87e+03, p95 6.9e+04</title></circle>
-<circle cx="435.89" cy="177.10" r="9.60" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia coli (tax_id 562; Unannotated) — prev 60.0%, median CPM 3.44e+03, p95 5.41e+04</title></circle>
-<circle cx="136.53" cy="80.91" r="9.89" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus (tax_id 1279; Unannotated) — prev 15.0%, median CPM 5.2e+04, p95 8.47e+04</title></circle>
-<circle cx="136.53" cy="101.29" r="9.62" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Klebsiella pneumoniae (tax_id 620; Unannotated) — prev 15.0%, median CPM 2.92e+04, p95 5.59e+04</title></circle>
-<circle cx="136.53" cy="89.82" r="9.42" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Metazoa (tax_id 33208; Unannotated) — prev 15.0%, median CPM 4.04e+04, p95 4.13e+04</title></circle>
-<circle cx="136.53" cy="93.99" r="9.36" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mus musculus (tax_id 10090; Unannotated) — prev 15.0%, median CPM 3.59e+04, p95 3.74e+04</title></circle>
-<circle cx="103.26" cy="92.20" r="9.71" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia (tax_id 561; Unannotated) — prev 10.0%, median CPM 3.78e+04, p95 6.41e+04</title></circle>
-<circle cx="136.53" cy="133.73" r="8.97" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Fungi (tax_id 4751; Unannotated) — prev 15.0%, median CPM 1.17e+04, p95 2.06e+04</title></circle>
-<circle cx="169.79" cy="140.70" r="8.70" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Candida albicans (tax_id 5476; Unannotated) — prev 20.0%, median CPM 9.61e+03, p95 1.37e+04</title></circle>
-<circle cx="136.53" cy="145.44" r="8.83" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Pseudomonas aeruginosa (tax_id 287; Unannotated) — prev 15.0%, median CPM 8.4e+03, p95 1.66e+04</title></circle>
-<circle cx="136.53" cy="158.27" r="8.70" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Viruses (tax_id 10239; Unannotated) — prev 15.0%, median CPM 5.85e+03, p95 1.36e+04</title></circle>
-<circle cx="103.26" cy="135.01" r="8.88" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Arabidopsis thaliana (tax_id 3702; Unannotated) — prev 10.0%, median CPM 1.13e+04, p95 1.81e+04</title></circle>
-<circle cx="136.53" cy="158.27" r="8.31" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Epstein-Barr virus (tax_id 10376; Unannotated) — prev 15.0%, median CPM 5.85e+03, p95 7.5e+03</title></circle>
-<circle cx="70.00" cy="122.56" r="8.81" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Archaea (tax_id 2157; Unannotated) — prev 5.0%, median CPM 1.6e+04, p95 1.6e+04</title></circle>
-<circle cx="70.00" cy="134.89" r="8.58" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Methanobrevibacter smithii (tax_id 2190; Unannotated) — prev 5.0%, median CPM 1.13e+04, p95 1.13e+04</title></circle>
-<circle cx="70.00" cy="140.43" r="8.48" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>artificial sequences (tax_id 81077; Unannotated) — prev 5.0%, median CPM 9.68e+03, p95 9.68e+03</title></circle>
-<circle cx="70.00" cy="149.36" r="8.31" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Zea mays (tax_id 4577; Unannotated) — prev 5.0%, median CPM 7.52e+03, p95 7.52e+03</title></circle>
-<circle cx="70.00" cy="166.15" r="8.01" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Saccharomyces cerevisiae (tax_id 4932; Unannotated) — prev 5.0%, median CPM 4.68e+03, p95 4.68e+03</title></circle>
-<circle cx="70.00" cy="167.61" r="7.98" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Rattus norvegicus (tax_id 10116; Unannotated) — prev 5.0%, median CPM 4.49e+03, p95 4.49e+03</title></circle>
-<circle cx="70.00" cy="165.24" r="8.02" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Human cytomegalovirus (tax_id 10359; Unannotated) — prev 5.0%, median CPM 4.8e+03, p95 4.8e+03</title></circle>
-<circle cx="70.00" cy="165.88" r="8.01" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Nitrosopumilus maritimus (tax_id 187420; Unannotated) — prev 5.0%, median CPM 4.72e+03, p95 4.72e+03</title></circle>
-<circle cx="70.00" cy="172.07" r="7.90" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mycobacterium tuberculosis (tax_id 1773; Unannotated) — prev 5.0%, median CPM 3.96e+03, p95 3.96e+03</title></circle>
-<circle cx="136.53" cy="246.81" r="7.51" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacillus subtilis (tax_id 1423; Unannotated) — prev 15.0%, median CPM 480, p95 2.18e+03</title></circle>
-<circle cx="70.00" cy="184.23" r="7.67" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Cryptococcus neoformans (tax_id 5207; Unannotated) — prev 5.0%, median CPM 2.81e+03, p95 2.81e+03</title></circle>
-<circle cx="70.00" cy="197.68" r="7.43" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Measles morbillivirus (tax_id 11234; Unannotated) — prev 5.0%, median CPM 1.92e+03, p95 1.92e+03</title></circle>
-<circle cx="70.00" cy="229.23" r="6.84" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Campylobacter jejuni (tax_id 194; Unannotated) — prev 5.0%, median CPM 788, p95 788</title></circle>
-<circle cx="70.00" cy="229.05" r="6.85" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Enterococcus faecium (tax_id 1352; Unannotated) — prev 5.0%, median CPM 792, p95 792</title></circle>
-<circle cx="70.00" cy="246.88" r="6.52" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pyogenes (tax_id 1314; Unannotated) — prev 5.0%, median CPM 479, p95 479</title></circle>
-<circle cx="70.00" cy="359.46" r="4.45" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pneumoniae (tax_id 1301; Unannotated) — prev 5.0%, median CPM 19.9, p95 19.9</title></circle>
-<circle cx="70.00" cy="384.00" r="4.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Haemophilus influenzae (tax_id 727; Unannotated) — prev 5.0%, median CPM 9.95, p95 9.95</title></circle>
+<circle class="scatter-point" cx="702.00" cy="30.00" r="10.00" fill="#E69F00" data-r="10.00" data-label="root (tax_id 1; Unannotated) — prev 100.0%, median CPM 2.19e+05, p95 4.52e+05" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>root (tax_id 1; Unannotated) — prev 100.0%, median CPM 2.19e+05, p95 4.52e+05</title></circle>
+<circle class="scatter-point" cx="369.37" cy="81.91" r="10.00" fill="#E69F00" data-r="10.00" data-label="Bacteria (tax_id 2; Unannotated) — prev 50.0%, median CPM 5.06e+04, p95 1.25e+05" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacteria (tax_id 2; Unannotated) — prev 50.0%, median CPM 5.06e+04, p95 1.25e+05</title></circle>
+<circle class="scatter-point" cx="702.00" cy="108.64" r="9.65" fill="#E69F00" data-r="9.65" data-label="unclassified (tax_id 0; Unannotated) — prev 100.0%, median CPM 2.38e+04, p95 5.86e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>unclassified (tax_id 0; Unannotated) — prev 100.0%, median CPM 2.38e+04, p95 5.86e+04</title></circle>
+<circle class="scatter-point" cx="469.16" cy="183.45" r="9.76" fill="#E69F00" data-r="9.76" data-label="Staphylococcus aureus (tax_id 1280; Unannotated) — prev 65.0%, median CPM 2.87e+03, p95 6.9e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus aureus (tax_id 1280; Unannotated) — prev 65.0%, median CPM 2.87e+03, p95 6.9e+04</title></circle>
+<circle class="scatter-point" cx="435.89" cy="177.10" r="9.60" fill="#E69F00" data-r="9.60" data-label="Escherichia coli (tax_id 562; Unannotated) — prev 60.0%, median CPM 3.44e+03, p95 5.41e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia coli (tax_id 562; Unannotated) — prev 60.0%, median CPM 3.44e+03, p95 5.41e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="80.91" r="9.89" fill="#E69F00" data-r="9.89" data-label="Staphylococcus (tax_id 1279; Unannotated) — prev 15.0%, median CPM 5.2e+04, p95 8.47e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Staphylococcus (tax_id 1279; Unannotated) — prev 15.0%, median CPM 5.2e+04, p95 8.47e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="101.29" r="9.62" fill="#E69F00" data-r="9.62" data-label="Klebsiella pneumoniae (tax_id 620; Unannotated) — prev 15.0%, median CPM 2.92e+04, p95 5.59e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Klebsiella pneumoniae (tax_id 620; Unannotated) — prev 15.0%, median CPM 2.92e+04, p95 5.59e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="89.82" r="9.42" fill="#E69F00" data-r="9.42" data-label="Metazoa (tax_id 33208; Unannotated) — prev 15.0%, median CPM 4.04e+04, p95 4.13e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Metazoa (tax_id 33208; Unannotated) — prev 15.0%, median CPM 4.04e+04, p95 4.13e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="93.99" r="9.36" fill="#E69F00" data-r="9.36" data-label="Mus musculus (tax_id 10090; Unannotated) — prev 15.0%, median CPM 3.59e+04, p95 3.74e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mus musculus (tax_id 10090; Unannotated) — prev 15.0%, median CPM 3.59e+04, p95 3.74e+04</title></circle>
+<circle class="scatter-point" cx="103.26" cy="92.20" r="9.71" fill="#E69F00" data-r="9.71" data-label="Escherichia (tax_id 561; Unannotated) — prev 10.0%, median CPM 3.78e+04, p95 6.41e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Escherichia (tax_id 561; Unannotated) — prev 10.0%, median CPM 3.78e+04, p95 6.41e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="133.73" r="8.97" fill="#E69F00" data-r="8.97" data-label="Fungi (tax_id 4751; Unannotated) — prev 15.0%, median CPM 1.17e+04, p95 2.06e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Fungi (tax_id 4751; Unannotated) — prev 15.0%, median CPM 1.17e+04, p95 2.06e+04</title></circle>
+<circle class="scatter-point" cx="169.79" cy="140.70" r="8.70" fill="#E69F00" data-r="8.70" data-label="Candida albicans (tax_id 5476; Unannotated) — prev 20.0%, median CPM 9.61e+03, p95 1.37e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Candida albicans (tax_id 5476; Unannotated) — prev 20.0%, median CPM 9.61e+03, p95 1.37e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="145.44" r="8.83" fill="#E69F00" data-r="8.83" data-label="Pseudomonas aeruginosa (tax_id 287; Unannotated) — prev 15.0%, median CPM 8.4e+03, p95 1.66e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Pseudomonas aeruginosa (tax_id 287; Unannotated) — prev 15.0%, median CPM 8.4e+03, p95 1.66e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="158.27" r="8.70" fill="#E69F00" data-r="8.70" data-label="Viruses (tax_id 10239; Unannotated) — prev 15.0%, median CPM 5.85e+03, p95 1.36e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Viruses (tax_id 10239; Unannotated) — prev 15.0%, median CPM 5.85e+03, p95 1.36e+04</title></circle>
+<circle class="scatter-point" cx="103.26" cy="135.01" r="8.88" fill="#E69F00" data-r="8.88" data-label="Arabidopsis thaliana (tax_id 3702; Unannotated) — prev 10.0%, median CPM 1.13e+04, p95 1.81e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Arabidopsis thaliana (tax_id 3702; Unannotated) — prev 10.0%, median CPM 1.13e+04, p95 1.81e+04</title></circle>
+<circle class="scatter-point" cx="136.53" cy="158.27" r="8.31" fill="#E69F00" data-r="8.31" data-label="Epstein-Barr virus (tax_id 10376; Unannotated) — prev 15.0%, median CPM 5.85e+03, p95 7.5e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Epstein-Barr virus (tax_id 10376; Unannotated) — prev 15.0%, median CPM 5.85e+03, p95 7.5e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="122.56" r="8.81" fill="#E69F00" data-r="8.81" data-label="Archaea (tax_id 2157; Unannotated) — prev 5.0%, median CPM 1.6e+04, p95 1.6e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Archaea (tax_id 2157; Unannotated) — prev 5.0%, median CPM 1.6e+04, p95 1.6e+04</title></circle>
+<circle class="scatter-point" cx="70.00" cy="134.89" r="8.58" fill="#E69F00" data-r="8.58" data-label="Methanobrevibacter smithii (tax_id 2190; Unannotated) — prev 5.0%, median CPM 1.13e+04, p95 1.13e+04" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Methanobrevibacter smithii (tax_id 2190; Unannotated) — prev 5.0%, median CPM 1.13e+04, p95 1.13e+04</title></circle>
+<circle class="scatter-point" cx="70.00" cy="140.43" r="8.48" fill="#E69F00" data-r="8.48" data-label="artificial sequences (tax_id 81077; Unannotated) — prev 5.0%, median CPM 9.68e+03, p95 9.68e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>artificial sequences (tax_id 81077; Unannotated) — prev 5.0%, median CPM 9.68e+03, p95 9.68e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="149.36" r="8.31" fill="#E69F00" data-r="8.31" data-label="Zea mays (tax_id 4577; Unannotated) — prev 5.0%, median CPM 7.52e+03, p95 7.52e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Zea mays (tax_id 4577; Unannotated) — prev 5.0%, median CPM 7.52e+03, p95 7.52e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="166.15" r="8.01" fill="#E69F00" data-r="8.01" data-label="Saccharomyces cerevisiae (tax_id 4932; Unannotated) — prev 5.0%, median CPM 4.68e+03, p95 4.68e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Saccharomyces cerevisiae (tax_id 4932; Unannotated) — prev 5.0%, median CPM 4.68e+03, p95 4.68e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="167.61" r="7.98" fill="#E69F00" data-r="7.98" data-label="Rattus norvegicus (tax_id 10116; Unannotated) — prev 5.0%, median CPM 4.49e+03, p95 4.49e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Rattus norvegicus (tax_id 10116; Unannotated) — prev 5.0%, median CPM 4.49e+03, p95 4.49e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="165.24" r="8.02" fill="#E69F00" data-r="8.02" data-label="Human cytomegalovirus (tax_id 10359; Unannotated) — prev 5.0%, median CPM 4.8e+03, p95 4.8e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Human cytomegalovirus (tax_id 10359; Unannotated) — prev 5.0%, median CPM 4.8e+03, p95 4.8e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="165.88" r="8.01" fill="#E69F00" data-r="8.01" data-label="Nitrosopumilus maritimus (tax_id 187420; Unannotated) — prev 5.0%, median CPM 4.72e+03, p95 4.72e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Nitrosopumilus maritimus (tax_id 187420; Unannotated) — prev 5.0%, median CPM 4.72e+03, p95 4.72e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="172.07" r="7.90" fill="#E69F00" data-r="7.90" data-label="Mycobacterium tuberculosis (tax_id 1773; Unannotated) — prev 5.0%, median CPM 3.96e+03, p95 3.96e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Mycobacterium tuberculosis (tax_id 1773; Unannotated) — prev 5.0%, median CPM 3.96e+03, p95 3.96e+03</title></circle>
+<circle class="scatter-point" cx="136.53" cy="246.81" r="7.51" fill="#E69F00" data-r="7.51" data-label="Bacillus subtilis (tax_id 1423; Unannotated) — prev 15.0%, median CPM 480, p95 2.18e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Bacillus subtilis (tax_id 1423; Unannotated) — prev 15.0%, median CPM 480, p95 2.18e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="184.23" r="7.67" fill="#E69F00" data-r="7.67" data-label="Cryptococcus neoformans (tax_id 5207; Unannotated) — prev 5.0%, median CPM 2.81e+03, p95 2.81e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Cryptococcus neoformans (tax_id 5207; Unannotated) — prev 5.0%, median CPM 2.81e+03, p95 2.81e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="197.68" r="7.43" fill="#E69F00" data-r="7.43" data-label="Measles morbillivirus (tax_id 11234; Unannotated) — prev 5.0%, median CPM 1.92e+03, p95 1.92e+03" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Measles morbillivirus (tax_id 11234; Unannotated) — prev 5.0%, median CPM 1.92e+03, p95 1.92e+03</title></circle>
+<circle class="scatter-point" cx="70.00" cy="229.23" r="6.84" fill="#E69F00" data-r="6.84" data-label="Campylobacter jejuni (tax_id 194; Unannotated) — prev 5.0%, median CPM 788, p95 788" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Campylobacter jejuni (tax_id 194; Unannotated) — prev 5.0%, median CPM 788, p95 788</title></circle>
+<circle class="scatter-point" cx="70.00" cy="229.05" r="6.85" fill="#E69F00" data-r="6.85" data-label="Enterococcus faecium (tax_id 1352; Unannotated) — prev 5.0%, median CPM 792, p95 792" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Enterococcus faecium (tax_id 1352; Unannotated) — prev 5.0%, median CPM 792, p95 792</title></circle>
+<circle class="scatter-point" cx="70.00" cy="246.88" r="6.52" fill="#E69F00" data-r="6.52" data-label="Streptococcus pyogenes (tax_id 1314; Unannotated) — prev 5.0%, median CPM 479, p95 479" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pyogenes (tax_id 1314; Unannotated) — prev 5.0%, median CPM 479, p95 479</title></circle>
+<circle class="scatter-point" cx="70.00" cy="359.46" r="4.45" fill="#E69F00" data-r="4.45" data-label="Streptococcus pneumoniae (tax_id 1301; Unannotated) — prev 5.0%, median CPM 19.9, p95 19.9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Streptococcus pneumoniae (tax_id 1301; Unannotated) — prev 5.0%, median CPM 19.9, p95 19.9</title></circle>
+<circle class="scatter-point" cx="70.00" cy="384.00" r="4.00" fill="#E69F00" data-r="4.00" data-label="Haemophilus influenzae (tax_id 727; Unannotated) — prev 5.0%, median CPM 9.95, p95 9.95" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>Haemophilus influenzae (tax_id 727; Unannotated) — prev 5.0%, median CPM 9.95, p95 9.95</title></circle>
 </svg>
 <div class="legend"><span class="lg-item"><span class="lg-sw" style="background:#E69F00"></span>Unannotated</span></div>
-</div><p class='fig-caption'>Each dot is a species.  X-axis is the fraction of samples where the species is detected (any positive count); Y-axis is the median CPM <em>among</em> samples that detected it.  Dot size scales with p95 CPM, so <strong>large dots in the bottom-left</strong> are rare-but-spiky contaminants (typical of one-off lab/reagent events), while points along the top edge are always-present background organisms.  Use this view to spot signal that the §3.6 heatmap dilutes by averaging across the cohort.</p>
+</div><p class='fig-caption'>Each dot is a species — <strong>hover any point for an immediate tooltip</strong> with the species name, tax_id, domain, prevalence, median CPM and p95 CPM.  X-axis is the fraction of samples where the species is detected (any positive count); Y-axis is the median CPM <em>among</em> samples that detected it.  Dot size scales with p95 CPM, so <strong>large dots in the bottom-left</strong> are rare-but-spiky contaminants (typical of one-off lab/reagent events), while points along the top edge are always-present background organisms.  Use this view to spot signal that the §3.6 heatmap dilutes by averaging across the cohort.</p>
 <h3>3.6.3 Cohort burden distribution by domain</h3><div class="figure">
 <p class="fig-title">Figure 3.6.3 — Per-sample non-human burden by taxonomic domain (CPM sum within domain, log10)</p>
 <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6.3 — Per-sample non-human burden by taxonomic domain (CPM sum within domain, log10)">
@@ -676,263 +663,221 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 </svg></div>
 <p class='fig-caption'>Histograms of per-sample diversity. Samples sitting in the long left tail of Shannon entropy (very low diversity) are typically dominated by a single contaminant or by PCR duplicates of a single species; the cohort currently has <strong>10</strong> sample(s) flagged by <code>csc-detect</code>, which often concentrate in those tails.  Right-skew on the richness histogram is consistent with kit-/reagent-contamination introducing many low-count species across affected samples.</p>
 <h3>3.6.5 Absolute-burden heatmap (parallel to §3.6)</h3><div class="figure">
-<p class="fig-title">Figure 3.6.5 — Top 34 species × 20 samples, log1p(ppm of total sequenced reads); rows and columns reordered to match §3.6</p>
-<svg viewBox="0 0 980 664" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6.5 — Top 34 species × 20 samples, log1p(ppm of total sequenced reads); rows and columns reordered to match §3.6">
-<rect x="220" y="40" width="672.0" height="544.0" fill="#fff" stroke="#ccc"/>
-<text x="214" y="51.00" font-size="11" text-anchor="end">Bacillus</text>
-<rect x="858.40" y="56.00" width="33.60" height="16.00" fill="#c1cddd"><title>Streptococcus pneumoniae / clean_D: 20</title></rect>
-<text x="214" y="67.00" font-size="11" text-anchor="end">Streptococcus pneumoniae</text>
-<rect x="858.40" y="72.00" width="33.60" height="16.00" fill="#ccd7e4"><title>Haemophilus influenzae / clean_D: 10</title></rect>
-<text x="214" y="83.00" font-size="11" text-anchor="end">Haemophilus influenzae</text>
-<rect x="320.80" y="88.00" width="33.60" height="16.00" fill="#657fa4"><title>Mycobacterium tuberculosis / mod_mycobact: 4e+03</title></rect>
+<p class="fig-title">Figure 3.6.5 — Top 32 species × 20 samples, log1p(ppm of total sequenced reads); rows and columns reordered to match §3.6</p>
+<svg viewBox="0 0 980 632" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.6.5 — Top 32 species × 20 samples, log1p(ppm of total sequenced reads); rows and columns reordered to match §3.6">
+<rect x="220" y="40" width="672.0" height="512.0" fill="#fff" stroke="#ccc"/>
+<rect x="824.80" y="40.00" width="33.60" height="16.00" fill="#537099"><title>Nitrosopumilus maritimus / archaea_contam: 5e+03</title></rect>
+<text x="214" y="51.00" font-size="11" text-anchor="end">Nitrosopumilus maritimus</text>
+<rect x="824.80" y="56.00" width="33.60" height="16.00" fill="#3c5c8b"><title>Archaea / archaea_contam: 1.7e+04</title></rect>
+<text x="214" y="67.00" font-size="11" text-anchor="end">Archaea</text>
+<rect x="824.80" y="72.00" width="33.60" height="16.00" fill="#42628f"><title>Methanobrevibacter smithii / archaea_contam: 1.2e+04</title></rect>
+<text x="214" y="83.00" font-size="11" text-anchor="end">Methanobrevibacter smithii</text>
+<rect x="388.00" y="88.00" width="33.60" height="16.00" fill="#58739c"><title>Mycobacterium tuberculosis / mod_mycobact: 4e+03</title></rect>
 <text x="214" y="99.00" font-size="11" text-anchor="end">Mycobacterium tuberculosis</text>
-<rect x="320.80" y="104.00" width="33.60" height="16.00" fill="#8197b6"><title>Enterococcus faecium / mod_mycobact: 800</title></rect>
+<rect x="388.00" y="104.00" width="33.60" height="16.00" fill="#768eaf"><title>Enterococcus faecium / mod_mycobact: 800</title></rect>
 <text x="214" y="115.00" font-size="11" text-anchor="end">Enterococcus faecium</text>
-<rect x="388.00" y="120.00" width="33.60" height="16.00" fill="#617ba2"><title>Nitrosopumilus maritimus / archaea_contam: 5e+03</title></rect>
-<text x="214" y="131.00" font-size="11" text-anchor="end">Nitrosopumilus maritimus</text>
-<rect x="388.00" y="136.00" width="33.60" height="16.00" fill="#4b6994"><title>Archaea / archaea_contam: 1.7e+04</title></rect>
-<text x="214" y="147.00" font-size="11" text-anchor="end">Archaea</text>
-<rect x="388.00" y="152.00" width="33.60" height="16.00" fill="#516e98"><title>Methanobrevibacter smithii / archaea_contam: 1.2e+04</title></rect>
-<text x="214" y="163.00" font-size="11" text-anchor="end">Methanobrevibacter smithii</text>
-<rect x="488.80" y="168.00" width="33.60" height="16.00" fill="#899ebb"><title>Streptococcus pyogenes / mod_mixed_bact: 500</title></rect>
-<text x="214" y="179.00" font-size="11" text-anchor="end">Streptococcus pyogenes</text>
-<rect x="455.20" y="184.00" width="33.60" height="16.00" fill="#55719a"><title>artificial sequences / synthetic_contam: 1e+04</title></rect>
-<text x="214" y="195.00" font-size="11" text-anchor="end">artificial sequences</text>
-<rect x="421.60" y="200.00" width="33.60" height="16.00" fill="#899ebb"><title>Bacillus subtilis / mod_ecoli: 500</title></rect>
-<rect x="690.40" y="200.00" width="33.60" height="16.00" fill="#6a83a7"><title>Bacillus subtilis / heavy_ecoli: 3e+03</title></rect>
-<rect x="791.20" y="200.00" width="33.60" height="16.00" fill="#d7e0eb"><title>Bacillus subtilis / clean_B: 5</title></rect>
-<text x="214" y="211.00" font-size="11" text-anchor="end">Bacillus subtilis</text>
-<rect x="690.40" y="216.00" width="33.60" height="16.00" fill="#7d93b3"><title>Campylobacter jejuni / heavy_ecoli: 1e+03</title></rect>
-<text x="214" y="227.00" font-size="11" text-anchor="end">Campylobacter jejuni</text>
-<rect x="220.00" y="232.00" width="33.60" height="16.00" fill="#617ba2"><title>Rattus norvegicus / mouse_contam: 5e+03</title></rect>
-<text x="214" y="243.00" font-size="11" text-anchor="end">Rattus norvegicus</text>
-<rect x="253.60" y="248.00" width="33.60" height="16.00" fill="#617ba2"><title>Saccharomyces cerevisiae / fungal_contam: 5e+03</title></rect>
-<text x="214" y="259.00" font-size="11" text-anchor="end">Saccharomyces cerevisiae</text>
-<rect x="253.60" y="264.00" width="33.60" height="16.00" fill="#6a83a7"><title>Cryptococcus neoformans / fungal_contam: 3e+03</title></rect>
-<text x="214" y="275.00" font-size="11" text-anchor="end">Cryptococcus neoformans</text>
-<rect x="287.20" y="280.00" width="33.60" height="16.00" fill="#486793"><title>Arabidopsis thaliana / plant_contam: 2e+04</title></rect>
-<rect x="623.20" y="280.00" width="33.60" height="16.00" fill="#617ba2"><title>Arabidopsis thaliana / zoo_mix: 5e+03</title></rect>
-<text x="214" y="291.00" font-size="11" text-anchor="end">Arabidopsis thaliana</text>
-<rect x="287.20" y="296.00" width="33.60" height="16.00" fill="#58749d"><title>Zea mays / plant_contam: 8e+03</title></rect>
-<text x="214" y="307.00" font-size="11" text-anchor="end">Zea mays</text>
-<rect x="354.40" y="312.00" width="33.60" height="16.00" fill="#617ba2"><title>Human cytomegalovirus / viral_contam: 5e+03</title></rect>
-<text x="214" y="323.00" font-size="11" text-anchor="end">Human cytomegalovirus</text>
-<rect x="354.40" y="328.00" width="33.60" height="16.00" fill="#7189ac"><title>Measles morbillivirus / viral_contam: 2e+03</title></rect>
-<text x="214" y="339.00" font-size="11" text-anchor="end">Measles morbillivirus</text>
-<rect x="220.00" y="344.00" width="33.60" height="16.00" fill="#3a5a8a"><title>Metazoa / mouse_contam: 4.5e+04</title></rect>
-<rect x="589.60" y="344.00" width="33.60" height="16.00" fill="#4d6b96"><title>Metazoa / super_contaminated: 1.5e+04</title></rect>
-<rect x="623.20" y="344.00" width="33.60" height="16.00" fill="#375788"><title>Metazoa / zoo_mix: 5.5e+04</title></rect>
-<text x="214" y="355.00" font-size="11" text-anchor="end">Metazoa</text>
-<rect x="220.00" y="360.00" width="33.60" height="16.00" fill="#3c5c8b"><title>Mus musculus / mouse_contam: 4e+04</title></rect>
-<rect x="589.60" y="360.00" width="33.60" height="16.00" fill="#4d6b96"><title>Mus musculus / super_contaminated: 1.5e+04</title></rect>
-<rect x="623.20" y="360.00" width="33.60" height="16.00" fill="#385989"><title>Mus musculus / zoo_mix: 5e+04</title></rect>
-<text x="214" y="371.00" font-size="11" text-anchor="end">Mus musculus</text>
-<rect x="488.80" y="376.00" width="33.60" height="16.00" fill="#7189ac"><title>Klebsiella pneumoniae / mod_mixed_bact: 2e+03</title></rect>
-<rect x="589.60" y="376.00" width="33.60" height="16.00" fill="#385989"><title>Klebsiella pneumoniae / super_contaminated: 5e+04</title></rect>
-<rect x="724.00" y="376.00" width="33.60" height="16.00" fill="#325485"><title>Klebsiella pneumoniae / heavy_klebsiella: 7e+04</title></rect>
-<text x="214" y="387.00" font-size="11" text-anchor="end">Klebsiella pneumoniae</text>
-<rect x="488.80" y="392.00" width="33.60" height="16.00" fill="#7d93b3"><title>Pseudomonas aeruginosa / mod_mixed_bact: 1e+03</title></rect>
-<rect x="589.60" y="392.00" width="33.60" height="16.00" fill="#41618e"><title>Pseudomonas aeruginosa / super_contaminated: 3e+04</title></rect>
-<rect x="724.00" y="392.00" width="33.60" height="16.00" fill="#55719a"><title>Pseudomonas aeruginosa / heavy_klebsiella: 1e+04</title></rect>
-<text x="214" y="403.00" font-size="11" text-anchor="end">Pseudomonas aeruginosa</text>
-<rect x="253.60" y="408.00" width="33.60" height="16.00" fill="#466591"><title>Fungi / fungal_contam: 2.3e+04</title></rect>
-<rect x="589.60" y="408.00" width="33.60" height="16.00" fill="#486793"><title>Fungi / super_contaminated: 2e+04</title></rect>
-<rect x="623.20" y="408.00" width="33.60" height="16.00" fill="#55719a"><title>Fungi / zoo_mix: 1e+04</title></rect>
-<text x="214" y="419.00" font-size="11" text-anchor="end">Fungi</text>
-<rect x="253.60" y="424.00" width="33.60" height="16.00" fill="#4d6b96"><title>Candida albicans / fungal_contam: 1.5e+04</title></rect>
-<rect x="589.60" y="424.00" width="33.60" height="16.00" fill="#486793"><title>Candida albicans / super_contaminated: 2e+04</title></rect>
-<rect x="623.20" y="424.00" width="33.60" height="16.00" fill="#55719a"><title>Candida albicans / zoo_mix: 1e+04</title></rect>
-<rect x="824.80" y="424.00" width="33.60" height="16.00" fill="#d7e0eb"><title>Candida albicans / clean_A: 5</title></rect>
-<text x="214" y="435.00" font-size="11" text-anchor="end">Candida albicans</text>
-<rect x="354.40" y="440.00" width="33.60" height="16.00" fill="#4d6b96"><title>Viruses / viral_contam: 1.5e+04</title></rect>
-<rect x="589.60" y="440.00" width="33.60" height="16.00" fill="#55719a"><title>Viruses / super_contaminated: 1e+04</title></rect>
-<rect x="623.20" y="440.00" width="33.60" height="16.00" fill="#617ba2"><title>Viruses / zoo_mix: 5e+03</title></rect>
-<text x="214" y="451.00" font-size="11" text-anchor="end">Viruses</text>
-<rect x="354.40" y="456.00" width="33.60" height="16.00" fill="#58749d"><title>Epstein-Barr virus / viral_contam: 8e+03</title></rect>
-<rect x="589.60" y="456.00" width="33.60" height="16.00" fill="#55719a"><title>Epstein-Barr virus / super_contaminated: 1e+04</title></rect>
-<rect x="623.20" y="456.00" width="33.60" height="16.00" fill="#617ba2"><title>Epstein-Barr virus / zoo_mix: 5e+03</title></rect>
-<text x="214" y="467.00" font-size="11" text-anchor="end">Epstein-Barr virus</text>
-<rect x="220.00" y="472.00" width="33.60" height="16.00" fill="#183e75"><title>root / mouse_contam: 3.1e+05</title></rect>
-<rect x="253.60" y="472.00" width="33.60" height="16.00" fill="#193f76"><title>root / fungal_contam: 2.9e+05</title></rect>
-<rect x="287.20" y="472.00" width="33.60" height="16.00" fill="#1a3f76"><title>root / plant_contam: 2.8e+05</title></rect>
-<rect x="320.80" y="472.00" width="33.60" height="16.00" fill="#264a7d"><title>root / mod_mycobact: 1.4e+05</title></rect>
-<rect x="354.40" y="472.00" width="33.60" height="16.00" fill="#1d4178"><title>root / viral_contam: 2.4e+05</title></rect>
-<rect x="388.00" y="472.00" width="33.60" height="16.00" fill="#1e4379"><title>root / archaea_contam: 2.2e+05</title></rect>
-<rect x="421.60" y="472.00" width="33.60" height="16.00" fill="#22467b"><title>root / mod_ecoli: 1.8e+05</title></rect>
-<rect x="455.20" y="472.00" width="33.60" height="16.00" fill="#21457a"><title>root / synthetic_contam: 1.9e+05</title></rect>
-<rect x="488.80" y="472.00" width="33.60" height="16.00" fill="#1f4379"><title>root / mod_mixed_bact: 2.1e+05</title></rect>
-<rect x="522.40" y="472.00" width="33.60" height="16.00" fill="#20447a"><title>root / mod_staph: 2e+05</title></rect>
-<rect x="556.00" y="472.00" width="33.60" height="16.00" fill="#143a72"><title>root / outlier_single_species: 4e+05</title></rect>
-<rect x="589.60" y="472.00" width="33.60" height="16.00" fill="#08306b"><title>root / super_contaminated: 8e+05</title></rect>
-<rect x="623.20" y="472.00" width="33.60" height="16.00" fill="#0d346e"><title>root / zoo_mix: 6e+05</title></rect>
-<rect x="656.80" y="472.00" width="33.60" height="16.00" fill="#103770"><title>root / heavy_staph: 5e+05</title></rect>
-<rect x="690.40" y="472.00" width="33.60" height="16.00" fill="#103770"><title>root / heavy_ecoli: 4.9e+05</title></rect>
-<rect x="724.00" y="472.00" width="33.60" height="16.00" fill="#113770"><title>root / heavy_klebsiella: 4.7e+05</title></rect>
-<rect x="757.60" y="472.00" width="33.60" height="16.00" fill="#55719a"><title>root / clean_C: 1e+04</title></rect>
-<rect x="791.20" y="472.00" width="33.60" height="16.00" fill="#41618e"><title>root / clean_B: 3e+04</title></rect>
-<rect x="824.80" y="472.00" width="33.60" height="16.00" fill="#385989"><title>root / clean_A: 5e+04</title></rect>
-<rect x="858.40" y="472.00" width="33.60" height="16.00" fill="#375788"><title>root / clean_D: 5.5e+04</title></rect>
-<text x="214" y="483.00" font-size="11" text-anchor="end">root</text>
-<rect x="220.00" y="488.00" width="33.60" height="16.00" fill="#7d93b3"><title>Escherichia coli / mouse_contam: 1e+03</title></rect>
-<rect x="287.20" y="488.00" width="33.60" height="16.00" fill="#899ebb"><title>Escherichia coli / plant_contam: 500</title></rect>
-<rect x="421.60" y="488.00" width="33.60" height="16.00" fill="#58749d"><title>Escherichia coli / mod_ecoli: 8e+03</title></rect>
-<rect x="488.80" y="488.00" width="33.60" height="16.00" fill="#6a83a7"><title>Escherichia coli / mod_mixed_bact: 3e+03</title></rect>
-<rect x="522.40" y="488.00" width="33.60" height="16.00" fill="#7d93b3"><title>Escherichia coli / mod_staph: 1e+03</title></rect>
-<rect x="589.60" y="488.00" width="33.60" height="16.00" fill="#305284"><title>Escherichia coli / super_contaminated: 8e+04</title></rect>
-<rect x="623.20" y="488.00" width="33.60" height="16.00" fill="#486793"><title>Escherichia coli / zoo_mix: 2e+04</title></rect>
-<rect x="656.80" y="488.00" width="33.60" height="16.00" fill="#617ba2"><title>Escherichia coli / heavy_staph: 5e+03</title></rect>
-<rect x="690.40" y="488.00" width="33.60" height="16.00" fill="#305284"><title>Escherichia coli / heavy_ecoli: 8e+04</title></rect>
-<rect x="724.00" y="488.00" width="33.60" height="16.00" fill="#486793"><title>Escherichia coli / heavy_klebsiella: 2e+04</title></rect>
-<rect x="791.20" y="488.00" width="33.60" height="16.00" fill="#c6d1e0"><title>Escherichia coli / clean_B: 15</title></rect>
-<rect x="824.80" y="488.00" width="33.60" height="16.00" fill="#ccd7e4"><title>Escherichia coli / clean_A: 10</title></rect>
-<text x="214" y="499.00" font-size="11" text-anchor="end">Escherichia coli</text>
-<rect x="421.60" y="504.00" width="33.60" height="16.00" fill="#56739b"><title>Escherichia / mod_ecoli: 9e+03</title></rect>
-<rect x="690.40" y="504.00" width="33.60" height="16.00" fill="#2f5183"><title>Escherichia / heavy_ecoli: 8.5e+04</title></rect>
-<text x="214" y="515.00" font-size="11" text-anchor="end">Escherichia</text>
-<rect x="220.00" y="520.00" width="33.60" height="16.00" fill="#7189ac"><title>Staphylococcus aureus / mouse_contam: 2e+03</title></rect>
-<rect x="253.60" y="520.00" width="33.60" height="16.00" fill="#7189ac"><title>Staphylococcus aureus / fungal_contam: 2e+03</title></rect>
-<rect x="354.40" y="520.00" width="33.60" height="16.00" fill="#7d93b3"><title>Staphylococcus aureus / viral_contam: 1e+03</title></rect>
-<rect x="388.00" y="520.00" width="33.60" height="16.00" fill="#7d93b3"><title>Staphylococcus aureus / archaea_contam: 1e+03</title></rect>
-<rect x="455.20" y="520.00" width="33.60" height="16.00" fill="#6a83a7"><title>Staphylococcus aureus / synthetic_contam: 3e+03</title></rect>
-<rect x="488.80" y="520.00" width="33.60" height="16.00" fill="#6a83a7"><title>Staphylococcus aureus / mod_mixed_bact: 3e+03</title></rect>
-<rect x="522.40" y="520.00" width="33.60" height="16.00" fill="#617ba2"><title>Staphylococcus aureus / mod_staph: 5e+03</title></rect>
-<rect x="556.00" y="520.00" width="33.60" height="16.00" fill="#294c7f"><title>Staphylococcus aureus / outlier_single_species: 1.2e+05</title></rect>
-<rect x="589.60" y="520.00" width="33.60" height="16.00" fill="#2c4f81"><title>Staphylococcus aureus / super_contaminated: 1e+05</title></rect>
-<rect x="623.20" y="520.00" width="33.60" height="16.00" fill="#41618e"><title>Staphylococcus aureus / zoo_mix: 3e+04</title></rect>
-<rect x="656.80" y="520.00" width="33.60" height="16.00" fill="#355687"><title>Staphylococcus aureus / heavy_staph: 6e+04</title></rect>
-<rect x="757.60" y="520.00" width="33.60" height="16.00" fill="#d7e0eb"><title>Staphylococcus aureus / clean_C: 5</title></rect>
-<rect x="824.80" y="520.00" width="33.60" height="16.00" fill="#bac7d9"><title>Staphylococcus aureus / clean_A: 30</title></rect>
-<text x="214" y="531.00" font-size="11" text-anchor="end">Staphylococcus aureus</text>
-<rect x="522.40" y="536.00" width="33.60" height="16.00" fill="#5e79a0"><title>Staphylococcus / mod_staph: 6e+03</title></rect>
-<rect x="556.00" y="536.00" width="33.60" height="16.00" fill="#284b7f"><title>Staphylococcus / outlier_single_species: 1.25e+05</title></rect>
-<rect x="656.80" y="536.00" width="33.60" height="16.00" fill="#345586"><title>Staphylococcus / heavy_staph: 6.5e+04</title></rect>
-<text x="214" y="547.00" font-size="11" text-anchor="end">Staphylococcus</text>
-<rect x="320.80" y="552.00" width="33.60" height="16.00" fill="#617ba2"><title>Bacteria / mod_mycobact: 5e+03</title></rect>
-<rect x="421.60" y="552.00" width="33.60" height="16.00" fill="#55719a"><title>Bacteria / mod_ecoli: 1e+04</title></rect>
-<rect x="488.80" y="552.00" width="33.60" height="16.00" fill="#55719a"><title>Bacteria / mod_mixed_bact: 1e+04</title></rect>
-<rect x="522.40" y="552.00" width="33.60" height="16.00" fill="#516e98"><title>Bacteria / mod_staph: 1.2e+04</title></rect>
-<rect x="556.00" y="552.00" width="33.60" height="16.00" fill="#274b7e"><title>Bacteria / outlier_single_species: 1.3e+05</title></rect>
-<rect x="589.60" y="552.00" width="33.60" height="16.00" fill="#1b4077"><title>Bacteria / super_contaminated: 2.6e+05</title></rect>
-<rect x="623.20" y="552.00" width="33.60" height="16.00" fill="#355687"><title>Bacteria / zoo_mix: 6e+04</title></rect>
-<rect x="656.80" y="552.00" width="33.60" height="16.00" fill="#325485"><title>Bacteria / heavy_staph: 7e+04</title></rect>
-<rect x="690.40" y="552.00" width="33.60" height="16.00" fill="#2e5082"><title>Bacteria / heavy_ecoli: 9e+04</title></rect>
-<rect x="724.00" y="552.00" width="33.60" height="16.00" fill="#2c4f81"><title>Bacteria / heavy_klebsiella: 1e+05</title></rect>
-<text x="214" y="563.00" font-size="11" text-anchor="end">Bacteria</text>
-<rect x="220.00" y="568.00" width="33.60" height="16.00" fill="#41618e"><title>unclassified / mouse_contam: 3e+04</title></rect>
-<rect x="253.60" y="568.00" width="33.60" height="16.00" fill="#41618e"><title>unclassified / fungal_contam: 3e+04</title></rect>
-<rect x="287.20" y="568.00" width="33.60" height="16.00" fill="#3f5e8d"><title>unclassified / plant_contam: 3.5e+04</title></rect>
-<rect x="320.80" y="568.00" width="33.60" height="16.00" fill="#55719a"><title>unclassified / mod_mycobact: 1e+04</title></rect>
-<rect x="354.40" y="568.00" width="33.60" height="16.00" fill="#486793"><title>unclassified / viral_contam: 2e+04</title></rect>
-<rect x="388.00" y="568.00" width="33.60" height="16.00" fill="#446390"><title>unclassified / archaea_contam: 2.5e+04</title></rect>
-<rect x="421.60" y="568.00" width="33.60" height="16.00" fill="#4d6b96"><title>unclassified / mod_ecoli: 1.5e+04</title></rect>
-<rect x="455.20" y="568.00" width="33.60" height="16.00" fill="#486793"><title>unclassified / synthetic_contam: 2e+04</title></rect>
-<rect x="488.80" y="568.00" width="33.60" height="16.00" fill="#446390"><title>unclassified / mod_mixed_bact: 2.5e+04</title></rect>
-<rect x="522.40" y="568.00" width="33.60" height="16.00" fill="#486793"><title>unclassified / mod_staph: 2e+04</title></rect>
-<rect x="556.00" y="568.00" width="33.60" height="16.00" fill="#3c5c8b"><title>unclassified / outlier_single_species: 4e+04</title></rect>
-<rect x="589.60" y="568.00" width="33.60" height="16.00" fill="#2c4f81"><title>unclassified / super_contaminated: 1e+05</title></rect>
-<rect x="623.20" y="568.00" width="33.60" height="16.00" fill="#305284"><title>unclassified / zoo_mix: 8e+04</title></rect>
-<rect x="656.80" y="568.00" width="33.60" height="16.00" fill="#385989"><title>unclassified / heavy_staph: 5e+04</title></rect>
-<rect x="690.40" y="568.00" width="33.60" height="16.00" fill="#3c5c8b"><title>unclassified / heavy_ecoli: 4e+04</title></rect>
-<rect x="724.00" y="568.00" width="33.60" height="16.00" fill="#355687"><title>unclassified / heavy_klebsiella: 6e+04</title></rect>
-<rect x="757.60" y="568.00" width="33.60" height="16.00" fill="#7189ac"><title>unclassified / clean_C: 2e+03</title></rect>
-<rect x="791.20" y="568.00" width="33.60" height="16.00" fill="#6a83a7"><title>unclassified / clean_B: 3e+03</title></rect>
-<rect x="824.80" y="568.00" width="33.60" height="16.00" fill="#617ba2"><title>unclassified / clean_A: 5e+03</title></rect>
-<rect x="858.40" y="568.00" width="33.60" height="16.00" fill="#637da3"><title>unclassified / clean_D: 4.5e+03</title></rect>
-<text x="214" y="579.00" font-size="11" text-anchor="end">unclassified</text>
-<text x="236.80" y="590.00" font-size="9" transform="rotate(-60 236.80 590.00)">mouse_contam</text>
-<text x="270.40" y="590.00" font-size="9" transform="rotate(-60 270.40 590.00)">fungal_contam</text>
-<text x="304.00" y="590.00" font-size="9" transform="rotate(-60 304.00 590.00)">plant_contam</text>
-<text x="337.60" y="590.00" font-size="9" transform="rotate(-60 337.60 590.00)">mod_mycobact</text>
-<text x="371.20" y="590.00" font-size="9" transform="rotate(-60 371.20 590.00)">viral_contam</text>
-<text x="404.80" y="590.00" font-size="9" transform="rotate(-60 404.80 590.00)">archaea_contam</text>
-<text x="438.40" y="590.00" font-size="9" transform="rotate(-60 438.40 590.00)">mod_ecoli</text>
-<text x="472.00" y="590.00" font-size="9" transform="rotate(-60 472.00 590.00)">synthetic_contam</text>
-<text x="505.60" y="590.00" font-size="9" transform="rotate(-60 505.60 590.00)">mod_mixed_bact</text>
-<text x="539.20" y="590.00" font-size="9" transform="rotate(-60 539.20 590.00)">mod_staph</text>
-<text x="572.80" y="590.00" font-size="9" transform="rotate(-60 572.80 590.00)">outlier_single_species</text>
-<text x="606.40" y="590.00" font-size="9" transform="rotate(-60 606.40 590.00)">super_contaminated</text>
-<text x="640.00" y="590.00" font-size="9" transform="rotate(-60 640.00 590.00)">zoo_mix</text>
-<text x="673.60" y="590.00" font-size="9" transform="rotate(-60 673.60 590.00)">heavy_staph</text>
-<text x="707.20" y="590.00" font-size="9" transform="rotate(-60 707.20 590.00)">heavy_ecoli</text>
-<text x="740.80" y="590.00" font-size="9" transform="rotate(-60 740.80 590.00)">heavy_klebsiella</text>
-<text x="774.40" y="590.00" font-size="9" transform="rotate(-60 774.40 590.00)">clean_C</text>
-<text x="808.00" y="590.00" font-size="9" transform="rotate(-60 808.00 590.00)">clean_B</text>
-<text x="841.60" y="590.00" font-size="9" transform="rotate(-60 841.60 590.00)">clean_A</text>
-<text x="875.20" y="590.00" font-size="9" transform="rotate(-60 875.20 590.00)">clean_D</text>
-<text x="556.0" y="656" font-size="11" text-anchor="middle">samples (n = 20; ordered by hierarchical clustering)</text>
+<rect x="791.20" y="120.00" width="33.60" height="16.00" fill="#466591"><title>artificial sequences / synthetic_contam: 1e+04</title></rect>
+<text x="214" y="131.00" font-size="11" text-anchor="end">artificial sequences</text>
+<rect x="455.20" y="136.00" width="33.60" height="16.00" fill="#7f95b5"><title>Streptococcus pyogenes / mod_mixed_bact: 500</title></rect>
+<text x="214" y="147.00" font-size="11" text-anchor="end">Streptococcus pyogenes</text>
+<rect x="320.80" y="152.00" width="33.60" height="16.00" fill="#d4dde9"><title>Bacillus subtilis / clean_B: 5</title></rect>
+<rect x="421.60" y="152.00" width="33.60" height="16.00" fill="#7f95b5"><title>Bacillus subtilis / mod_ecoli: 500</title></rect>
+<rect x="656.80" y="152.00" width="33.60" height="16.00" fill="#5d789f"><title>Bacillus subtilis / heavy_ecoli: 3e+03</title></rect>
+<text x="214" y="163.00" font-size="11" text-anchor="end">Bacillus subtilis</text>
+<rect x="656.80" y="168.00" width="33.60" height="16.00" fill="#728aac"><title>Campylobacter jejuni / heavy_ecoli: 1e+03</title></rect>
+<text x="214" y="179.00" font-size="11" text-anchor="end">Campylobacter jejuni</text>
+<rect x="522.40" y="184.00" width="33.60" height="16.00" fill="#537099"><title>Rattus norvegicus / mouse_contam: 5e+03</title></rect>
+<text x="214" y="195.00" font-size="11" text-anchor="end">Rattus norvegicus</text>
+<rect x="757.60" y="200.00" width="33.60" height="16.00" fill="#537099"><title>Saccharomyces cerevisiae / fungal_contam: 5e+03</title></rect>
+<text x="214" y="211.00" font-size="11" text-anchor="end">Saccharomyces cerevisiae</text>
+<rect x="757.60" y="216.00" width="33.60" height="16.00" fill="#5d789f"><title>Cryptococcus neoformans / fungal_contam: 3e+03</title></rect>
+<text x="214" y="227.00" font-size="11" text-anchor="end">Cryptococcus neoformans</text>
+<rect x="354.40" y="232.00" width="33.60" height="16.00" fill="#395989"><title>Arabidopsis thaliana / plant_contam: 2e+04</title></rect>
+<rect x="556.00" y="232.00" width="33.60" height="16.00" fill="#537099"><title>Arabidopsis thaliana / zoo_mix: 5e+03</title></rect>
+<text x="214" y="243.00" font-size="11" text-anchor="end">Arabidopsis thaliana</text>
+<rect x="354.40" y="248.00" width="33.60" height="16.00" fill="#4a6894"><title>Zea mays / plant_contam: 8e+03</title></rect>
+<text x="214" y="259.00" font-size="11" text-anchor="end">Zea mays</text>
+<rect x="858.40" y="264.00" width="33.60" height="16.00" fill="#537099"><title>Human cytomegalovirus / viral_contam: 5e+03</title></rect>
+<text x="214" y="275.00" font-size="11" text-anchor="end">Human cytomegalovirus</text>
+<rect x="858.40" y="280.00" width="33.60" height="16.00" fill="#657fa4"><title>Measles morbillivirus / viral_contam: 2e+03</title></rect>
+<text x="214" y="291.00" font-size="11" text-anchor="end">Measles morbillivirus</text>
+<rect x="522.40" y="296.00" width="33.60" height="16.00" fill="#294c7f"><title>Metazoa / mouse_contam: 4.5e+04</title></rect>
+<rect x="556.00" y="296.00" width="33.60" height="16.00" fill="#25497d"><title>Metazoa / zoo_mix: 5.5e+04</title></rect>
+<rect x="724.00" y="296.00" width="33.60" height="16.00" fill="#3e5e8c"><title>Metazoa / super_contaminated: 1.5e+04</title></rect>
+<text x="214" y="307.00" font-size="11" text-anchor="end">Metazoa</text>
+<rect x="522.40" y="312.00" width="33.60" height="16.00" fill="#2b4e81"><title>Mus musculus / mouse_contam: 4e+04</title></rect>
+<rect x="556.00" y="312.00" width="33.60" height="16.00" fill="#274a7e"><title>Mus musculus / zoo_mix: 5e+04</title></rect>
+<rect x="724.00" y="312.00" width="33.60" height="16.00" fill="#3e5e8c"><title>Mus musculus / super_contaminated: 1.5e+04</title></rect>
+<text x="214" y="323.00" font-size="11" text-anchor="end">Mus musculus</text>
+<rect x="455.20" y="328.00" width="33.60" height="16.00" fill="#657fa4"><title>Klebsiella pneumoniae / mod_mixed_bact: 2e+03</title></rect>
+<rect x="690.40" y="328.00" width="33.60" height="16.00" fill="#21457a"><title>Klebsiella pneumoniae / heavy_klebsiella: 7e+04</title></rect>
+<rect x="724.00" y="328.00" width="33.60" height="16.00" fill="#274a7e"><title>Klebsiella pneumoniae / super_contaminated: 5e+04</title></rect>
+<text x="214" y="339.00" font-size="11" text-anchor="end">Klebsiella pneumoniae</text>
+<rect x="455.20" y="344.00" width="33.60" height="16.00" fill="#728aac"><title>Pseudomonas aeruginosa / mod_mixed_bact: 1e+03</title></rect>
+<rect x="690.40" y="344.00" width="33.60" height="16.00" fill="#466591"><title>Pseudomonas aeruginosa / heavy_klebsiella: 1e+04</title></rect>
+<rect x="724.00" y="344.00" width="33.60" height="16.00" fill="#315384"><title>Pseudomonas aeruginosa / super_contaminated: 3e+04</title></rect>
+<text x="214" y="355.00" font-size="11" text-anchor="end">Pseudomonas aeruginosa</text>
+<rect x="556.00" y="360.00" width="33.60" height="16.00" fill="#466591"><title>Fungi / zoo_mix: 1e+04</title></rect>
+<rect x="724.00" y="360.00" width="33.60" height="16.00" fill="#395989"><title>Fungi / super_contaminated: 2e+04</title></rect>
+<rect x="757.60" y="360.00" width="33.60" height="16.00" fill="#365787"><title>Fungi / fungal_contam: 2.3e+04</title></rect>
+<text x="214" y="371.00" font-size="11" text-anchor="end">Fungi</text>
+<rect x="287.20" y="376.00" width="33.60" height="16.00" fill="#d4dde9"><title>Candida albicans / clean_A: 5</title></rect>
+<rect x="556.00" y="376.00" width="33.60" height="16.00" fill="#466591"><title>Candida albicans / zoo_mix: 1e+04</title></rect>
+<rect x="724.00" y="376.00" width="33.60" height="16.00" fill="#395989"><title>Candida albicans / super_contaminated: 2e+04</title></rect>
+<rect x="757.60" y="376.00" width="33.60" height="16.00" fill="#3e5e8c"><title>Candida albicans / fungal_contam: 1.5e+04</title></rect>
+<text x="214" y="387.00" font-size="11" text-anchor="end">Candida albicans</text>
+<rect x="556.00" y="392.00" width="33.60" height="16.00" fill="#537099"><title>Viruses / zoo_mix: 5e+03</title></rect>
+<rect x="724.00" y="392.00" width="33.60" height="16.00" fill="#466591"><title>Viruses / super_contaminated: 1e+04</title></rect>
+<rect x="858.40" y="392.00" width="33.60" height="16.00" fill="#3e5e8c"><title>Viruses / viral_contam: 1.5e+04</title></rect>
+<text x="214" y="403.00" font-size="11" text-anchor="end">Viruses</text>
+<rect x="556.00" y="408.00" width="33.60" height="16.00" fill="#537099"><title>Epstein-Barr virus / zoo_mix: 5e+03</title></rect>
+<rect x="724.00" y="408.00" width="33.60" height="16.00" fill="#466591"><title>Epstein-Barr virus / super_contaminated: 1e+04</title></rect>
+<rect x="858.40" y="408.00" width="33.60" height="16.00" fill="#4a6894"><title>Epstein-Barr virus / viral_contam: 8e+03</title></rect>
+<text x="214" y="419.00" font-size="11" text-anchor="end">Epstein-Barr virus</text>
+<rect x="287.20" y="424.00" width="33.60" height="16.00" fill="#c9d3e2"><title>Escherichia coli / clean_A: 10</title></rect>
+<rect x="320.80" y="424.00" width="33.60" height="16.00" fill="#c1cdde"><title>Escherichia coli / clean_B: 15</title></rect>
+<rect x="354.40" y="424.00" width="33.60" height="16.00" fill="#7f95b5"><title>Escherichia coli / plant_contam: 500</title></rect>
+<rect x="421.60" y="424.00" width="33.60" height="16.00" fill="#4a6894"><title>Escherichia coli / mod_ecoli: 8e+03</title></rect>
+<rect x="455.20" y="424.00" width="33.60" height="16.00" fill="#5d789f"><title>Escherichia coli / mod_mixed_bact: 3e+03</title></rect>
+<rect x="488.80" y="424.00" width="33.60" height="16.00" fill="#728aac"><title>Escherichia coli / mod_staph: 1e+03</title></rect>
+<rect x="522.40" y="424.00" width="33.60" height="16.00" fill="#728aac"><title>Escherichia coli / mouse_contam: 1e+03</title></rect>
+<rect x="556.00" y="424.00" width="33.60" height="16.00" fill="#395989"><title>Escherichia coli / zoo_mix: 2e+04</title></rect>
+<rect x="589.60" y="424.00" width="33.60" height="16.00" fill="#537099"><title>Escherichia coli / heavy_staph: 5e+03</title></rect>
+<rect x="656.80" y="424.00" width="33.60" height="16.00" fill="#1e4378"><title>Escherichia coli / heavy_ecoli: 8e+04</title></rect>
+<rect x="690.40" y="424.00" width="33.60" height="16.00" fill="#395989"><title>Escherichia coli / heavy_klebsiella: 2e+04</title></rect>
+<rect x="724.00" y="424.00" width="33.60" height="16.00" fill="#1e4378"><title>Escherichia coli / super_contaminated: 8e+04</title></rect>
+<text x="214" y="435.00" font-size="11" text-anchor="end">Escherichia coli</text>
+<rect x="421.60" y="440.00" width="33.60" height="16.00" fill="#486692"><title>Escherichia / mod_ecoli: 9e+03</title></rect>
+<rect x="656.80" y="440.00" width="33.60" height="16.00" fill="#1d4278"><title>Escherichia / heavy_ecoli: 8.5e+04</title></rect>
+<text x="214" y="451.00" font-size="11" text-anchor="end">Escherichia</text>
+<rect x="388.00" y="456.00" width="33.60" height="16.00" fill="#537099"><title>Bacteria / mod_mycobact: 5e+03</title></rect>
+<rect x="421.60" y="456.00" width="33.60" height="16.00" fill="#466591"><title>Bacteria / mod_ecoli: 1e+04</title></rect>
+<rect x="455.20" y="456.00" width="33.60" height="16.00" fill="#466591"><title>Bacteria / mod_mixed_bact: 1e+04</title></rect>
+<rect x="488.80" y="456.00" width="33.60" height="16.00" fill="#42628f"><title>Bacteria / mod_staph: 1.2e+04</title></rect>
+<rect x="556.00" y="456.00" width="33.60" height="16.00" fill="#24477c"><title>Bacteria / zoo_mix: 6e+04</title></rect>
+<rect x="589.60" y="456.00" width="33.60" height="16.00" fill="#21457a"><title>Bacteria / heavy_staph: 7e+04</title></rect>
+<rect x="623.20" y="456.00" width="33.60" height="16.00" fill="#153b73"><title>Bacteria / outlier_single_species: 1.3e+05</title></rect>
+<rect x="656.80" y="456.00" width="33.60" height="16.00" fill="#1c4177"><title>Bacteria / heavy_ecoli: 9e+04</title></rect>
+<rect x="690.40" y="456.00" width="33.60" height="16.00" fill="#1a3f76"><title>Bacteria / heavy_klebsiella: 1e+05</title></rect>
+<rect x="724.00" y="456.00" width="33.60" height="16.00" fill="#08306b"><title>Bacteria / super_contaminated: 2.6e+05</title></rect>
+<text x="214" y="467.00" font-size="11" text-anchor="end">Bacteria</text>
+<rect x="253.60" y="472.00" width="33.60" height="16.00" fill="#d4dde9"><title>Staphylococcus aureus / clean_C: 5</title></rect>
+<rect x="287.20" y="472.00" width="33.60" height="16.00" fill="#b5c3d6"><title>Staphylococcus aureus / clean_A: 30</title></rect>
+<rect x="455.20" y="472.00" width="33.60" height="16.00" fill="#5d789f"><title>Staphylococcus aureus / mod_mixed_bact: 3e+03</title></rect>
+<rect x="488.80" y="472.00" width="33.60" height="16.00" fill="#537099"><title>Staphylococcus aureus / mod_staph: 5e+03</title></rect>
+<rect x="522.40" y="472.00" width="33.60" height="16.00" fill="#657fa4"><title>Staphylococcus aureus / mouse_contam: 2e+03</title></rect>
+<rect x="556.00" y="472.00" width="33.60" height="16.00" fill="#315384"><title>Staphylococcus aureus / zoo_mix: 3e+04</title></rect>
+<rect x="589.60" y="472.00" width="33.60" height="16.00" fill="#24477c"><title>Staphylococcus aureus / heavy_staph: 6e+04</title></rect>
+<rect x="623.20" y="472.00" width="33.60" height="16.00" fill="#163c74"><title>Staphylococcus aureus / outlier_single_species: 1.2e+05</title></rect>
+<rect x="724.00" y="472.00" width="33.60" height="16.00" fill="#1a3f76"><title>Staphylococcus aureus / super_contaminated: 1e+05</title></rect>
+<rect x="757.60" y="472.00" width="33.60" height="16.00" fill="#657fa4"><title>Staphylococcus aureus / fungal_contam: 2e+03</title></rect>
+<rect x="791.20" y="472.00" width="33.60" height="16.00" fill="#5d789f"><title>Staphylococcus aureus / synthetic_contam: 3e+03</title></rect>
+<rect x="824.80" y="472.00" width="33.60" height="16.00" fill="#728aac"><title>Staphylococcus aureus / archaea_contam: 1e+03</title></rect>
+<rect x="858.40" y="472.00" width="33.60" height="16.00" fill="#728aac"><title>Staphylococcus aureus / viral_contam: 1e+03</title></rect>
+<text x="214" y="483.00" font-size="11" text-anchor="end">Staphylococcus aureus</text>
+<rect x="488.80" y="488.00" width="33.60" height="16.00" fill="#506d97"><title>Staphylococcus / mod_staph: 6e+03</title></rect>
+<rect x="589.60" y="488.00" width="33.60" height="16.00" fill="#22467b"><title>Staphylococcus / heavy_staph: 6.5e+04</title></rect>
+<rect x="623.20" y="488.00" width="33.60" height="16.00" fill="#163b73"><title>Staphylococcus / outlier_single_species: 1.25e+05</title></rect>
+<text x="214" y="499.00" font-size="11" text-anchor="end">Staphylococcus</text>
+<text x="214" y="515.00" font-size="11" text-anchor="end">Bacillus</text>
+<rect x="220.00" y="520.00" width="33.60" height="16.00" fill="#bcc9da"><title>Streptococcus pneumoniae / clean_D: 20</title></rect>
+<text x="214" y="531.00" font-size="11" text-anchor="end">Streptococcus pneumoniae</text>
+<rect x="220.00" y="536.00" width="33.60" height="16.00" fill="#c9d3e2"><title>Haemophilus influenzae / clean_D: 10</title></rect>
+<text x="214" y="547.00" font-size="11" text-anchor="end">Haemophilus influenzae</text>
+<text x="236.80" y="558.00" font-size="9" transform="rotate(-60 236.80 558.00)">clean_D</text>
+<text x="270.40" y="558.00" font-size="9" transform="rotate(-60 270.40 558.00)">clean_C</text>
+<text x="304.00" y="558.00" font-size="9" transform="rotate(-60 304.00 558.00)">clean_A</text>
+<text x="337.60" y="558.00" font-size="9" transform="rotate(-60 337.60 558.00)">clean_B</text>
+<text x="371.20" y="558.00" font-size="9" transform="rotate(-60 371.20 558.00)">plant_contam</text>
+<text x="404.80" y="558.00" font-size="9" transform="rotate(-60 404.80 558.00)">mod_mycobact</text>
+<text x="438.40" y="558.00" font-size="9" transform="rotate(-60 438.40 558.00)">mod_ecoli</text>
+<text x="472.00" y="558.00" font-size="9" transform="rotate(-60 472.00 558.00)">mod_mixed_bact</text>
+<text x="505.60" y="558.00" font-size="9" transform="rotate(-60 505.60 558.00)">mod_staph</text>
+<text x="539.20" y="558.00" font-size="9" transform="rotate(-60 539.20 558.00)">mouse_contam</text>
+<text x="572.80" y="558.00" font-size="9" transform="rotate(-60 572.80 558.00)">zoo_mix</text>
+<text x="606.40" y="558.00" font-size="9" transform="rotate(-60 606.40 558.00)">heavy_staph</text>
+<text x="640.00" y="558.00" font-size="9" transform="rotate(-60 640.00 558.00)">outlier_single_species</text>
+<text x="673.60" y="558.00" font-size="9" transform="rotate(-60 673.60 558.00)">heavy_ecoli</text>
+<text x="707.20" y="558.00" font-size="9" transform="rotate(-60 707.20 558.00)">heavy_klebsiella</text>
+<text x="740.80" y="558.00" font-size="9" transform="rotate(-60 740.80 558.00)">super_contaminated</text>
+<text x="774.40" y="558.00" font-size="9" transform="rotate(-60 774.40 558.00)">fungal_contam</text>
+<text x="808.00" y="558.00" font-size="9" transform="rotate(-60 808.00 558.00)">synthetic_contam</text>
+<text x="841.60" y="558.00" font-size="9" transform="rotate(-60 841.60 558.00)">archaea_contam</text>
+<text x="875.20" y="558.00" font-size="9" transform="rotate(-60 875.20 558.00)">viral_contam</text>
+<text x="556.0" y="624" font-size="11" text-anchor="middle">samples (n = 20; ordered by hierarchical clustering)</text>
 <g class="heatmap-colourbar" aria-label="colour scale">
-<rect x="910.00" y="561.33" width="14.00" height="22.67" fill="#f2f6fb"/>
-<rect x="910.00" y="538.67" width="14.00" height="22.67" fill="#e8eef5"/>
-<rect x="910.00" y="516.00" width="14.00" height="22.67" fill="#dee5ef"/>
-<rect x="910.00" y="493.33" width="14.00" height="22.67" fill="#d4dde9"/>
-<rect x="910.00" y="470.67" width="14.00" height="22.67" fill="#cad4e3"/>
-<rect x="910.00" y="448.00" width="14.00" height="22.67" fill="#c0ccdd"/>
-<rect x="910.00" y="425.33" width="14.00" height="22.67" fill="#b6c4d6"/>
-<rect x="910.00" y="402.67" width="14.00" height="22.67" fill="#acbbd0"/>
-<rect x="910.00" y="380.00" width="14.00" height="22.67" fill="#a2b3ca"/>
-<rect x="910.00" y="357.33" width="14.00" height="22.67" fill="#98aac4"/>
-<rect x="910.00" y="334.67" width="14.00" height="22.67" fill="#8ea2be"/>
-<rect x="910.00" y="312.00" width="14.00" height="22.67" fill="#8499b8"/>
-<rect x="910.00" y="289.33" width="14.00" height="22.67" fill="#7a91b1"/>
-<rect x="910.00" y="266.67" width="14.00" height="22.67" fill="#7088ab"/>
-<rect x="910.00" y="244.00" width="14.00" height="22.67" fill="#6680a5"/>
-<rect x="910.00" y="221.33" width="14.00" height="22.67" fill="#5c779f"/>
-<rect x="910.00" y="198.67" width="14.00" height="22.67" fill="#526f99"/>
-<rect x="910.00" y="176.00" width="14.00" height="22.67" fill="#486693"/>
-<rect x="910.00" y="153.33" width="14.00" height="22.67" fill="#3e5e8c"/>
-<rect x="910.00" y="130.67" width="14.00" height="22.67" fill="#345686"/>
-<rect x="910.00" y="108.00" width="14.00" height="22.67" fill="#2a4d80"/>
-<rect x="910.00" y="85.33" width="14.00" height="22.67" fill="#20457a"/>
-<rect x="910.00" y="62.67" width="14.00" height="22.67" fill="#163c74"/>
-<rect x="910.00" y="40.00" width="14.00" height="22.67" fill="#0c346e"/>
-<rect x="910.00" y="40.00" width="14.00" height="544.00" fill="none" stroke="#666" stroke-width="0.6"/>
-<line x1="924.00" y1="584.00" x2="928.00" y2="584.00" stroke="#444"/><text x="930.00" y="587.00" font-size="9" text-anchor="start">0</text>
-<line x1="924.00" y1="224.31" x2="928.00" y2="224.31" stroke="#444"/><text x="930.00" y="227.31" font-size="9" text-anchor="start">8,000</text>
-<line x1="924.00" y1="132.15" x2="928.00" y2="132.15" stroke="#444"/><text x="930.00" y="135.15" font-size="9" text-anchor="start">80,000</text>
-<line x1="924.00" y1="40.00" x2="928.00" y2="40.00" stroke="#444"/><text x="930.00" y="43.00" font-size="9" text-anchor="start">800,000</text>
+<rect x="910.00" y="530.67" width="14.00" height="21.33" fill="#f2f6fb"/>
+<rect x="910.00" y="509.33" width="14.00" height="21.33" fill="#e8eef5"/>
+<rect x="910.00" y="488.00" width="14.00" height="21.33" fill="#dee5ef"/>
+<rect x="910.00" y="466.67" width="14.00" height="21.33" fill="#d4dde9"/>
+<rect x="910.00" y="445.33" width="14.00" height="21.33" fill="#cad4e3"/>
+<rect x="910.00" y="424.00" width="14.00" height="21.33" fill="#c0ccdd"/>
+<rect x="910.00" y="402.67" width="14.00" height="21.33" fill="#b6c4d6"/>
+<rect x="910.00" y="381.33" width="14.00" height="21.33" fill="#acbbd0"/>
+<rect x="910.00" y="360.00" width="14.00" height="21.33" fill="#a2b3ca"/>
+<rect x="910.00" y="338.67" width="14.00" height="21.33" fill="#98aac4"/>
+<rect x="910.00" y="317.33" width="14.00" height="21.33" fill="#8ea2be"/>
+<rect x="910.00" y="296.00" width="14.00" height="21.33" fill="#8499b8"/>
+<rect x="910.00" y="274.67" width="14.00" height="21.33" fill="#7a91b1"/>
+<rect x="910.00" y="253.33" width="14.00" height="21.33" fill="#7088ab"/>
+<rect x="910.00" y="232.00" width="14.00" height="21.33" fill="#6680a5"/>
+<rect x="910.00" y="210.67" width="14.00" height="21.33" fill="#5c779f"/>
+<rect x="910.00" y="189.33" width="14.00" height="21.33" fill="#526f99"/>
+<rect x="910.00" y="168.00" width="14.00" height="21.33" fill="#486693"/>
+<rect x="910.00" y="146.67" width="14.00" height="21.33" fill="#3e5e8c"/>
+<rect x="910.00" y="125.33" width="14.00" height="21.33" fill="#345686"/>
+<rect x="910.00" y="104.00" width="14.00" height="21.33" fill="#2a4d80"/>
+<rect x="910.00" y="82.67" width="14.00" height="21.33" fill="#20457a"/>
+<rect x="910.00" y="61.33" width="14.00" height="21.33" fill="#163c74"/>
+<rect x="910.00" y="40.00" width="14.00" height="21.33" fill="#0c346e"/>
+<rect x="910.00" y="40.00" width="14.00" height="512.00" fill="none" stroke="#666" stroke-width="0.6"/>
+<line x1="924.00" y1="552.00" x2="928.00" y2="552.00" stroke="#444"/><text x="930.00" y="555.00" font-size="9" text-anchor="start">0</text>
+<line x1="924.00" y1="229.09" x2="928.00" y2="229.09" stroke="#444"/><text x="930.00" y="232.09" font-size="9" text-anchor="start">2,600</text>
+<line x1="924.00" y1="134.55" x2="928.00" y2="134.55" stroke="#444"/><text x="930.00" y="137.55" font-size="9" text-anchor="start">26,000</text>
+<line x1="924.00" y1="40.00" x2="928.00" y2="40.00" stroke="#444"/><text x="930.00" y="43.00" font-size="9" text-anchor="start">260,000</text>
 <text x="917.00" y="32.00" font-size="10" text-anchor="middle" font-weight="bold">log1p(ppm)</text>
-<text x="917.00" y="598.00" font-size="9" text-anchor="middle" fill="#555">max ≈ 800,000</text>
+<text x="917.00" y="566.00" font-size="9" text-anchor="middle" fill="#555">max ≈ 260,000</text>
 </g>
 </svg></div><p class='fig-caption'>Same row/column order as §3.6 but cells encode <em>absolute</em> burden (ppm of total sequenced reads) instead of compositional CPM.  Read it side-by-side with §3.6: a cluster that is dark in §3.6 but pale here is a host-depletion artefact (the species dominates <em>among non-human reads</em> only because there are few non-human reads); a cluster that is dark in both is a genuine contamination episode.</p>
-<h3>3.7 Sample β-diversity ordination (PCoA)</h3><div class="figure">
-<p class="fig-title">Figure 3.7 — PCoA (classical MDS) on bray distance over top-34 species</p>
-<svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.7 — PCoA (classical MDS) on bray distance over top-34 species">
+<h3>3.7 Sample β-diversity ordination (PCoA)</h3><div class="figure scatter-figure">
+<p class="fig-title">Figure 3.7 — PCoA (classical MDS) on bray distance over top-32 species</p>
+<svg class="scatter-svg" viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Figure 3.7 — PCoA (classical MDS) on bray distance over top-32 species">
 <rect x="70" y="30" width="632" height="354" fill="#fafafa" stroke="#ccc"/>
-<line x1="70.0" y1="384" x2="70.0" y2="388" stroke="#444"/><text x="70.0" y="400" font-size="10" text-anchor="middle">-0.61</text>
-<line x1="66" y1="384.0" x2="70" y2="384.0" stroke="#444"/><text x="64" y="387.0" font-size="10" text-anchor="end">-0.24</text>
-<line x1="228.0" y1="384" x2="228.0" y2="388" stroke="#444"/><text x="228.0" y="400" font-size="10" text-anchor="middle">-0.39</text>
-<line x1="66" y1="295.5" x2="70" y2="295.5" stroke="#444"/><text x="64" y="298.5" font-size="10" text-anchor="end">-0.09</text>
-<line x1="386.0" y1="384" x2="386.0" y2="388" stroke="#444"/><text x="386.0" y="400" font-size="10" text-anchor="middle">-0.17</text>
-<line x1="66" y1="207.0" x2="70" y2="207.0" stroke="#444"/><text x="64" y="210.0" font-size="10" text-anchor="end">0.07</text>
-<line x1="544.0" y1="384" x2="544.0" y2="388" stroke="#444"/><text x="544.0" y="400" font-size="10" text-anchor="middle">0.06</text>
-<line x1="66" y1="118.5" x2="70" y2="118.5" stroke="#444"/><text x="64" y="121.5" font-size="10" text-anchor="end">0.23</text>
-<line x1="702.0" y1="384" x2="702.0" y2="388" stroke="#444"/><text x="702.0" y="400" font-size="10" text-anchor="middle">0.28</text>
-<line x1="66" y1="30.0" x2="70" y2="30.0" stroke="#444"/><text x="64" y="33.0" font-size="10" text-anchor="end">0.39</text>
-<text x="386.0" y="422" font-size="12" text-anchor="middle">PCo1 (axes explain 59.0% / 24.0% of B-trace)</text>
+<line x1="70.0" y1="384" x2="70.0" y2="388" stroke="#444"/><text x="70.0" y="400" font-size="10" text-anchor="middle">-0.36</text>
+<line x1="66" y1="384.0" x2="70" y2="384.0" stroke="#444"/><text x="64" y="387.0" font-size="10" text-anchor="end">-0.52</text>
+<line x1="228.0" y1="384" x2="228.0" y2="388" stroke="#444"/><text x="228.0" y="400" font-size="10" text-anchor="middle">-0.17</text>
+<line x1="66" y1="295.5" x2="70" y2="295.5" stroke="#444"/><text x="64" y="298.5" font-size="10" text-anchor="end">-0.33</text>
+<line x1="386.0" y1="384" x2="386.0" y2="388" stroke="#444"/><text x="386.0" y="400" font-size="10" text-anchor="middle">0.03</text>
+<line x1="66" y1="207.0" x2="70" y2="207.0" stroke="#444"/><text x="64" y="210.0" font-size="10" text-anchor="end">-0.14</text>
+<line x1="544.0" y1="384" x2="544.0" y2="388" stroke="#444"/><text x="544.0" y="400" font-size="10" text-anchor="middle">0.22</text>
+<line x1="66" y1="118.5" x2="70" y2="118.5" stroke="#444"/><text x="64" y="121.5" font-size="10" text-anchor="end">0.05</text>
+<line x1="702.0" y1="384" x2="702.0" y2="388" stroke="#444"/><text x="702.0" y="400" font-size="10" text-anchor="middle">0.42</text>
+<line x1="66" y1="30.0" x2="70" y2="30.0" stroke="#444"/><text x="64" y="33.0" font-size="10" text-anchor="end">0.24</text>
+<text x="386.0" y="422" font-size="12" text-anchor="middle">PCo1 (axes explain 18.0% / 14.1% of B-trace)</text>
 <text x="14" y="207.0" font-size="12" text-anchor="middle" transform="rotate(-90 14 207.0)">PCo2</text>
-<circle cx="548.75" cy="353.55" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>archaea_contam — dominant Unannotated</title></circle>
-<circle cx="137.70" cy="269.38" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_A — dominant Unannotated</title></circle>
-<circle cx="70.00" cy="168.35" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_B — dominant Unannotated</title></circle>
-<circle cx="84.47" cy="30.00" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_C — dominant Unannotated</title></circle>
-<circle cx="153.21" cy="284.59" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_D — dominant Unannotated</title></circle>
-<circle cx="617.18" cy="288.99" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>fungal_contam — dominant Unannotated — flagged</title></circle>
-<circle cx="688.45" cy="151.02" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>heavy_ecoli — dominant Unannotated — flagged</title></circle>
-<circle cx="692.93" cy="144.54" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>heavy_klebsiella — dominant Unannotated — flagged</title></circle>
-<circle cx="694.29" cy="151.03" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>heavy_staph — dominant Unannotated — flagged</title></circle>
-<circle cx="500.96" cy="364.08" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_ecoli — dominant Unannotated — flagged</title></circle>
-<circle cx="546.71" cy="346.84" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_mixed_bact — dominant Unannotated — flagged</title></circle>
-<circle cx="415.77" cy="384.00" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_mycobact — dominant Unannotated</title></circle>
-<circle cx="532.58" cy="354.07" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_staph — dominant Unannotated</title></circle>
-<circle cx="630.65" cy="272.48" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mouse_contam — dominant Unannotated</title></circle>
-<circle cx="672.85" cy="188.12" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>outlier_single_species — dominant Unannotated — flagged</title></circle>
-<circle cx="607.09" cy="300.19" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>plant_contam — dominant Unannotated</title></circle>
-<circle cx="702.00" cy="73.54" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>super_contaminated — dominant Unannotated — flagged</title></circle>
-<circle cx="507.75" cy="370.05" r="3.00" fill="#E69F00" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>synthetic_contam — dominant Unannotated</title></circle>
-<circle cx="569.81" cy="333.97" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>viral_contam — dominant Unannotated — flagged</title></circle>
-<circle cx="698.34" cy="126.18" r="5.00" fill="#56B4E9" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>zoo_mix — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="174.31" cy="105.04" r="3.00" fill="#E69F00" data-r="3.00" data-label="archaea_contam — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>archaea_contam — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="70.00" cy="30.00" r="3.00" fill="#E69F00" data-r="3.00" data-label="clean_A — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_A — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="104.96" cy="45.39" r="3.00" fill="#E69F00" data-r="3.00" data-label="clean_B — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_B — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="128.19" cy="57.65" r="3.00" fill="#E69F00" data-r="3.00" data-label="clean_C — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_C — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="181.66" cy="87.46" r="3.00" fill="#E69F00" data-r="3.00" data-label="clean_D — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>clean_D — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="242.96" cy="90.63" r="5.00" fill="#56B4E9" data-r="5.00" data-label="fungal_contam — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>fungal_contam — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="662.06" cy="110.90" r="5.00" fill="#56B4E9" data-r="5.00" data-label="heavy_ecoli — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>heavy_ecoli — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="697.64" cy="107.65" r="5.00" fill="#56B4E9" data-r="5.00" data-label="heavy_klebsiella — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>heavy_klebsiella — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="701.26" cy="118.92" r="5.00" fill="#56B4E9" data-r="5.00" data-label="heavy_staph — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>heavy_staph — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="400.32" cy="355.61" r="5.00" fill="#56B4E9" data-r="5.00" data-label="mod_ecoli — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_ecoli — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="345.82" cy="384.00" r="5.00" fill="#56B4E9" data-r="5.00" data-label="mod_mixed_bact — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_mixed_bact — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="271.98" cy="335.39" r="3.00" fill="#E69F00" data-r="3.00" data-label="mod_mycobact — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_mycobact — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="371.94" cy="362.10" r="3.00" fill="#E69F00" data-r="3.00" data-label="mod_staph — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mod_staph — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="311.08" cy="68.48" r="3.00" fill="#E69F00" data-r="3.00" data-label="mouse_contam — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>mouse_contam — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="700.60" cy="73.12" r="5.00" fill="#56B4E9" data-r="5.00" data-label="outlier_single_species — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>outlier_single_species — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="196.06" cy="100.79" r="3.00" fill="#E69F00" data-r="3.00" data-label="plant_contam — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>plant_contam — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="702.00" cy="45.01" r="5.00" fill="#56B4E9" data-r="5.00" data-label="super_contaminated — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>super_contaminated — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="184.98" cy="174.83" r="3.00" fill="#E69F00" data-r="3.00" data-label="synthetic_contam — dominant Unannotated" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>synthetic_contam — dominant Unannotated</title></circle>
+<circle class="scatter-point" cx="208.75" cy="92.45" r="5.00" fill="#56B4E9" data-r="5.00" data-label="viral_contam — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>viral_contam — dominant Unannotated — flagged</title></circle>
+<circle class="scatter-point" cx="607.81" cy="74.49" r="5.00" fill="#56B4E9" data-r="5.00" data-label="zoo_mix — dominant Unannotated — flagged" fill-opacity="0.7" stroke="#222" stroke-width="0.4"><title>zoo_mix — dominant Unannotated — flagged</title></circle>
 </svg>
 <div class="legend"><span class="lg-item"><span class="lg-sw" style="background:#E69F00"></span>Unannotated</span><span class="lg-item"><span class="lg-sw" style="background:#56B4E9"></span>flagged sample</span></div>
-</div><p class='fig-caption'>Each dot is a sample, projected by classical multidimensional scaling on a <code>bray</code>-distance matrix over the top-K species.  Tight clusters / streaks here often co-localise with batch / kit / lab effects when cross-referenced with the heatmap (§3.6); samples flagged by <code>csc-detect</code> are highlighted.</p>
+</div><p class='fig-caption'>Each dot is a sample, projected by classical multidimensional scaling on a <code>bray</code>-distance matrix over the top-32 species (kraken2 <code>unclassified</code> and <code>root</code> pseudo-taxa excluded — they would otherwise dominate the distance and force every sample's hover label to <em>Unclassified</em>).  The hover label reports each sample's dominant <em>informative</em> domain (Human / Unclassified / root excluded), so points appearing to overlap can still be distinguished by their real-organism contribution.  Tight clusters / streaks here often co-localise with batch / kit / lab effects when cross-referenced with the heatmap (§3.6); samples flagged by <code>csc-detect</code> are highlighted.</p>
 <h3>3.8 Per-species drill-down</h3>
 <p>Collapsible details for the top 25 species by cohort burden.  Each section lists the most-affected samples for that species (top 10 by absolute ppm when available, else by raw reads).</p>
 <details class='species-details'><summary>root (tax_id 1, Unannotated) — prevalence 100.0%, cohort burden 5,664,990 ppm</summary><table><thead><tr><th>Sample</th><th>ppm of total sequenced reads</th></tr></thead><tbody><tr><td>super_contaminated</td><td>800,000.00</td></tr><tr><td>zoo_mix</td><td>600,000.00</td></tr><tr><td>heavy_staph</td><td>500,000.00</td></tr><tr><td>heavy_ecoli</td><td>490,000.00</td></tr><tr><td>heavy_klebsiella</td><td>470,000.00</td></tr><tr><td>outlier_single_species</td><td>400,000.00</td></tr><tr><td>mouse_contam</td><td>310,000.00</td></tr><tr><td>fungal_contam</td><td>290,000.00</td></tr><tr><td>plant_contam</td><td>280,000.00</td></tr><tr><td>viral_contam</td><td>240,000.00</td></tr></tbody></table></details>
@@ -1101,7 +1046,7 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
 <li><a href="taxa_matrix_abs_S.tsv">taxa_matrix_abs_S.tsv</a> — Rank-filtered ABS matrix (S)</li>
 <li><a href="taxa_matrix_raw_G.tsv">taxa_matrix_raw_G.tsv</a> — Rank-filtered RAW matrix (G)</li>
 <li><a href="taxa_matrix_cpm_G.tsv">taxa_matrix_cpm_G.tsv</a> — Rank-filtered CPM matrix (G)</li>
-<li><a href="taxa_matrix_abs_G.tsv">taxa_matrix_abs_G.tsv</a> — Rank-filtered ABS matrix (G)</li></ul><p class='footer'>Generated by <code>csc-report</code> (schema 2.2, layout <code>cohort</code>) at 2026-05-05T21:56:01+00:00.  This report is static and self-contained – no external resources are required to view it.</p>
+<li><a href="taxa_matrix_abs_G.tsv">taxa_matrix_abs_G.tsv</a> — Rank-filtered ABS matrix (G)</li></ul><p class='footer'>Generated by <code>csc-report</code> (schema 2.2, layout <code>cohort</code>) at 2026-05-07T01:35:45+00:00.  This report is static and self-contained – no external resources are required to view it.</p>
 <script>
 (function () {
   function parseNum(s) {
@@ -1268,6 +1213,55 @@ details.species-details summary { cursor: pointer; font-weight: 600; }
   }
   function init() {
     document.querySelectorAll('table.paginated').forEach(setupTable);
+    document.querySelectorAll('.scatter-figure').forEach(setupScatter);
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // Interactive scatter-plot hover tooltip
+  // ──────────────────────────────────────────────────────────────────
+  // Used by §3.2 prevalence-vs-abundance map, §3.6.2 prevalence ×
+  // abundance scatter, and §3.7 PCoA.  Each scatter <circle> already
+  // carries a native <title> tooltip (graceful fallback for no-JS),
+  // but native titles take ~1s to appear and clip at the SVG edge.
+  // We attach a tiny mousemove tooltip so hover feedback is immediate.
+  function setupScatter(fig) {
+    var pts = fig.querySelectorAll('.scatter-point');
+    if (!pts.length) return;
+    var tip = document.createElement('div');
+    tip.className = 'scatter-tooltip';
+    fig.appendChild(tip);
+    var active = null;
+    function show(evt, pt) {
+      var label = pt.getAttribute('data-label') || '';
+      if (!label) return;
+      tip.textContent = label;
+      tip.classList.add('scatter-tooltip-visible');
+      var rect = fig.getBoundingClientRect();
+      var x = evt.clientX - rect.left + 12;
+      var y = evt.clientY - rect.top + 12;
+      // Keep tooltip inside the figure horizontally.
+      var maxX = rect.width - tip.offsetWidth - 4;
+      if (x > maxX) x = Math.max(0, maxX);
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+      if (active && active !== pt) {
+        active.classList.remove('scatter-point-active');
+      }
+      pt.classList.add('scatter-point-active');
+      active = pt;
+    }
+    function hide() {
+      tip.classList.remove('scatter-tooltip-visible');
+      if (active) {
+        active.classList.remove('scatter-point-active');
+        active = null;
+      }
+    }
+    pts.forEach(function (pt) {
+      pt.addEventListener('mouseenter', function (e) { show(e, pt); });
+      pt.addEventListener('mousemove',  function (e) { show(e, pt); });
+      pt.addEventListener('mouseleave', hide);
+    });
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
