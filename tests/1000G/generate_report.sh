@@ -199,6 +199,7 @@ REPORT_ARGS=(
     -o "${REPORT_FILE}"
     --title "${REPORT_TITLE}"
     --top-n "${TOP_N}"
+    --max-samples-cluster 4000
 )
 
 if [[ "${SKIP_DETECT_IN_REPORT}" != "1" && -n "${DETECT_OUTDIR}" && -d "${DETECT_OUTDIR}" ]]; then
