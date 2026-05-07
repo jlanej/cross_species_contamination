@@ -266,17 +266,34 @@ Optional detect-module inputs (from `csc-detect -o <detect_dir>`):
    underlying log1p-CPM value, anchored at 0 / 10× / 100× / max), and
    five §3.6.x companion summary plots driven from the same clustered
    grid as §3.6:
+   * **§3.6 Sample × species heatmap** — the kraken2 `unclassified`
+     (tax_id 0) and `root` (tax_id 1) pseudo-taxa are excluded
+     up-front from the top-K species selection.  Their prevalence and
+     magnitude would otherwise dominate every column and produce
+     uninformative dendrograms.  When confidence-tier sibling matrices
+     are present (e.g. `taxa_matrix_*_conf0p10.tsv`), the species set,
+     Bray–Curtis distance matrix, and both (sample, taxa) dendrograms
+     are recomputed independently for each tier — flipping the tier
+     picker can therefore change the row/column order, which is the
+     point of the comparison.
    * **§3.6.1 Per-sample domain composition** — a 100%-stacked column
      bar where each column is one sample (ordered identically to §3.6
      columns).  Solid blocks of one colour across a §3.6 cluster
      indicate host-depletion or batch artefacts; a mosaic suggests
      genuine per-sample contamination heterogeneity.  Detect-flagged
-     samples are marked with an orange dot.
+     samples are marked with an orange dot.  Unlike §3.6 / §3.6.5 /
+     §3.7, the `Unclassified` domain is **kept** here because the size
+     of the unclassified bucket is itself a useful QC signal.
    * **§3.6.2 Prevalence × abundance scatter** — top-200 species
      plotted as prevalence (fraction of cohort) × median CPM among
      positives; dot size scales with p95 CPM.  Surfaces rare-but-spiky
      contaminants (large dots in the bottom-left) that the heatmap
-     dilutes.
+     dilutes.  Points are **interactive on hover**: a JS-driven
+     tooltip appears immediately with the species name, tax_id,
+     domain, prevalence, median CPM and p95 CPM (the same content is
+     also available as a native SVG `<title>` for the no-JS
+     fallback).  The same hover affordance is wired into §3.2 and
+     §3.7.
    * **§3.6.3 Cohort burden distribution by domain** — boxplot of
      per-sample CPM totals by taxonomic domain; quickly answers "is
      this a host-depletion-rate cohort or a contamination cohort?"
@@ -286,13 +303,17 @@ Optional detect-module inputs (from `csc-detect -o <detect_dir>`):
      samples annotated.  Often pulls out PCR-duplication /
      undersequenced samples.
    * **§3.6.5 Absolute-burden parallel of §3.6** — same row/column
-     order as §3.6 but cells encode log1p(ppm) instead of log1p(CPM)
+     order as §3.6 (and therefore the same `unclassified` / `root`
+     exclusion) but cells encode log1p(ppm) instead of log1p(CPM)
      (rendered only when `taxa_matrix_abs.tsv` is available).  A
      cluster that is dark in §3.6 but pale here is a host-depletion
      artefact; a cluster that is dark in both is a genuine
      contamination episode.
 
-   Followed by §3.7 PCoA and §3.8 per-species drill-down.
+   Followed by §3.7 PCoA — which applies the *same* `unclassified` +
+   `root` exclusion as §3.6 and reports each sample's dominant
+   *informative* domain on hover (Human, Unclassified and root are
+   skipped) — and §3.8 per-species drill-down.
 4. **Variant-Calling Impact** – histogram of cohort burden, species
    attribution stacked bar, and a paginated table of flagged samples.
 5. **Detection summary** – relocated from the legacy §3.3.  Adds an

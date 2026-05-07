@@ -207,10 +207,10 @@ def scatter_svg(
         return pad_top + (1 - (y - y_min) / (y_max - y_min)) * plot_h
 
     parts: list[str] = []
-    parts.append(f'<div class="figure">')
+    parts.append(f'<div class="figure scatter-figure">')
     parts.append(f'<p class="fig-title">{_esc(title)}</p>')
     parts.append(
-        f'<svg viewBox="0 0 {width} {height}" '
+        f'<svg class="scatter-svg" viewBox="0 0 {width} {height}" '
         f'xmlns="http://www.w3.org/2000/svg" role="img" '
         f'aria-label="{_esc(title)}">'
     )
@@ -297,8 +297,14 @@ def scatter_svg(
             domain = str(p.get("domain") or "")
             colour = cmap.get(domain) or _colour_for(i)
         label = p.get("label", "")
+        # ``class="scatter-point"`` + ``data-label`` lets the inline
+        # JS in csc.report.interactive build a fast, immediate hover
+        # tooltip on top of the native ``<title>`` (which itself is
+        # kept as a graceful fallback when JS is disabled).
         parts.append(
-            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{r:.2f}" fill="{colour}" '
+            f'<circle class="scatter-point" cx="{x:.2f}" cy="{y:.2f}" '
+            f'r="{r:.2f}" fill="{colour}" '
+            f'data-r="{r:.2f}" data-label="{_esc(label)}" '
             f'fill-opacity="0.7" stroke="#222" stroke-width="0.4">'
             f'<title>{_esc(label)}</title></circle>'
         )
