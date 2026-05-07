@@ -167,6 +167,23 @@ container_run() {
 pull_container
 
 # --------------------------------------------------------------------------- #
+# Compute --max-samples-cluster from the aggregate matrix so that it always    #
+# exceeds the cohort size and hierarchical-clustering subsampling never fires. #
+# --------------------------------------------------------------------------- #
+_matrix_file="${AGG_OUTDIR}/taxa_matrix_raw.tsv"
+if [[ -f "${_matrix_file}" ]]; then
+    # First row is a header: column 1 = taxon label, remaining columns = samples.
+    _n_samples=$(awk 'NR==1 {print NF - 1; exit}' "${_matrix_file}")
+else
+    _n_samples=0
+fi
+MAX_SAMPLES_CLUSTER=$(( _n_samples + 1 ))
+# Enforce the CLI minimum of 3.
+if [[ ${MAX_SAMPLES_CLUSTER} -lt 3 ]]; then
+    MAX_SAMPLES_CLUSTER=3
+fi
+
+# --------------------------------------------------------------------------- #
 # Print configuration summary                                                   #
 # --------------------------------------------------------------------------- #
 echo "======================================================"
@@ -180,6 +197,7 @@ echo "  Report outdir    : ${REPORT_OUTDIR}"
 echo "  Report file      : ${REPORT_FILE}"
 echo "  Report title     : ${REPORT_TITLE}"
 echo "  Top-N taxa       : ${TOP_N}"
+echo "  Max samples/clust: ${MAX_SAMPLES_CLUSTER} (samples: ${_n_samples})"
 if [[ -n "${VARIANT_IMPACT_THRESHOLD_PPM}" ]]; then
     echo "  VI threshold ppm : ${VARIANT_IMPACT_THRESHOLD_PPM}"
 else
@@ -199,7 +217,7 @@ REPORT_ARGS=(
     -o "${REPORT_FILE}"
     --title "${REPORT_TITLE}"
     --top-n "${TOP_N}"
-    --max-samples-cluster 4000
+    --max-samples-cluster "${MAX_SAMPLES_CLUSTER}"
 )
 
 if [[ "${SKIP_DETECT_IN_REPORT}" != "1" && -n "${DETECT_OUTDIR}" && -d "${DETECT_OUTDIR}" ]]; then
