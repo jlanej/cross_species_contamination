@@ -482,11 +482,12 @@ class TestHeatmapSvg:
         assert "overflow-x: auto" in svg_text
         # viewBox width must be large enough to contain all columns.
         # With cell_min_w=1.0 and 2000 columns: plot_w=2000, pad_left=220,
-        # pad_right=88 → svg_width >= 2308.
+        # pad_right=88 (cbar_gap_left=18 + cbar_w=14 + cbar_gap_right=56)
+        # → svg_width = 2308.
         m = re.search(r'viewBox="0 0 (\d+)', svg_text)
         assert m is not None
         vb_w = int(m.group(1))
-        assert vb_w >= 2000, f"viewBox width {vb_w} too small for {n_cols} columns"
+        assert vb_w >= 2308, f"viewBox width {vb_w} too small for {n_cols} columns"
         # Explicit width attribute must match the viewBox width.
         m2 = re.search(r'<svg viewBox="[^"]*" width="(\d+)"', svg_text)
         assert m2 is not None
@@ -524,12 +525,12 @@ class TestStackedColumnBarSvg:
             domain_order=["Bacteria", "Viruses"],
         )
         assert "overflow-x: auto" in svg_text
-        # With col_min_w=2.0 and 1500 columns: plot_w >= 3000,
-        # svg_width >= pad_left(56) + 3000 + pad_right(16) = 3072.
+        # With col_min_w=2.0 and 1500 columns: plot_w = 3000,
+        # svg_width = pad_left(56) + 3000 + pad_right(16) = 3072.
         m = re.search(r'viewBox="0 0 (\d+)', svg_text)
         assert m is not None
         vb_w = int(m.group(1))
-        assert vb_w >= 3000, f"viewBox width {vb_w} too small for {n} columns"
+        assert vb_w >= 3072, f"viewBox width {vb_w} too small for {n} columns"
         # Explicit width attribute must be set so the browser scrolls.
         m2 = re.search(r'<svg viewBox="[^"]*" width="(\d+)"', svg_text)
         assert m2 is not None

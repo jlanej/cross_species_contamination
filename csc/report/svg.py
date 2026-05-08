@@ -651,17 +651,22 @@ def stacked_column_bar_svg(
     n = len(columns)
     pad_left, pad_right = 56, 16
     pad_top, pad_bottom = 26, 36 + (24 if show_column_labels else 0)
+    if n == 0:
+        return (
+            f'<div class="figure"><p class="fig-title">{_esc(title)}</p>'
+            f'<p><em>No data to plot.</em></p></div>'
+        )
     # Enforce a minimum column width so composition remains discernible
     # at large sample sizes.  When n is small the preferred width wins.
-    _COL_MIN_W = 2.0
+    col_min_w = 2.0
     available_w = width - pad_left - pad_right
-    col_w = max(_COL_MIN_W, available_w / n if n > 0 else available_w)
+    col_w = max(col_min_w, available_w / n)
     plot_w = col_w * n
     # Actual SVG width may exceed the ``width`` parameter when the
     # minimum column width forces expansion.
     svg_width = max(width, int(math.ceil(pad_left + plot_w + pad_right)))
     plot_h = height - pad_top - pad_bottom
-    if n == 0 or plot_w <= 0:
+    if plot_w <= 0:
         return (
             f'<div class="figure"><p class="fig-title">{_esc(title)}</p>'
             f'<p><em>No data to plot.</em></p></div>'
