@@ -169,6 +169,9 @@ pull_container
 # --------------------------------------------------------------------------- #
 # Compute --max-samples-cluster from the aggregate matrix so that it always    #
 # exceeds the cohort size and hierarchical-clustering subsampling never fires. #
+# The same value is passed as --max-samples-heatmap so that the §3.6 heatmap  #
+# is also drawn with the full sample set (the csc-report default caps the      #
+# heatmap at min(--max-samples-cluster, 500) which would otherwise subsample). #
 # --------------------------------------------------------------------------- #
 _matrix_file="${AGG_OUTDIR}/taxa_matrix_raw.tsv"
 if [[ -f "${_matrix_file}" ]]; then
@@ -198,6 +201,7 @@ echo "  Report file      : ${REPORT_FILE}"
 echo "  Report title     : ${REPORT_TITLE}"
 echo "  Top-N taxa       : ${TOP_N}"
 echo "  Max samples/clust: ${MAX_SAMPLES_CLUSTER} (samples: ${_n_samples})"
+echo "  Max samples/hmap : ${MAX_SAMPLES_CLUSTER} (same as clust to show all)"
 if [[ -n "${VARIANT_IMPACT_THRESHOLD_PPM}" ]]; then
     echo "  VI threshold ppm : ${VARIANT_IMPACT_THRESHOLD_PPM}"
 else
@@ -218,6 +222,7 @@ REPORT_ARGS=(
     --title "${REPORT_TITLE}"
     --top-n "${TOP_N}"
     --max-samples-cluster "${MAX_SAMPLES_CLUSTER}"
+    --max-samples-heatmap "${MAX_SAMPLES_CLUSTER}"
 )
 
 if [[ "${SKIP_DETECT_IN_REPORT}" != "1" && -n "${DETECT_OUTDIR}" && -d "${DETECT_OUTDIR}" ]]; then
