@@ -463,6 +463,35 @@ class TestHeatmapSvg:
         cell_h = float(m.group(1))
         assert cell_h > 8.0  # previous tier ceiling for n_rows<80
 
+    def test_large_sample_heatmap_expands_viewbox_and_scrolls(self) -> None:
+        """A heatmap with many columns must widen the SVG (not clip) and
+        wrap in a horizontally-scrollable div."""
+        import re
+        n_cols = 2000
+        rows = [[float(i + j) for j in range(n_cols)] for i in range(5)]
+        svg_text = _svg.heatmap_with_dendrogram_svg(
+            rows,
+            row_labels=[str(i) for i in range(5)],
+            col_labels=[f"s{j}" for j in range(n_cols)],
+            row_order=list(range(5)),
+            col_order=list(range(n_cols)),
+            title="t",
+            cell_min_w=1.0,
+        )
+        # Wrapper must carry overflow-x: auto.
+        assert "overflow-x: auto" in svg_text
+        # viewBox width must be large enough to contain all columns.
+        # With cell_min_w=1.0 and 2000 columns: plot_w=2000, pad_left=220,
+        # pad_right=88 → svg_width >= 2308.
+        m = re.search(r'viewBox="0 0 (\d+)', svg_text)
+        assert m is not None
+        vb_w = int(m.group(1))
+        assert vb_w >= 2000, f"viewBox width {vb_w} too small for {n_cols} columns"
+        # Explicit width attribute must match the viewBox width.
+        m2 = re.search(r'<svg viewBox="[^"]*" width="(\d+)"', svg_text)
+        assert m2 is not None
+        assert int(m2.group(1)) == vb_w
+
 
 class TestStackedColumnBarSvg:
     def test_renders_segments_per_column(self) -> None:
@@ -482,6 +511,29 @@ class TestStackedColumnBarSvg:
         assert "Fungi" in svg_text
         # Flagged dot present.
         assert "flagged sample" in svg_text
+
+    def test_large_sample_stacked_bar_expands_and_scrolls(self) -> None:
+        """With many columns the stacked bar must expand its SVG width
+        (not squash columns to sub-pixel) and wrap in a scrollable div."""
+        import re
+        n = 1500
+        cols = [[("Bacteria", 5.0), ("Viruses", 1.0)] for _ in range(n)]
+        svg_text = _svg.stacked_column_bar_svg(
+            cols,
+            title="t",
+            domain_order=["Bacteria", "Viruses"],
+        )
+        assert "overflow-x: auto" in svg_text
+        # With col_min_w=2.0 and 1500 columns: plot_w >= 3000,
+        # svg_width >= pad_left(56) + 3000 + pad_right(16) = 3072.
+        m = re.search(r'viewBox="0 0 (\d+)', svg_text)
+        assert m is not None
+        vb_w = int(m.group(1))
+        assert vb_w >= 3000, f"viewBox width {vb_w} too small for {n} columns"
+        # Explicit width attribute must be set so the browser scrolls.
+        m2 = re.search(r'<svg viewBox="[^"]*" width="(\d+)"', svg_text)
+        assert m2 is not None
+        assert int(m2.group(1)) == vb_w
 
 
 class TestScatterSvgInteractivity:

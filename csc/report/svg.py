@@ -642,11 +642,24 @@ def stacked_column_bar_svg(
 
     ``flagged_indices`` (optional) marks the columns of detect-flagged
     samples with a small dot underneath the column.
+
+    At large sample sizes (many columns) the SVG width expands beyond
+    ``width`` to guarantee that every column is at least 2 px wide.  The
+    wrapper ``<div>`` gains ``overflow-x: auto`` so browsers scroll
+    horizontally rather than squashing the figure.
     """
     n = len(columns)
     pad_left, pad_right = 56, 16
     pad_top, pad_bottom = 26, 36 + (24 if show_column_labels else 0)
-    plot_w = width - pad_left - pad_right
+    # Enforce a minimum column width so composition remains discernible
+    # at large sample sizes.  When n is small the preferred width wins.
+    _COL_MIN_W = 2.0
+    available_w = width - pad_left - pad_right
+    col_w = max(_COL_MIN_W, available_w / n if n > 0 else available_w)
+    plot_w = col_w * n
+    # Actual SVG width may exceed the ``width`` parameter when the
+    # minimum column width forces expansion.
+    svg_width = max(width, int(math.ceil(pad_left + plot_w + pad_right)))
     plot_h = height - pad_top - pad_bottom
     if n == 0 or plot_w <= 0:
         return (
@@ -655,11 +668,10 @@ def stacked_column_bar_svg(
         )
 
     cmap = domain_colour_map(domain_order)
-    col_w = plot_w / n
     parts = [
-        '<div class="figure">',
+        '<div class="figure" style="overflow-x: auto">',
         f'<p class="fig-title">{_esc(title)}</p>',
-        f'<svg viewBox="0 0 {width} {height}" '
+        f'<svg viewBox="0 0 {svg_width} {height}" width="{svg_width}" '
         f'xmlns="http://www.w3.org/2000/svg" role="img" '
         f'aria-label="{_esc(title)}">',
         f'<rect x="{pad_left}" y="{pad_top}" width="{plot_w:.2f}" '
@@ -769,6 +781,11 @@ def heatmap_with_dendrogram_svg(
     very large ones.  Callers rendering small heatmaps can pass a
     bigger ``cell_min_h`` (e.g. ``8`` or ``10``) to force generous
     vertical space.
+
+    At large sample sizes the SVG width expands beyond ``width`` to
+    guarantee that every column is at least ``cell_min_w`` pixels wide.
+    The wrapper ``<div>`` gains ``overflow-x: auto`` so browsers scroll
+    horizontally rather than truncating the figure.
     """
     n_rows = len(values)
     n_cols = len(values[0]) if values else 0
@@ -805,6 +822,9 @@ def heatmap_with_dendrogram_svg(
     plot_w = cell_w * n_cols
     plot_h = cell_h * n_rows
     height = pad_top + plot_h + pad_bottom
+    # Actual SVG width may exceed the ``width`` parameter when
+    # cell_min_w forces the plot wider than the preferred width.
+    svg_width = max(width, int(math.ceil(pad_left + plot_w + pad_right)))
 
     # Find global max for colour scaling (log1p) – ignore None.
     vmax = 0.0
@@ -836,10 +856,10 @@ def heatmap_with_dendrogram_svg(
         return f"#{r:02x}{g:02x}{b:02x}"
 
     parts: list[str] = []
-    parts.append(f'<div class="figure">')
+    parts.append(f'<div class="figure" style="overflow-x: auto">')
     parts.append(f'<p class="fig-title">{_esc(title)}</p>')
     parts.append(
-        f'<svg viewBox="0 0 {width} {height:.0f}" '
+        f'<svg viewBox="0 0 {svg_width} {height:.0f}" width="{svg_width}" '
         f'xmlns="http://www.w3.org/2000/svg" role="img" '
         f'aria-label="{_esc(title)}">'
     )
