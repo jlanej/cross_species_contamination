@@ -67,7 +67,7 @@
 #                     taxa_matrix_raw_conf0p50.tsv) using per-read
 #                     `*.kraken2.output.txt` files from CLASSIFY_OUTDIR.
 #                     Requires DB_PATH (taxonomy/nodes.dmp).
-#                     (default: "0.1" → dual-tier reporting; set
+#                     (default: "0.1:0.5:0.9" → quad-tier reporting; set
 #                      CONFIDENCE_THRESHOLDS="" to disable.)
 #   CONTAINER_SIF   – path to the Apptainer SIF image
 #   CONTAINER_IMAGE – Docker URI for auto-pull
@@ -109,7 +109,7 @@ NO_ABS_DETECTION="${NO_ABS_DETECTION:-0}"
 SKIP_IDXSTATS_METRICS="${SKIP_IDXSTATS_METRICS:-0}"
 DB_PATH="${DB_PATH:-}"
 # Colon-separated thresholds; empty = sensitive tier only.
-CONFIDENCE_THRESHOLDS="${CONFIDENCE_THRESHOLDS-0.1}"
+CONFIDENCE_THRESHOLDS="${CONFIDENCE_THRESHOLDS-0.1:0.5:0.9}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-ghcr.io/jlanej/cross_species_contamination:latest}"
 CONTAINER_SIF="${CONTAINER_SIF:-${AGG_OUTDIR}/csc.sif}"

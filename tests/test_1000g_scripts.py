@@ -1238,7 +1238,7 @@ class TestSubmitAggReportDryRun:
         assert "GMM_THRESHOLD=0.5" in result.stdout
 
     def test_dry_run_confidence_thresholds_default_exported(self, tmp_path):
-        """CONFIDENCE_THRESHOLDS should default to '0.1' in exports."""
+        """CONFIDENCE_THRESHOLDS should default to '0.1:0.5:0.9' in exports."""
         outdir = tmp_path / "classify_out"
         outdir.mkdir()
         extract_out = tmp_path / "output"
@@ -1252,7 +1252,7 @@ class TestSubmitAggReportDryRun:
             "--dry-run",
         ])
         assert result.returncode == 0, result.stderr
-        assert "CONFIDENCE_THRESHOLDS=0.1" in result.stdout
+        assert "CONFIDENCE_THRESHOLDS=0.1:0.5:0.9" in result.stdout
 
     def test_dry_run_confidence_thresholds_custom(self, tmp_path):
         """--confidence-thresholds should be exported to aggregate/detect job."""
